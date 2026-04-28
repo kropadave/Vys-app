@@ -19,17 +19,40 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Home',
+          title: 'Domů',
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
         }}
       />
       <Tabs.Screen
-        name="explore"
+        name="tricks"
         options={{
-          title: 'Explore',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={color} />,
+          title: 'Triky',
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="figure.run" color={color} />,
         }}
       />
+      <Tabs.Screen
+        name="bracelet"
+        options={{
+          title: 'Náramek',
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="circle.hexagongrid.fill" color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="achievements"
+        options={{
+          title: 'Odznaky',
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="rosette" color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="profile"
+        options={{
+          title: 'Profil',
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="person.crop.circle.fill" color={color} />,
+        }}
+      />
+      {/* Skrýt staré Explore – soubor zatím necháme, ať to nezlobí */}
+      <Tabs.Screen name="explore" options={{ href: null }} />
     </Tabs>
   );
 }

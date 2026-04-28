@@ -1,15 +1,14 @@
+import { supabase } from '@/lib/supabase';
 import { useState } from 'react';
 import {
-  Alert,
-  KeyboardAvoidingView,
-  Platform,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    Alert,
+    KeyboardAvoidingView,
+    Platform,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity
 } from 'react-native';
-import { supabase } from '@/lib/supabase';
 
 export default function SignInScreen() {
   const [email, setEmail] = useState('');
