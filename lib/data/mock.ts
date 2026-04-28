@@ -310,7 +310,6 @@ export type Krouzek = {
   timeTo: string; // "17:30"
   ageGroup: string; // např. "6–10 let"
   priceFrom: number; // CZK
-  url: string;
   isOpen: boolean;
 };
 
@@ -324,7 +323,6 @@ export const KROUZKY: Krouzek[] = [
     timeTo: '18:30',
     ageGroup: '6–12 let',
     priceFrom: 1790,
-    url: 'https://www.teamvys.cz/krouzky/a9c33ff2-f0d5-42a9-b730-89b8c1bfa59a',
     isOpen: true,
   },
   {
@@ -336,7 +334,6 @@ export const KROUZKY: Krouzek[] = [
     timeTo: '18:00',
     ageGroup: '6–12 let',
     priceFrom: 1790,
-    url: 'https://www.teamvys.cz/krouzky/f7687d52-d3ce-4cdb-85c6-f9e1571966eb',
     isOpen: true,
   },
   {
@@ -348,7 +345,6 @@ export const KROUZKY: Krouzek[] = [
     timeTo: '19:00',
     ageGroup: '8–14 let',
     priceFrom: 1790,
-    url: 'https://www.teamvys.cz/krouzky',
     isOpen: true,
   },
   {
@@ -360,7 +356,6 @@ export const KROUZKY: Krouzek[] = [
     timeTo: '17:30',
     ageGroup: '6–12 let',
     priceFrom: 1790,
-    url: 'https://www.teamvys.cz/krouzky/497df72c-fe35-4729-b2fc-30b07dfeac95',
     isOpen: true,
   },
   {
@@ -372,7 +367,6 @@ export const KROUZKY: Krouzek[] = [
     timeTo: '16:30',
     ageGroup: '6–12 let',
     priceFrom: 1790,
-    url: 'https://www.teamvys.cz/krouzky/4e08a77e-0dea-495f-a72e-82fa1c28201b',
     isOpen: true,
   },
 ];

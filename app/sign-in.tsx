@@ -249,7 +249,7 @@ export default function SignInScreen() {
 
           <View style={styles.footer}>
             <Text style={styles.footerBrand}>TEAMVYS</Text>
-            <Text style={styles.footerText}>info@teamvys.cz · 605 324 417 · Instagram · YouTube · Facebook</Text>
+            <Text style={styles.footerText}>605 324 417 · Instagram · YouTube · Facebook</Text>
           </View>
         </View>
       </ScrollView>

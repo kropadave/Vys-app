@@ -41,7 +41,7 @@ export default function RootLayout() {
     if (loading || !roleReady) return;
 
     const first = segments[0];
-    const inPublic = first === 'sign-in';
+    const inPublic = first === 'sign-in' || first === 'krouzky';
     const inCoach = first === '(coach)';
     const inParent = first === '(parent)';
     const inParticipant = first === '(tabs)';

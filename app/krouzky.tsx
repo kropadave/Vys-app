@@ -1,5 +1,5 @@
 import { Stack } from 'expo-router';
-import { Linking, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { ChildIcon, CoinIcon, ParkourIcon, PinIcon } from '@/components/icons/Icon3D';
 import { Card } from '@/components/ui/card';
@@ -59,19 +59,16 @@ export default function KrouzkyScreen() {
                   </View>
                 </View>
 
-                <TouchableOpacity
-                  style={styles.button}
-                  onPress={() => Linking.openURL(k.url)}
-                >
-                  <Text style={styles.buttonText}>Zjistit víc</Text>
-                </TouchableOpacity>
+                <View style={styles.infoBox}>
+                  <Text style={styles.infoText}>Přihlášku a detail spravuje rodič v aplikaci.</Text>
+                </View>
               </Card>
             ))}
           </View>
         ))}
 
         <Text style={styles.footer}>
-          Data čerpáme z teamvys.cz. Přihlášku a platby vyřídí rodič.
+          Přihlášku a platby vyřídí rodič ve své sekci.
         </Text>
       </ScrollView>
     </>
@@ -91,13 +88,14 @@ const styles = StyleSheet.create({
   },
   title: { fontSize: 16, fontWeight: '700', color: Palette.text },
   meta: { color: Palette.textMuted, fontSize: 13 },
-  button: {
+  infoBox: {
     marginTop: 12,
-    backgroundColor: Palette.accentYellow,
+    backgroundColor: Palette.primary100,
     paddingVertical: 12,
+    paddingHorizontal: 14,
     borderRadius: Radius.pill,
     alignItems: 'center',
   },
-  buttonText: { color: Palette.textOnAccent, fontWeight: '800', fontSize: 14 },
+  infoText: { color: Palette.primary700, fontWeight: '800', fontSize: 14, textAlign: 'center' },
   footer: { color: Palette.textMuted, fontSize: 12, textAlign: 'center', marginTop: Spacing.md },
 });
