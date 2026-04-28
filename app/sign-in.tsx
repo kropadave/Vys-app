@@ -1,26 +1,26 @@
-import { Link, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import {
-    Alert,
-    KeyboardAvoidingView,
-    Platform,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    View,
-    useWindowDimensions,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+  useWindowDimensions,
 } from 'react-native';
 
 import { AnimatedCatMascot, CatLogo } from '@/components/icons/CatMascot';
 import {
-    ArrowRightIcon,
-    BoltIcon,
-    CheckIcon,
-    HourglassIcon,
-    ParkourIcon,
-    TargetIcon,
+  ArrowRightIcon,
+  BoltIcon,
+  CheckIcon,
+  HourglassIcon,
+  ParkourIcon,
+  TargetIcon,
 } from '@/components/icons/Icon3D';
 import { useRole, type AppRole } from '@/hooks/use-role';
 import { DEV_BYPASS_AUTH } from '@/lib/dev-config';
@@ -81,7 +81,7 @@ const PROGRAMS = [
 function routeForRole(role: AppRole) {
   if (role === 'coach') return '/(coach)';
   if (role === 'parent') return '/(parent)';
-  return '/home';
+  return '/(tabs)';
 }
 
 export default function SignInScreen() {
@@ -140,10 +140,9 @@ export default function SignInScreen() {
               <Text style={styles.brandText}>TEAMVYS</Text>
             </View>
             <View style={styles.navPills}>
-              <Link href="/krouzky" style={styles.navPill}>Kroužky</Link>
-              <Link href="/tabory" style={styles.navPill}>Tábory</Link>
-              <Link href="/workshopy" style={styles.navPill}>Workshopy</Link>
-              <Link href="/kontakt" style={styles.navPill}>Kontakt</Link>
+              <Text style={styles.navPill}>Kroužky</Text>
+              <Text style={styles.navPill}>Tábory</Text>
+              <Text style={styles.navPill}>Workshopy</Text>
             </View>
           </View>
 

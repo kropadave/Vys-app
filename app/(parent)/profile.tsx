@@ -13,7 +13,7 @@ import { Gradients, Palette, Radius, Spacing } from '@/lib/theme';
 
 const ROLES: { role: AppRole; label: string; target: string }[] = [
   { role: 'parent', label: 'Rodič', target: '/(parent)' },
-  { role: 'participant', label: 'Účastník', target: '/home' },
+  { role: 'participant', label: 'Účastník', target: '/(tabs)' },
   { role: 'coach', label: 'Trenér', target: '/(coach)' },
 ];
 
