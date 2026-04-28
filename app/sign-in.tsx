@@ -19,7 +19,7 @@ const ROLES: RoleOption[] = [
     title: 'Účastník',
     subtitle: 'Skill tree, XP, náramky',
     description: 'Tvoje osobní cesta parkourem - triky, odznaky, tvůj kroužek.',
-    route: '/(tabs)',
+    route: '/home',
   },
   {
     role: 'parent',

@@ -7,7 +7,7 @@ export default function ParticipantTabs() {
     <Tabs
       screenOptions={{
         headerStyle: { backgroundColor: Palette.bg },
-        headerTitleStyle: { color: Palette.text, fontWeight: '800' },
+        headerTitleStyle: { color: Palette.text, fontWeight: '900' },
         headerTintColor: Palette.text,
         tabBarStyle: {
           backgroundColor: Palette.surface,
@@ -15,9 +15,13 @@ export default function ParticipantTabs() {
         },
         tabBarActiveTintColor: Palette.primary,
         tabBarInactiveTintColor: Palette.textMuted,
+        tabBarIcon: () => null,
+        tabBarIconStyle: { display: 'none' },
       }}>
-      <Tabs.Screen name="index" options={{ title: 'Domů' }} />
-      <Tabs.Screen name="tricks" options={{ title: 'Triky' }} />
+      <Tabs.Screen name="home" options={{ title: 'Přehled' }} />
+      <Tabs.Screen name="tricks" options={{ title: 'Skill tree' }} />
+      <Tabs.Screen name="rewards" options={{ title: 'Cesta' }} />
+      <Tabs.Screen name="leaderboard" options={{ title: 'Žebříček' }} />
       <Tabs.Screen name="profile" options={{ title: 'Profil' }} />
     </Tabs>
   );

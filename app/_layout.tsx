@@ -30,7 +30,7 @@ const AppTheme = {
 function routeForRole(role: AppRole) {
   if (role === 'coach') return '/(coach)';
   if (role === 'parent') return '/(parent)';
-  return '/(tabs)';
+  return '/home';
 }
 
 export default function RootLayout() {
@@ -43,7 +43,14 @@ export default function RootLayout() {
     if (loading || !roleReady) return;
 
     const first = segments[0];
-    const inPublic = first === undefined || first === 'sign-in';
+    const inPublic =
+      first === undefined ||
+      first === 'sign-in' ||
+      first === 'krouzky' ||
+      first === 'tabory' ||
+      first === 'workshopy' ||
+      first === 'o-nas' ||
+      first === 'kontakty';
     const inCoach = first === '(coach)';
     const inParent = first === '(parent)';
     const inParticipant = first === '(tabs)';
@@ -88,6 +95,11 @@ export default function RootLayout() {
     <ThemeProvider value={AppTheme}>
       <Stack screenOptions={{ contentStyle: { backgroundColor: Palette.bg } }}>
         <Stack.Screen name="index" options={{ headerShown: false }} />
+        <Stack.Screen name="krouzky" options={{ headerShown: false }} />
+        <Stack.Screen name="tabory" options={{ headerShown: false }} />
+        <Stack.Screen name="workshopy" options={{ headerShown: false }} />
+        <Stack.Screen name="o-nas" options={{ headerShown: false }} />
+        <Stack.Screen name="kontakty" options={{ headerShown: false }} />
         <Stack.Screen name="sign-in" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="(parent)" options={{ headerShown: false }} />
