@@ -3,21 +3,21 @@ import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 
 import { CatLogo } from '@/components/icons/CatMascot';
 import {
-  ArrowRightIcon,
-  BoltIcon,
-  CoinIcon,
-  HourglassIcon,
-  MedalIcon,
-  TrophyIcon,
+    ArrowRightIcon,
+    BoltIcon,
+    CoinIcon,
+    HourglassIcon,
+    MedalIcon,
+    TrophyIcon,
 } from '@/components/icons/Icon3D';
 import { Card } from '@/components/ui/card';
 import { Pill } from '@/components/ui/pill';
 import { useRole } from '@/hooks/use-role';
 import {
-  COACH_BADGES,
-  LEADERBOARD,
-  MOCK_COACH,
-  totalEarnedThisMonth,
+    COACH_BADGES,
+    LEADERBOARD,
+    MOCK_COACH,
+    totalEarnedThisMonth,
 } from '@/lib/data/coach';
 import { DEV_BYPASS_AUTH } from '@/lib/dev-config';
 import { supabase } from '@/lib/supabase';
@@ -39,7 +39,7 @@ export default function CoachProfile() {
   }
 
   async function switchRole() {
-    await setRole('kid');
+    await setRole('participant');
     router.replace('/(tabs)');
   }
 

@@ -1,22 +1,27 @@
 /**
- * Globální role aplikace: 'kid' (dítě/rodič) nebo 'coach' (trenér).
+ * Globální role aplikace: rodič, účastník nebo trenér.
  * Persistujeme v AsyncStorage. Změna se rozesílá přes jednoduchý subscribe.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useState } from 'react';
 
-export type AppRole = 'kid' | 'coach';
+export type AppRole = 'parent' | 'participant' | 'coach';
 const STORAGE_KEY = 'vys.role';
 
-let _role: AppRole = 'kid';
+let _role: AppRole = 'participant';
 const listeners = new Set<(r: AppRole) => void>();
+
+function parseRole(value: string | null): AppRole | null {
+  if (value === 'parent' || value === 'participant' || value === 'coach') return value;
+  if (value === 'kid') return 'participant';
+  return null;
+}
 
 export async function loadInitialRole(): Promise<AppRole> {
   try {
     const v = await AsyncStorage.getItem(STORAGE_KEY);
-    if (v === 'coach' || v === 'kid') {
-      _role = v;
-    }
+    const parsed = parseRole(v);
+    if (parsed) _role = parsed;
   } catch {
     // ignore
   }

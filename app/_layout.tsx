@@ -6,7 +6,7 @@ import { ActivityIndicator, View } from 'react-native';
 import 'react-native-reanimated';
 
 import { useAuth } from '@/hooks/use-auth';
-import { useRole } from '@/hooks/use-role';
+import { useRole, type AppRole } from '@/hooks/use-role';
 import { Palette } from '@/lib/theme';
 
 export const unstable_settings = {
@@ -25,6 +25,12 @@ const AppTheme = {
   },
 };
 
+function routeForRole(role: AppRole) {
+  if (role === 'coach') return '/(coach)';
+  if (role === 'parent') return '/(parent)';
+  return '/(tabs)';
+}
+
 export default function RootLayout() {
   const { session, loading } = useAuth();
   const { role, ready: roleReady } = useRole();
@@ -35,23 +41,25 @@ export default function RootLayout() {
     if (loading || !roleReady) return;
 
     const first = segments[0];
-    const inAuthGroup = first === 'sign-in';
+    const inPublic = first === 'sign-in';
     const inCoach = first === '(coach)';
-    const inKid = first === '(tabs)';
+    const inParent = first === '(parent)';
+    const inParticipant = first === '(tabs)';
 
-    if (!session && !inAuthGroup) {
+    if (!session && !inPublic) {
       router.replace('/sign-in');
       return;
     }
-    if (session && inAuthGroup) {
-      router.replace(role === 'coach' ? '/(coach)' : '/(tabs)');
-      return;
-    }
-    // udrž uživatele ve správné sekci podle role
-    if (session && role === 'coach' && inKid) {
-      router.replace('/(coach)');
-    } else if (session && role === 'kid' && inCoach) {
-      router.replace('/(tabs)');
+
+    if (!session || inPublic) return;
+
+    const inCorrectArea =
+      (role === 'coach' && inCoach) ||
+      (role === 'parent' && inParent) ||
+      (role === 'participant' && inParticipant);
+
+    if (!inCorrectArea) {
+      router.replace(routeForRole(role));
     }
   }, [session, loading, roleReady, role, segments, router]);
 
@@ -67,6 +75,7 @@ export default function RootLayout() {
     <ThemeProvider value={AppTheme}>
       <Stack screenOptions={{ contentStyle: { backgroundColor: Palette.bg } }}>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="(parent)" options={{ headerShown: false }} />
         <Stack.Screen name="(coach)" options={{ headerShown: false }} />
         <Stack.Screen name="sign-in" options={{ headerShown: false }} />
         <Stack.Screen name="notifications" options={{ headerShown: false }} />

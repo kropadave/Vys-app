@@ -57,6 +57,11 @@ export default function ProfileScreen() {
     router.replace('/(coach)');
   }
 
+  async function switchToParent() {
+    await setRole('parent');
+    router.replace('/(parent)');
+  }
+
   async function signOut() {
     if (DEV_BYPASS_AUTH) {
       Alert.alert('Dev režim', 'Odhlášení je vypnuté – DEV_BYPASS_AUTH = true.');
@@ -118,6 +123,9 @@ export default function ProfileScreen() {
 
       <Text style={styles.section}>Účet</Text>
       <Card pad={14}>
+        <TouchableOpacity onPress={switchToParent} style={[styles.signOutBtn, { marginBottom: 8 }]}>
+          <Text style={[styles.signOutText, { color: Palette.primary700 }]}>Přepnout do rodičovského účtu</Text>
+        </TouchableOpacity>
         <TouchableOpacity onPress={switchToCoach} style={[styles.signOutBtn, { marginBottom: 8 }]}>
           <Text style={[styles.signOutText, { color: Palette.primary700 }]}>Přepnout do trenérského účtu</Text>
         </TouchableOpacity>

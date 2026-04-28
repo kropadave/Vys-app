@@ -1,6 +1,7 @@
 import { Link } from 'expo-router';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
+import { AnimatedCatMascot } from '@/components/icons/CatMascot';
 import {
     ArrowRightIcon,
     AvatarIcon,
