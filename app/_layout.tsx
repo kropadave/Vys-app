@@ -6,6 +6,7 @@ import { ActivityIndicator, View } from 'react-native';
 import 'react-native-reanimated';
 
 import { useAuth } from '@/hooks/use-auth';
+import { useRole } from '@/hooks/use-role';
 import { Palette } from '@/lib/theme';
 
 export const unstable_settings = {
@@ -26,20 +27,35 @@ const AppTheme = {
 
 export default function RootLayout() {
   const { session, loading } = useAuth();
+  const { role, ready: roleReady } = useRole();
   const segments = useSegments();
   const router = useRouter();
 
   useEffect(() => {
-    if (loading) return;
-    const inAuthGroup = segments[0] === 'sign-in';
+    if (loading || !roleReady) return;
+
+    const first = segments[0];
+    const inAuthGroup = first === 'sign-in';
+    const inCoach = first === '(coach)';
+    const inKid = first === '(tabs)';
+
     if (!session && !inAuthGroup) {
       router.replace('/sign-in');
-    } else if (session && inAuthGroup) {
-      router.replace('/');
+      return;
     }
-  }, [session, loading, segments, router]);
+    if (session && inAuthGroup) {
+      router.replace(role === 'coach' ? '/(coach)' : '/(tabs)');
+      return;
+    }
+    // udrž uživatele ve správné sekci podle role
+    if (session && role === 'coach' && inKid) {
+      router.replace('/(coach)');
+    } else if (session && role === 'kid' && inCoach) {
+      router.replace('/(tabs)');
+    }
+  }, [session, loading, roleReady, role, segments, router]);
 
-  if (loading) {
+  if (loading || !roleReady) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: Palette.bg }}>
         <ActivityIndicator color={Palette.primary500} />
@@ -51,6 +67,7 @@ export default function RootLayout() {
     <ThemeProvider value={AppTheme}>
       <Stack screenOptions={{ contentStyle: { backgroundColor: Palette.bg } }}>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="(coach)" options={{ headerShown: false }} />
         <Stack.Screen name="sign-in" options={{ headerShown: false }} />
         <Stack.Screen name="notifications" options={{ headerShown: false }} />
         <Stack.Screen name="krouzky" options={{ headerShown: false }} />

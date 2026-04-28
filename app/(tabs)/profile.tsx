@@ -1,15 +1,16 @@
-import { Link } from 'expo-router';
+import { Link, useRouter } from 'expo-router';
 import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
+import { AnimatedCatMascot } from '@/components/icons/CatMascot';
 import {
     BellIcon,
     BoltIcon,
     ParkourIcon,
     TentIcon,
 } from '@/components/icons/Icon3D';
-import { AnimatedCatMascot } from '@/components/icons/CatMascot';
 import { Card } from '@/components/ui/card';
 import { Pill } from '@/components/ui/pill';
+import { useRole } from '@/hooks/use-role';
 import {
     MOCK_PARTICIPANT,
     PURCHASES,
@@ -48,6 +49,13 @@ const STATUS_LABEL: Record<Purchase['status'], string> = {
 export default function ProfileScreen() {
   const p = MOCK_PARTICIPANT;
   const bracelet = currentBracelet(p.currentBraceletLevel);
+  const router = useRouter();
+  const { setRole } = useRole();
+
+  async function switchToCoach() {
+    await setRole('coach');
+    router.replace('/(coach)');
+  }
 
   async function signOut() {
     if (DEV_BYPASS_AUTH) {
@@ -110,6 +118,9 @@ export default function ProfileScreen() {
 
       <Text style={styles.section}>Účet</Text>
       <Card pad={14}>
+        <TouchableOpacity onPress={switchToCoach} style={[styles.signOutBtn, { marginBottom: 8 }]}>
+          <Text style={[styles.signOutText, { color: Palette.primary700 }]}>Přepnout do trenérského účtu</Text>
+        </TouchableOpacity>
         <TouchableOpacity onPress={signOut} style={styles.signOutBtn}>
           <Text style={styles.signOutText}>Odhlásit se</Text>
         </TouchableOpacity>

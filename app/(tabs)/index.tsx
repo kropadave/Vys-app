@@ -9,9 +9,8 @@ import {
     CoinIcon,
     HourglassIcon,
     Icon,
-    MascotIcon,
     ParkourIcon,
-    TargetIcon,
+    TargetIcon
 } from '@/components/icons/Icon3D';
 import { Card } from '@/components/ui/card';
 import { Pill } from '@/components/ui/pill';

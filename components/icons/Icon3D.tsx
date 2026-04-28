@@ -18,6 +18,7 @@ import Svg, {
     Rect,
     Stop
 } from 'react-native-svg';
+import { CatMascot as _Cat } from './CatMascot';
 
 export type IconProps = {
   size?: number;
@@ -345,8 +346,7 @@ export function StarIcon({ size = 28 }: IconProps) {
 }
 
 /** Maskot — ikonická kočka Vys (re-export z CatMascot, kvůli zpětné kompatibilitě). */
-export { CatLogo, CatMascot as MascotIcon, AnimatedCatMascot } from './CatMascot';
-import { CatMascot as _Cat } from './CatMascot';
+export { AnimatedCatMascot, CatLogo, CatMascot as MascotIcon } from './CatMascot';
 
 /** Avatar tlačítko – malá verze maskota (kočky). */
 export function AvatarIcon({ size = 36 }: { size?: number }) {
