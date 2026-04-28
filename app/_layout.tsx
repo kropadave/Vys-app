@@ -28,7 +28,7 @@ const AppTheme = {
 function routeForRole(role: AppRole) {
   if (role === 'coach') return '/(coach)';
   if (role === 'parent') return '/(parent)';
-  return '/(tabs)';
+  return '/home';
 }
 
 export default function RootLayout() {
@@ -41,7 +41,13 @@ export default function RootLayout() {
     if (loading || !roleReady) return;
 
     const first = segments[0];
-    const inPublic = first === 'sign-in';
+    const inPublic =
+      first === undefined ||
+      first === 'sign-in' ||
+      first === 'krouzky' ||
+      first === 'tabory' ||
+      first === 'workshopy' ||
+      first === 'kontakt';
     const inCoach = first === '(coach)';
     const inParent = first === '(parent)';
     const inParticipant = first === '(tabs)';
@@ -78,8 +84,12 @@ export default function RootLayout() {
         <Stack.Screen name="(parent)" options={{ headerShown: false }} />
         <Stack.Screen name="(coach)" options={{ headerShown: false }} />
         <Stack.Screen name="sign-in" options={{ headerShown: false }} />
+        <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="notifications" options={{ headerShown: false }} />
         <Stack.Screen name="krouzky" options={{ headerShown: false }} />
+        <Stack.Screen name="tabory" options={{ headerShown: false }} />
+        <Stack.Screen name="workshopy" options={{ headerShown: false }} />
+        <Stack.Screen name="kontakt" options={{ headerShown: false }} />
         <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
       </Stack>
       <StatusBar style="dark" />

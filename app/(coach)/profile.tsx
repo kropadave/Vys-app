@@ -40,7 +40,7 @@ export default function CoachProfile() {
 
   async function switchRole() {
     await setRole('participant');
-    router.replace('/(tabs)');
+    router.replace('/home');
   }
 
   return (
