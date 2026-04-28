@@ -29,7 +29,7 @@ const AppTheme = {
 
 function routeForRole(role: AppRole) {
   if (role === 'coach') return '/(coach)';
-  if (role === 'parent') return '/(parent)';
+  if (role === 'parent') return '/parent';
   return '/home';
 }
 

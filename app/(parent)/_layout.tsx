@@ -7,7 +7,7 @@ export default function ParentTabs() {
     <Tabs
       screenOptions={{
         headerStyle: { backgroundColor: Palette.bg },
-        headerTitleStyle: { color: Palette.text, fontWeight: '800' },
+        headerTitleStyle: { color: Palette.text, fontWeight: '900' },
         headerTintColor: Palette.text,
         tabBarStyle: {
           backgroundColor: Palette.surface,
@@ -15,10 +15,13 @@ export default function ParentTabs() {
         },
         tabBarActiveTintColor: Palette.primary,
         tabBarInactiveTintColor: Palette.textMuted,
+        tabBarIcon: () => null,
+        tabBarIconStyle: { display: 'none' },
       }}>
-      <Tabs.Screen name="index" options={{ title: 'Přehled' }} />
-      <Tabs.Screen name="children" options={{ title: 'Děti' }} />
-      <Tabs.Screen name="payments" options={{ title: 'Platby' }} />
+      <Tabs.Screen name="parent" options={{ title: 'Přehled' }} />
+      <Tabs.Screen name="parent-children" options={{ title: 'Účastníci' }} />
+      <Tabs.Screen name="parent-payments" options={{ title: 'Platby' }} />
+      <Tabs.Screen name="parent-profile" options={{ title: 'Profil' }} />
     </Tabs>
   );
 }

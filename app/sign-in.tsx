@@ -26,7 +26,7 @@ const ROLES: RoleOption[] = [
     title: 'Rodič',
     subtitle: 'Děti, rezervace, platby',
     description: 'Přehled přihlášek, plateb a progresu tvojich dětí.',
-    route: '/(parent)',
+    route: '/parent',
   },
   {
     role: 'coach',
