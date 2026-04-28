@@ -1,7 +1,7 @@
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
+import { Card } from '@/components/ui/card';
+import { Pill } from '@/components/ui/pill';
 import {
   BRACELET_LEVELS,
   MOCK_PARTICIPANT,
@@ -9,104 +9,98 @@ import {
   type Trick,
   type TrickStatus,
 } from '@/lib/data/mock';
+import { BraceletPaletteByLevel, Palette, Spacing } from '@/lib/theme';
 
-const STATUS_LABEL: Record<TrickStatus, string> = {
-  locked: '🔒 Zamčeno',
-  available: '🎯 K tréninku',
-  in_progress: '⏳ Rozpracováno',
-  mastered: '✅ Zvládnuto',
-};
-
-const STATUS_COLOR: Record<TrickStatus, string> = {
-  locked: '#9CA3AF',
-  available: '#2563EB',
-  in_progress: '#F59E0B',
-  mastered: '#16A34A',
+const STATUS: Record<
+  TrickStatus,
+  { label: string; emoji: string; variant: 'plain' | 'soft' | 'yellow' | 'mint' | 'pink' | 'primary' }
+> = {
+  locked: { label: 'Zamčeno', emoji: '🔒', variant: 'plain' },
+  available: { label: 'K tréninku', emoji: '🎯', variant: 'soft' },
+  in_progress: { label: 'Rozpracováno', emoji: '⏳', variant: 'yellow' },
+  mastered: { label: 'Zvládnuto', emoji: '✅', variant: 'mint' },
 };
 
 export default function TricksScreen() {
   const p = MOCK_PARTICIPANT;
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <ThemedText type="title">Skill tree triků</ThemedText>
-      <ThemedText style={styles.muted}>
-        Triky se odemykají podle úrovně náramku a zvládnutí předchozích triků.
-      </ThemedText>
+    <ScrollView
+      style={{ backgroundColor: Palette.bg }}
+      contentContainerStyle={styles.container}
+      showsVerticalScrollIndicator={false}
+    >
+      <Text style={styles.h1}>Skill tree</Text>
+      <Text style={styles.intro}>
+        Triky se odemykají s úrovní náramku a zvládnutím předchozích triků.
+      </Text>
 
       {BRACELET_LEVELS.map((level) => {
         const tricks = TRICKS.filter((t) => t.requiredBraceletLevel === level.id);
         if (tricks.length === 0) return null;
         const isUnlocked = p.currentBraceletLevel >= level.id;
+        const palette = BraceletPaletteByLevel[level.id];
 
         return (
-          <ThemedView
-            key={level.id}
-            style={[
-              styles.section,
-              { borderLeftColor: level.color, borderLeftWidth: 6, opacity: isUnlocked ? 1 : 0.55 },
-            ]}
-          >
-            <View style={styles.sectionHeader}>
-              <ThemedText type="subtitle">
-                {level.name} náramek
-              </ThemedText>
-              <ThemedText style={styles.muted}>
-                {isUnlocked ? 'Odemčeno' : `Od ${level.xpRequired} XP`}
-              </ThemedText>
+          <View key={level.id} style={{ gap: 10 }}>
+            <View style={styles.levelHead}>
+              <View style={[styles.dot, { backgroundColor: palette.main }]} />
+              <Text style={styles.levelTitle}>{level.name} náramek</Text>
+              <View style={{ flex: 1 }} />
+              <Pill
+                label={isUnlocked ? 'Odemčeno' : `od ${level.xpRequired} XP`}
+                variant={isUnlocked ? 'mint' : 'plain'}
+              />
             </View>
 
             {tricks.map((t) => (
-              <TrickCard key={t.id} trick={t} disabled={!isUnlocked} />
+              <TrickCard key={t.id} trick={t} disabled={!isUnlocked} accent={palette.main} />
             ))}
-          </ThemedView>
+          </View>
         );
       })}
+
+      <View style={{ height: 120 }} />
     </ScrollView>
   );
 }
 
-function TrickCard({ trick, disabled }: { trick: Trick; disabled: boolean }) {
+function TrickCard({ trick, disabled, accent }: { trick: Trick; disabled: boolean; accent: string }) {
+  const status = STATUS[disabled ? 'locked' : trick.status];
   return (
-    <View style={styles.trickCard}>
-      <View style={styles.trickHeader}>
-        <ThemedText type="defaultSemiBold" style={{ flex: 1 }}>
-          {trick.name}
-        </ThemedText>
-        <ThemedText style={[styles.badge, { backgroundColor: STATUS_COLOR[trick.status] + '22', color: STATUS_COLOR[trick.status] }]}>
-          {STATUS_LABEL[disabled ? 'locked' : trick.status]}
-        </ThemedText>
+    <Card pad={14}>
+      <View style={styles.trickHead}>
+        <View style={[styles.trickIcon, { backgroundColor: accent + '33' }]}>
+          <Text style={{ fontSize: 22 }}>{status.emoji}</Text>
+        </View>
+        <View style={{ flex: 1, gap: 4 }}>
+          <Text style={styles.trickName}>{trick.name}</Text>
+          <Text style={styles.muted} numberOfLines={2}>
+            {trick.description}
+          </Text>
+        </View>
       </View>
-      <ThemedText style={styles.muted}>{trick.description}</ThemedText>
-      <View style={styles.trickMeta}>
-        <ThemedText style={styles.muted}>+{trick.xp} XP</ThemedText>
-        {trick.prerequisites.length > 0 && (
-          <ThemedText style={styles.muted}>
-            Vyžaduje: {trick.prerequisites.join(', ')}
-          </ThemedText>
-        )}
+      <View style={styles.trickFoot}>
+        <Pill label={`+${trick.xp} XP`} variant="soft" />
+        <Pill label={status.label} variant={status.variant} />
       </View>
-    </View>
+    </Card>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { padding: 16, paddingTop: 64, gap: 16 },
-  muted: { opacity: 0.65 },
-  section: {
-    padding: 14, borderRadius: 14, gap: 10,
-    backgroundColor: 'rgba(127,127,127,0.08)',
+  container: { padding: Spacing.lg, paddingTop: 60, gap: Spacing.lg },
+  h1: { fontSize: 28, fontWeight: '800', color: Palette.text },
+  intro: { color: Palette.textMuted, marginBottom: 4 },
+  levelHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  dot: { width: 14, height: 14, borderRadius: 7 },
+  levelTitle: { fontSize: 16, fontWeight: '800', color: Palette.text },
+  trickHead: { flexDirection: 'row', gap: 12, alignItems: 'center' },
+  trickIcon: {
+    width: 48, height: 48, borderRadius: 16,
+    alignItems: 'center', justifyContent: 'center',
   },
-  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
-  trickCard: {
-    padding: 12, borderRadius: 10, gap: 6,
-    backgroundColor: 'rgba(127,127,127,0.08)',
-  },
-  trickHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  badge: {
-    fontSize: 12, fontWeight: '600',
-    paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8,
-    overflow: 'hidden',
-  },
-  trickMeta: { flexDirection: 'row', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 },
+  trickName: { fontSize: 15, fontWeight: '700', color: Palette.text },
+  trickFoot: { flexDirection: 'row', gap: 6, marginTop: 10 },
+  muted: { color: Palette.textMuted, fontSize: 12 },
 });

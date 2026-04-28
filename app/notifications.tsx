@@ -1,32 +1,36 @@
 import { Stack } from 'expo-router';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
+import { Card } from '@/components/ui/card';
 import { NOTIFICATIONS } from '@/lib/data/mock';
+import { Palette, Spacing } from '@/lib/theme';
 
 export default function NotificationsScreen() {
   return (
     <>
-      <Stack.Screen options={{ title: 'Notifikace', headerShown: true }} />
-      <ScrollView contentContainerStyle={styles.container}>
-        {NOTIFICATIONS.length === 0 && (
-          <ThemedText style={styles.muted}>Žádné notifikace.</ThemedText>
-        )}
+      <Stack.Screen
+        options={{
+          title: 'Notifikace',
+          headerShown: true,
+          headerStyle: { backgroundColor: Palette.bg },
+          headerTitleStyle: { color: Palette.text, fontWeight: '800' },
+          headerTintColor: Palette.primary600,
+        }}
+      />
+      <ScrollView
+        style={{ backgroundColor: Palette.bg }}
+        contentContainerStyle={styles.container}
+      >
+        {NOTIFICATIONS.length === 0 && <Text style={styles.muted}>Žádné notifikace.</Text>}
         {NOTIFICATIONS.map((n) => (
-          <ThemedView
-            key={n.id}
-            style={[styles.card, !n.read && { borderLeftWidth: 4, borderLeftColor: '#2563EB' }]}
-          >
+          <Card key={n.id} pad={14}>
             <View style={styles.head}>
-              <ThemedText type="defaultSemiBold">{n.title}</ThemedText>
+              <Text style={styles.title}>{n.title}</Text>
               {!n.read && <View style={styles.dot} />}
             </View>
-            <ThemedText>{n.body}</ThemedText>
-            <ThemedText style={styles.muted}>
-              {new Date(n.date).toLocaleString('cs-CZ')}
-            </ThemedText>
-          </ThemedView>
+            <Text style={styles.body}>{n.body}</Text>
+            <Text style={styles.muted}>{new Date(n.date).toLocaleString('cs-CZ')}</Text>
+          </Card>
         ))}
       </ScrollView>
     </>
@@ -34,12 +38,10 @@ export default function NotificationsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { padding: 16, gap: 10 },
-  muted: { opacity: 0.65, fontSize: 12 },
-  card: {
-    padding: 14, borderRadius: 12, gap: 6,
-    backgroundColor: 'rgba(127,127,127,0.08)',
-  },
+  container: { padding: Spacing.lg, gap: 10 },
   head: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#2563EB' },
+  title: { flex: 1, fontWeight: '800', color: Palette.text, fontSize: 15 },
+  body: { color: Palette.text, marginTop: 4 },
+  dot: { width: 10, height: 10, borderRadius: 5, backgroundColor: Palette.primary500 },
+  muted: { color: Palette.textMuted, fontSize: 12, marginTop: 6 },
 });

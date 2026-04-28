@@ -1,40 +1,51 @@
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
+import { Card } from '@/components/ui/card';
+import { Pill } from '@/components/ui/pill';
 import {
   BRACELET_LEVELS,
   MOCK_PARTICIPANT,
   TRICKS,
   type BraceletLevel,
 } from '@/lib/data/mock';
+import { BraceletPaletteByLevel, Gradients, Palette, Radius, Spacing } from '@/lib/theme';
 
 export default function BraceletScreen() {
   const p = MOCK_PARTICIPANT;
+  const palette = BraceletPaletteByLevel[p.currentBraceletLevel];
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <ThemedText type="title">Náramky</ThemedText>
-      <ThemedText style={styles.muted}>
-        5 úrovní pokroku. S každou úrovní se otevírají nové triky a možnosti.
-      </ThemedText>
+    <ScrollView
+      style={{ backgroundColor: Palette.bg }}
+      contentContainerStyle={styles.container}
+      showsVerticalScrollIndicator={false}
+    >
+      <Text style={styles.h1}>Náramky</Text>
+      <Text style={styles.intro}>
+        Pět úrovní pokroku. S každou se otevírají nové triky a možnosti.
+      </Text>
 
-      <ThemedView style={styles.summary}>
-        <ThemedText type="subtitle">Tvůj aktuální náramek</ThemedText>
-        <View style={styles.summaryRow}>
-          <View style={[styles.bigBracelet, { backgroundColor: BRACELET_LEVELS[p.currentBraceletLevel - 1].color }]} />
+      <Card gradient={Gradients.hero} pad={20} radius={Radius.xl}>
+        <Text style={styles.heroLabel}>Tvůj aktuální náramek</Text>
+        <View style={styles.heroRow}>
+          <View
+            style={[
+              styles.bigBracelet,
+              { backgroundColor: palette.main, borderColor: 'rgba(255,255,255,0.6)' },
+            ]}
+          />
           <View style={{ flex: 1 }}>
-            <ThemedText type="defaultSemiBold" style={{ fontSize: 20 }}>
-              {BRACELET_LEVELS[p.currentBraceletLevel - 1].name}
-            </ThemedText>
-            <ThemedText style={styles.muted}>{p.xp} XP</ThemedText>
+            <Text style={styles.heroTitle}>{BRACELET_LEVELS[p.currentBraceletLevel - 1].name}</Text>
+            <Text style={styles.heroSub}>{p.xp} XP</Text>
           </View>
         </View>
-      </ThemedView>
+      </Card>
 
       {BRACELET_LEVELS.map((b) => (
         <LevelRow key={b.id} level={b} currentXp={p.xp} currentLevel={p.currentBraceletLevel} />
       ))}
+
+      <View style={{ height: 120 }} />
     </ScrollView>
   );
 }
@@ -50,50 +61,45 @@ function LevelRow({
 }) {
   const reached = currentLevel >= level.id;
   const trickCount = TRICKS.filter((t) => t.requiredBraceletLevel === level.id).length;
+  const palette = BraceletPaletteByLevel[level.id];
 
   return (
-    <ThemedView
-      style={[
-        styles.row,
-        { borderLeftColor: level.color, borderLeftWidth: 6, opacity: reached ? 1 : 0.7 },
-      ]}
-    >
-      <View style={[styles.dot, { backgroundColor: level.color }]} />
-      <View style={{ flex: 1, gap: 4 }}>
-        <View style={styles.rowHead}>
-          <ThemedText type="subtitle">
-            {level.id}. {level.name}
-          </ThemedText>
-          <ThemedText style={styles.muted}>
-            {reached ? '✓ dosaženo' : `${level.xpRequired} XP`}
-          </ThemedText>
+    <Card pad={14}>
+      <View style={styles.row}>
+        <View style={[styles.bracelet, { backgroundColor: palette.main }]} />
+        <View style={{ flex: 1, gap: 4 }}>
+          <View style={styles.headRow}>
+            <Text style={styles.levelTitle}>
+              {level.id}. {level.name}
+            </Text>
+            <Pill
+              label={reached ? '✓ dosaženo' : `${level.xpRequired} XP`}
+              variant={reached ? 'mint' : 'plain'}
+            />
+          </View>
+          <Text style={styles.muted}>{level.description}</Text>
+          <Text style={styles.muted}>
+            {trickCount} {trickCount === 1 ? 'trik' : trickCount < 5 ? 'triky' : 'triků'}
+            {reached ? '' : ` · chybí ${Math.max(0, level.xpRequired - currentXp)} XP`}
+          </Text>
         </View>
-        <ThemedText style={styles.muted}>{level.description}</ThemedText>
-        <ThemedText style={styles.muted}>
-          {trickCount} {trickCount === 1 ? 'trik' : trickCount < 5 ? 'triky' : 'triků'}
-          {reached ? '' : ` · chybí ${Math.max(0, level.xpRequired - currentXp)} XP`}
-        </ThemedText>
       </View>
-    </ThemedView>
+    </Card>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { padding: 16, paddingTop: 64, gap: 12 },
-  muted: { opacity: 0.65 },
-  summary: {
-    padding: 16, borderRadius: 14, gap: 12,
-    backgroundColor: 'rgba(127,127,127,0.08)',
-  },
-  summaryRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
-  bigBracelet: {
-    width: 60, height: 60, borderRadius: 30,
-    borderWidth: 4, borderColor: 'rgba(0,0,0,0.1)',
-  },
-  row: {
-    flexDirection: 'row', gap: 12, padding: 14, borderRadius: 14, alignItems: 'flex-start',
-    backgroundColor: 'rgba(127,127,127,0.06)',
-  },
-  rowHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
-  dot: { width: 14, height: 14, borderRadius: 7, marginTop: 6 },
+  container: { padding: Spacing.lg, paddingTop: 60, gap: Spacing.md },
+  h1: { fontSize: 28, fontWeight: '800', color: Palette.text },
+  intro: { color: Palette.textMuted, marginBottom: 4 },
+  heroLabel: { color: 'rgba(255,255,255,0.85)', fontWeight: '600' },
+  heroRow: { flexDirection: 'row', alignItems: 'center', gap: 16, marginTop: 12 },
+  heroTitle: { color: '#fff', fontSize: 28, fontWeight: '800' },
+  heroSub: { color: 'rgba(255,255,255,0.85)' },
+  bigBracelet: { width: 76, height: 76, borderRadius: 38, borderWidth: 5 },
+  row: { flexDirection: 'row', gap: 12, alignItems: 'center' },
+  headRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  bracelet: { width: 36, height: 36, borderRadius: 18 },
+  levelTitle: { flex: 1, fontSize: 16, fontWeight: '800', color: Palette.text },
+  muted: { color: Palette.textMuted, fontSize: 12 },
 });

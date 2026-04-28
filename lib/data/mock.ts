@@ -299,6 +299,82 @@ export const NOTIFICATIONS: AppNotification[] = [
   },
 ];
 
+export type Krouzek = {
+  id: string;
+  city: string;
+  venue: string; // škola / hala
+  day: string; // např. "Úterý" nebo "Úterý / Čtvrtek"
+  timeFrom: string; // "16:30"
+  timeTo: string; // "17:30"
+  ageGroup: string; // např. "6–10 let"
+  priceFrom: number; // CZK
+  url: string;
+  isOpen: boolean;
+};
+
+export const KROUZKY: Krouzek[] = [
+  {
+    id: 'a9c33ff2-f0d5-42a9-b730-89b8c1bfa59a',
+    city: 'Blansko',
+    venue: 'ZŠ Erbenova',
+    day: 'Úterý',
+    timeFrom: '17:30',
+    timeTo: '18:30',
+    ageGroup: '6–12 let',
+    priceFrom: 1790,
+    url: 'https://www.teamvys.cz/krouzky/a9c33ff2-f0d5-42a9-b730-89b8c1bfa59a',
+    isOpen: true,
+  },
+  {
+    id: 'f7687d52-d3ce-4cdb-85c6-f9e1571966eb',
+    city: 'Brandýs nad Labem',
+    venue: 'ZŠ Na Výsluní',
+    day: 'Úterý / Čtvrtek',
+    timeFrom: '17:00',
+    timeTo: '18:00',
+    ageGroup: '6–12 let',
+    priceFrom: 1790,
+    url: 'https://www.teamvys.cz/krouzky/f7687d52-d3ce-4cdb-85c6-f9e1571966eb',
+    isOpen: true,
+  },
+  {
+    id: 'jesenik-gymkomenskeho',
+    city: 'Jeseník',
+    venue: 'Gymnázium Komenského',
+    day: 'Pátek',
+    timeFrom: '18:00',
+    timeTo: '19:00',
+    ageGroup: '8–14 let',
+    priceFrom: 1790,
+    url: 'https://www.teamvys.cz/krouzky',
+    isOpen: true,
+  },
+  {
+    id: '497df72c-fe35-4729-b2fc-30b07dfeac95',
+    city: 'Vyškov',
+    venue: 'ZŠ Nádražní',
+    day: 'Středa',
+    timeFrom: '16:30',
+    timeTo: '17:30',
+    ageGroup: '6–12 let',
+    priceFrom: 1790,
+    url: 'https://www.teamvys.cz/krouzky/497df72c-fe35-4729-b2fc-30b07dfeac95',
+    isOpen: true,
+  },
+  {
+    id: '4e08a77e-0dea-495f-a72e-82fa1c28201b',
+    city: 'Vyškov',
+    venue: 'ZŠ Purkyňova',
+    day: 'Pondělí',
+    timeFrom: '15:30',
+    timeTo: '16:30',
+    ageGroup: '6–12 let',
+    priceFrom: 1790,
+    url: 'https://www.teamvys.cz/krouzky/4e08a77e-0dea-495f-a72e-82fa1c28201b',
+    isOpen: true,
+  },
+];
+
 export type Participant = {
   id: string;
   firstName: string;
