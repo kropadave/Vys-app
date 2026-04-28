@@ -9,16 +9,14 @@
  */
 import React from 'react';
 import Svg, {
-  Circle,
-  ClipPath,
-  Defs,
-  Ellipse,
-  G,
-  LinearGradient,
-  Path,
-  RadialGradient,
-  Rect,
-  Stop,
+    Circle,
+    Defs,
+    Ellipse,
+    LinearGradient,
+    Path,
+    RadialGradient,
+    Rect,
+    Stop
 } from 'react-native-svg';
 
 export type IconProps = {
@@ -346,67 +344,13 @@ export function StarIcon({ size = 28 }: IconProps) {
   );
 }
 
-/** Maskot — usměvavá fialová "ninja" hlava (3D kreslený mascot) */
-export function MascotIcon({ size = 120 }: { size?: number }) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 160 160">
-      <Defs>
-        <RadialGradient id={id('m-head')} cx="0.4" cy="0.35" r="0.7">
-          <Stop offset="0" stopColor="#FFE3CC" />
-          <Stop offset="1" stopColor="#F2B58A" />
-        </RadialGradient>
-        <LinearGradient id={id('m-mask')} x1="0" y1="0" x2="0" y2="1">
-          <Stop offset="0" stopColor="#9B7BFF" />
-          <Stop offset="1" stopColor="#4F2DBF" />
-        </LinearGradient>
-        <LinearGradient id={id('m-band')} x1="0" y1="0" x2="0" y2="1">
-          <Stop offset="0" stopColor="#FFC857" />
-          <Stop offset="1" stopColor="#F59E0B" />
-        </LinearGradient>
-      </Defs>
-      {/* stín pod hlavou */}
-      <Ellipse cx="80" cy="148" rx="44" ry="6" fill="#241B3A" opacity={0.25} />
-      {/* hlava */}
-      <Circle cx="80" cy="78" r="58" fill={`url(#${id('m-head')})`} stroke="#7A4B25" strokeWidth={2} />
-      {/* maska přes oči */}
-      <Path
-        d="M22 70 C22 60 138 60 138 70 L138 92 C138 100 22 100 22 92 Z"
-        fill={`url(#${id('m-mask')})`}
-        stroke="#2C1880"
-        strokeWidth={2}
-      />
-      {/* oči */}
-      <Circle cx="58" cy="82" r="9" fill="#FFFFFF" />
-      <Circle cx="102" cy="82" r="9" fill="#FFFFFF" />
-      <Circle cx="60" cy="84" r="4.5" fill="#241B3A" />
-      <Circle cx="104" cy="84" r="4.5" fill="#241B3A" />
-      <Circle cx="61" cy="82" r="1.6" fill="#FFFFFF" />
-      <Circle cx="105" cy="82" r="1.6" fill="#FFFFFF" />
-      {/* čelenka pásek vlající nahoru-dozadu */}
-      <Path
-        d="M26 70 C18 60 10 50 6 38 C18 44 22 56 26 64 Z"
-        fill={`url(#${id('m-band')})`}
-        stroke="#7C5800"
-        strokeWidth={1.6}
-      />
-      {/* úsměv */}
-      <Path
-        d="M64 112 C72 122 88 122 96 112"
-        stroke="#7A4B25"
-        strokeWidth={3.5}
-        fill="none"
-        strokeLinecap="round"
-      />
-      {/* tvářičky */}
-      <Circle cx="46" cy="108" r="6" fill="#FFB6E1" opacity={0.7} />
-      <Circle cx="114" cy="108" r="6" fill="#FFB6E1" opacity={0.7} />
-    </Svg>
-  );
-}
+/** Maskot — ikonická kočka Vys (re-export z CatMascot, kvůli zpětné kompatibilitě). */
+export { CatLogo, CatMascot as MascotIcon, AnimatedCatMascot } from './CatMascot';
+import { CatMascot as _Cat } from './CatMascot';
 
-/** Avatar tlačítko – malá verze maskotího obličeje */
+/** Avatar tlačítko – malá verze maskota (kočky). */
 export function AvatarIcon({ size = 36 }: { size?: number }) {
-  return <MascotIcon size={size} />;
+  return <_Cat size={size} withFace={false} />;
 }
 
 /** Plamen = streak */

@@ -1,20 +1,20 @@
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import {
-  BoltIcon,
-  CheckIcon,
-  HourglassIcon,
-  LockIcon,
-  TargetIcon,
+    BoltIcon,
+    CheckIcon,
+    HourglassIcon,
+    LockIcon,
+    TargetIcon,
 } from '@/components/icons/Icon3D';
 import { Card } from '@/components/ui/card';
 import { Pill } from '@/components/ui/pill';
 import {
-  BRACELET_LEVELS,
-  MOCK_PARTICIPANT,
-  TRICKS,
-  type Trick,
-  type TrickStatus,
+    BRACELET_LEVELS,
+    MOCK_PARTICIPANT,
+    TRICKS,
+    type Trick,
+    type TrickStatus,
 } from '@/lib/data/mock';
 import { BraceletPaletteByLevel, Palette, Spacing } from '@/lib/theme';
 

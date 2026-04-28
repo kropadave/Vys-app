@@ -4,11 +4,11 @@ import { Platform } from 'react-native';
 
 import { HapticTab } from '@/components/haptic-tab';
 import {
-  BraceletTabIcon,
-  HomeTabIcon,
-  MedalTabIcon,
-  ProfileTabIcon,
-  TricksTabIcon,
+    BraceletTabIcon,
+    HomeTabIcon,
+    MedalTabIcon,
+    ProfileTabIcon,
+    TricksTabIcon,
 } from '@/components/icons/Icon3D';
 import { Palette, Radius, Shadow } from '@/lib/theme';
 

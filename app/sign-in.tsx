@@ -1,14 +1,18 @@
-import { supabase } from '@/lib/supabase';
 import { useState } from 'react';
 import {
-    Alert,
-    KeyboardAvoidingView,
-    Platform,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
+
+import { AnimatedCatMascot } from '@/components/icons/CatMascot';
+import { supabase } from '@/lib/supabase';
+import { Palette, Radius, Spacing } from '@/lib/theme';
 
 export default function SignInScreen() {
   const [email, setEmail] = useState('');
@@ -35,11 +39,16 @@ export default function SignInScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       style={styles.container}
     >
+      <View style={styles.mascotWrap}>
+        <AnimatedCatMascot size={160} />
+      </View>
       <Text style={styles.title}>Vys-app</Text>
+      <Text style={styles.subtitle}>Tvoje parkour cesta začíná tady.</Text>
 
       <TextInput
         style={styles.input}
         placeholder="E-mail"
+        placeholderTextColor={Palette.textMuted}
         autoCapitalize="none"
         autoComplete="email"
         keyboardType="email-address"
@@ -49,6 +58,7 @@ export default function SignInScreen() {
       <TextInput
         style={styles.input}
         placeholder="Heslo"
+        placeholderTextColor={Palette.textMuted}
         secureTextEntry
         autoCapitalize="none"
         value={password}
@@ -71,23 +81,38 @@ export default function SignInScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, justifyContent: 'center', padding: 24, gap: 12 },
-  title: { fontSize: 32, fontWeight: '700', textAlign: 'center', marginBottom: 24 },
+  container: {
+    flex: 1,
+    justifyContent: 'center',
+    padding: 24,
+    gap: 12,
+    backgroundColor: Palette.bg,
+  },
+  mascotWrap: { alignItems: 'center', marginBottom: Spacing.md },
+  title: {
+    fontSize: 32, fontWeight: '800', textAlign: 'center', color: Palette.text,
+  },
+  subtitle: {
+    textAlign: 'center', color: Palette.textMuted, marginBottom: Spacing.lg,
+  },
   input: {
-    borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 8,
-    padding: 12,
+    backgroundColor: Palette.surface,
+    borderRadius: Radius.lg,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
     fontSize: 16,
+    color: Palette.text,
   },
   button: {
-    backgroundColor: '#2563eb',
-    padding: 14,
-    borderRadius: 8,
+    backgroundColor: Palette.accentYellow,
+    padding: 16,
+    borderRadius: Radius.pill,
     alignItems: 'center',
-    marginTop: 8,
+    marginTop: Spacing.sm,
   },
   buttonDisabled: { opacity: 0.6 },
-  buttonText: { color: '#fff', fontWeight: '600', fontSize: 16 },
-  link: { textAlign: 'center', color: '#2563eb', marginTop: 12 },
+  buttonText: { color: Palette.textOnAccent, fontWeight: '800', fontSize: 16 },
+  link: {
+    textAlign: 'center', color: Palette.primary600, marginTop: 12, fontWeight: '700',
+  },
 });

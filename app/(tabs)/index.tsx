@@ -2,28 +2,28 @@ import { Link } from 'expo-router';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 import {
-  ArrowRightIcon,
-  AvatarIcon,
-  BellIcon,
-  BoltIcon,
-  CoinIcon,
-  HourglassIcon,
-  Icon,
-  MascotIcon,
-  ParkourIcon,
-  TargetIcon,
+    ArrowRightIcon,
+    AvatarIcon,
+    BellIcon,
+    BoltIcon,
+    CoinIcon,
+    HourglassIcon,
+    Icon,
+    MascotIcon,
+    ParkourIcon,
+    TargetIcon,
 } from '@/components/icons/Icon3D';
 import { Card } from '@/components/ui/card';
 import { Pill } from '@/components/ui/pill';
 import {
-  ACHIEVEMENTS,
-  KROUZKY,
-  MOCK_PARTICIPANT,
-  TRICKS,
-  currentBracelet,
-  masteredTricksCount,
-  nextBracelet,
-  unreadNotificationsCount,
+    ACHIEVEMENTS,
+    KROUZKY,
+    MOCK_PARTICIPANT,
+    TRICKS,
+    currentBracelet,
+    masteredTricksCount,
+    nextBracelet,
+    unreadNotificationsCount,
 } from '@/lib/data/mock';
 import { Gradients, Palette, Radius, Spacing } from '@/lib/theme';
 
@@ -72,7 +72,7 @@ export default function HomeScreen() {
       <Card gradient={Gradients.hero} pad={20} radius={Radius.xl}>
         <View style={styles.heroRow}>
           <View style={styles.mascot}>
-            <MascotIcon size={92} />
+            <AnimatedCatMascot size={104} />
           </View>
           <View style={{ flex: 1, gap: 4 }}>
             <Text style={styles.heroLabel}>Tvoje úroveň</Text>

@@ -2,20 +2,20 @@ import { Link } from 'expo-router';
 import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 import {
-  BellIcon,
-  BoltIcon,
-  MascotIcon,
-  ParkourIcon,
-  TentIcon,
+    BellIcon,
+    BoltIcon,
+    ParkourIcon,
+    TentIcon,
 } from '@/components/icons/Icon3D';
+import { AnimatedCatMascot } from '@/components/icons/CatMascot';
 import { Card } from '@/components/ui/card';
 import { Pill } from '@/components/ui/pill';
 import {
-  MOCK_PARTICIPANT,
-  PURCHASES,
-  currentBracelet,
-  unreadNotificationsCount,
-  type Purchase,
+    MOCK_PARTICIPANT,
+    PURCHASES,
+    currentBracelet,
+    unreadNotificationsCount,
+    type Purchase,
 } from '@/lib/data/mock';
 import { DEV_BYPASS_AUTH } from '@/lib/dev-config';
 import { supabase } from '@/lib/supabase';
@@ -66,7 +66,7 @@ export default function ProfileScreen() {
       <Card gradient={Gradients.hero} pad={24} radius={Radius.xl}>
         <View style={styles.profileHero}>
           <View style={styles.avatar}>
-            <MascotIcon size={104} />
+            <AnimatedCatMascot size={120} />
           </View>
           <Text style={styles.name}>{p.firstName} {p.lastName}</Text>
           <Text style={styles.sub}>{p.nickname} · {p.age} let · {p.city}</Text>

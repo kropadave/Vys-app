@@ -4,10 +4,10 @@ import { BraceletIcon } from '@/components/icons/Icon3D';
 import { Card } from '@/components/ui/card';
 import { Pill } from '@/components/ui/pill';
 import {
-  BRACELET_LEVELS,
-  MOCK_PARTICIPANT,
-  TRICKS,
-  type BraceletLevel,
+    BRACELET_LEVELS,
+    MOCK_PARTICIPANT,
+    TRICKS,
+    type BraceletLevel,
 } from '@/lib/data/mock';
 import { BraceletPaletteByLevel, Gradients, Palette, Radius, Spacing } from '@/lib/theme';
 
