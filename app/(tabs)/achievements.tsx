@@ -1,5 +1,6 @@
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { GiftIcon, Icon, LockIcon } from '@/components/icons/Icon3D';
 import { Card } from '@/components/ui/card';
 import { Pill } from '@/components/ui/pill';
 import { ACHIEVEMENTS, type Achievement } from '@/lib/data/mock';
@@ -40,14 +41,14 @@ function AchievementCard({ achievement }: { achievement: Achievement }) {
     <Card pad={14} style={!achievement.unlocked ? { opacity: 0.6 } : undefined}>
       <View style={styles.row}>
         <View style={styles.iconBox}>
-          <Text style={{ fontSize: 32 }}>{achievement.unlocked ? achievement.icon : '🔒'}</Text>
+          {achievement.unlocked ? <Icon name={achievement.icon} size={42} /> : <LockIcon size={36} />}
         </View>
         <View style={{ flex: 1, gap: 4 }}>
           <Text style={styles.name}>{achievement.name}</Text>
           <Text style={styles.muted}>{achievement.description}</Text>
           {achievement.reward && (
             <View style={{ marginTop: 4 }}>
-              <Pill label={achievement.reward.label} variant="yellow" emoji="🎁" />
+              <Pill label={achievement.reward.label} variant="yellow" icon={<GiftIcon size={14} />} />
             </View>
           )}
         </View>
@@ -63,7 +64,7 @@ const styles = StyleSheet.create({
   section: { fontSize: 16, fontWeight: '800', color: Palette.text, marginTop: 12 },
   row: { flexDirection: 'row', gap: 12, alignItems: 'center' },
   iconBox: {
-    width: 64, height: 64, borderRadius: 20,
+    width: 72, height: 72, borderRadius: 20,
     backgroundColor: Palette.primary100,
     alignItems: 'center', justifyContent: 'center',
   },

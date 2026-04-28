@@ -1,6 +1,18 @@
 import { Link } from 'expo-router';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
+import {
+  ArrowRightIcon,
+  AvatarIcon,
+  BellIcon,
+  BoltIcon,
+  CoinIcon,
+  HourglassIcon,
+  Icon,
+  MascotIcon,
+  ParkourIcon,
+  TargetIcon,
+} from '@/components/icons/Icon3D';
 import { Card } from '@/components/ui/card';
 import { Pill } from '@/components/ui/pill';
 import {
@@ -23,6 +35,7 @@ export default function HomeScreen() {
     ? Math.max(0, Math.min(1, (p.xp - bracelet.xpRequired) / (next.xpRequired - bracelet.xpRequired)))
     : 1;
   const successRate = Math.round((masteredTricksCount() / TRICKS.length) * 100);
+  const unread = unreadNotificationsCount();
 
   return (
     <ScrollView
@@ -30,24 +43,27 @@ export default function HomeScreen() {
       style={{ backgroundColor: Palette.bg }}
       showsVerticalScrollIndicator={false}
     >
-      {/* Top bar: měna XP + avatar */}
+      {/* Top bar: měna XP + zvonek + avatar */}
       <View style={styles.topBar}>
         <View style={styles.xpBadge}>
-          <Text style={styles.xpEmoji}>⚡</Text>
+          <BoltIcon size={20} />
           <Text style={styles.xpText}>{p.xp}</Text>
         </View>
 
         <Link href="/notifications" asChild>
           <TouchableOpacity style={styles.iconBtn}>
-            <Text style={{ fontSize: 18 }}>
-              🔔{unreadNotificationsCount() > 0 ? ` ${unreadNotificationsCount()}` : ''}
-            </Text>
+            <BellIcon size={24} />
+            {unread > 0 && (
+              <View style={styles.bellBadge}>
+                <Text style={styles.bellBadgeText}>{unread}</Text>
+              </View>
+            )}
           </TouchableOpacity>
         </Link>
 
         <Link href="/(tabs)/profile" asChild>
           <TouchableOpacity style={styles.avatarBtn}>
-            <Text style={{ fontSize: 24 }}>{p.avatarEmoji}</Text>
+            <AvatarIcon size={40} />
           </TouchableOpacity>
         </Link>
       </View>
@@ -56,7 +72,7 @@ export default function HomeScreen() {
       <Card gradient={Gradients.hero} pad={20} radius={Radius.xl}>
         <View style={styles.heroRow}>
           <View style={styles.mascot}>
-            <Text style={{ fontSize: 64 }}>🥷</Text>
+            <MascotIcon size={92} />
           </View>
           <View style={{ flex: 1, gap: 4 }}>
             <Text style={styles.heroLabel}>Tvoje úroveň</Text>
@@ -81,7 +97,7 @@ export default function HomeScreen() {
         {ACHIEVEMENTS.slice(0, 4).map((a) => (
           <View key={a.id} style={[styles.achievement, !a.unlocked && { opacity: 0.45 }]}>
             <View style={styles.achievementIcon}>
-              <Text style={{ fontSize: 28 }}>{a.unlocked ? a.icon : '🔒'}</Text>
+              {a.unlocked ? <Icon name={a.icon} size={36} /> : <Icon name="lock" size={32} />}
             </View>
             <Text style={styles.achievementLabel} numberOfLines={2}>
               {a.name}
@@ -98,7 +114,7 @@ export default function HomeScreen() {
           <Card key={t.id} pad={14}>
             <View style={styles.trickRow}>
               <View style={styles.trickEmoji}>
-                <Text style={{ fontSize: 22 }}>{t.status === 'in_progress' ? '⏳' : '🎯'}</Text>
+                {t.status === 'in_progress' ? <HourglassIcon size={26} /> : <TargetIcon size={26} />}
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.trickName}>{t.name}</Text>
@@ -106,7 +122,7 @@ export default function HomeScreen() {
                   {t.description}
                 </Text>
               </View>
-              <Pill label={`+${t.xp} XP`} variant="soft" />
+              <Pill label={`+${t.xp} XP`} variant="soft" icon={<BoltIcon size={14} />} />
             </View>
           </Card>
         ))}
@@ -130,7 +146,10 @@ function SectionHeader({
       <Text style={styles.sectionTitle}>{title}</Text>
       {actionHref && actionLabel && (
         <Link href={actionHref}>
-          <Text style={styles.sectionAction}>{actionLabel} →</Text>
+          <View style={styles.actionRow}>
+            <Text style={styles.sectionAction}>{actionLabel}</Text>
+            <ArrowRightIcon size={14} tint={Palette.primary600} />
+          </View>
         </Link>
       )}
     </View>
@@ -144,7 +163,7 @@ function ActiveCourseCard() {
     <Card pad={16}>
       <View style={styles.courseRow}>
         <View style={styles.courseIcon}>
-          <Text style={{ fontSize: 28 }}>🤸</Text>
+          <ParkourIcon size={36} />
         </View>
         <View style={{ flex: 1, gap: 4 }}>
           <Text style={styles.courseTitle}>
@@ -154,7 +173,7 @@ function ActiveCourseCard() {
             {k.day} {k.timeFrom}–{k.timeTo} · {k.ageGroup}
           </Text>
           <View style={{ flexDirection: 'row', gap: 6, marginTop: 6 }}>
-            <Pill label={`od ${k.priceFrom} Kč`} variant="yellow" emoji="💰" />
+            <Pill label={`od ${k.priceFrom} Kč`} variant="yellow" icon={<CoinIcon size={14} />} />
             <Pill label="Probíhá" variant="mint" />
           </View>
         </View>
@@ -193,7 +212,6 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     elevation: 2,
   },
-  xpEmoji: { fontSize: 18 },
   xpText: { fontSize: 16, fontWeight: '800', color: Palette.text },
   iconBtn: {
     width: 44,
@@ -203,57 +221,56 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  bellBadge: {
+    position: 'absolute', top: 4, right: 4,
+    minWidth: 16, height: 16, borderRadius: 8, paddingHorizontal: 4,
+    backgroundColor: Palette.danger,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  bellBadgeText: { color: '#fff', fontSize: 10, fontWeight: '800' },
   avatarBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: Palette.accentPink,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: Palette.surface,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
 
   // Hero
   heroRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   mascot: {
-    width: 92,
-    height: 92,
-    borderRadius: 46,
+    width: 92, height: 92, borderRadius: 46,
     backgroundColor: 'rgba(255,255,255,0.18)',
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: 'center', justifyContent: 'center',
+    overflow: 'hidden',
   },
   heroLabel: { color: 'rgba(255,255,255,0.85)', fontSize: 13, fontWeight: '600' },
   heroTitle: { color: '#fff', fontSize: 28, fontWeight: '800' },
   heroSub: { color: 'rgba(255,255,255,0.85)', fontSize: 12 },
   heroProgressBg: {
-    height: 8,
-    borderRadius: 4,
+    height: 8, borderRadius: 4,
     backgroundColor: 'rgba(255,255,255,0.25)',
-    overflow: 'hidden',
-    marginTop: 8,
+    overflow: 'hidden', marginTop: 8,
   },
   heroProgressFill: { height: '100%', backgroundColor: '#fff', borderRadius: 4 },
 
   // Sekce
   sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: Spacing.md,
-    marginBottom: 4,
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    marginTop: Spacing.md, marginBottom: 4,
   },
   sectionTitle: { fontSize: 18, fontWeight: '800', color: Palette.text },
+  actionRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   sectionAction: { color: Palette.primary600, fontWeight: '700', fontSize: 13 },
 
   // Course
   courseRow: { flexDirection: 'row', gap: 12, alignItems: 'center' },
   courseIcon: {
-    width: 56,
-    height: 56,
-    borderRadius: 18,
+    width: 56, height: 56, borderRadius: 18,
     backgroundColor: Palette.primary100,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: 'center', justifyContent: 'center',
   },
   courseTitle: { fontSize: 16, fontWeight: '700', color: Palette.text },
 
@@ -261,29 +278,20 @@ const styles = StyleSheet.create({
   achievementsRow: { flexDirection: 'row', gap: 10 },
   achievement: { flex: 1, alignItems: 'center', gap: 6 },
   achievementIcon: {
-    width: 64,
-    height: 64,
-    borderRadius: 20,
+    width: 64, height: 64, borderRadius: 20,
     backgroundColor: Palette.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: Palette.shadow,
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 2,
+    alignItems: 'center', justifyContent: 'center',
+    shadowColor: Palette.shadow, shadowOpacity: 0.15, shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 }, elevation: 2,
   },
   achievementLabel: { fontSize: 11, color: Palette.text, textAlign: 'center', fontWeight: '600' },
 
   // Tricky
   trickRow: { flexDirection: 'row', gap: 10, alignItems: 'center' },
   trickEmoji: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
+    width: 44, height: 44, borderRadius: 14,
     backgroundColor: Palette.primary100,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: 'center', justifyContent: 'center',
   },
   trickName: { fontSize: 14, fontWeight: '700', color: Palette.text },
 

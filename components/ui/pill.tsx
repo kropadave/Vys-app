@@ -1,10 +1,12 @@
+import type { ReactNode } from 'react';
 import { StyleSheet, Text, View, type ViewStyle } from 'react-native';
 
 import { Palette, Radius } from '@/lib/theme';
 
 type Props = {
   label: string;
-  emoji?: string;
+  /** Volitelná 3D ikona vlevo (žádné emoji). */
+  icon?: ReactNode;
   variant?: 'primary' | 'soft' | 'yellow' | 'mint' | 'pink' | 'plain';
   style?: ViewStyle | ViewStyle[];
 };
@@ -18,11 +20,11 @@ const VARIANTS: Record<NonNullable<Props['variant']>, { bg: string; fg: string }
   plain: { bg: 'rgba(124, 92, 255, 0.10)', fg: Palette.primary700 },
 };
 
-export function Pill({ label, emoji, variant = 'soft', style }: Props) {
+export function Pill({ label, icon, variant = 'soft', style }: Props) {
   const v = VARIANTS[variant];
   return (
     <View style={[styles.base, { backgroundColor: v.bg }, style as ViewStyle]}>
-      {emoji ? <Text style={styles.emoji}>{emoji}</Text> : null}
+      {icon ? <View style={styles.icon}>{icon}</View> : null}
       <Text style={[styles.label, { color: v.fg }]}>{label}</Text>
     </View>
   );
@@ -38,6 +40,6 @@ const styles = StyleSheet.create({
     gap: 6,
     alignSelf: 'flex-start',
   },
-  emoji: { fontSize: 14 },
+  icon: { width: 16, height: 16, alignItems: 'center', justifyContent: 'center' },
   label: { fontSize: 13, fontWeight: '700' },
 });

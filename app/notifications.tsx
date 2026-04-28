@@ -1,6 +1,7 @@
 import { Stack } from 'expo-router';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { BellIcon } from '@/components/icons/Icon3D';
 import { Card } from '@/components/ui/card';
 import { NOTIFICATIONS } from '@/lib/data/mock';
 import { Palette, Spacing } from '@/lib/theme';
@@ -25,6 +26,9 @@ export default function NotificationsScreen() {
         {NOTIFICATIONS.map((n) => (
           <Card key={n.id} pad={14}>
             <View style={styles.head}>
+              <View style={styles.iconBox}>
+                <BellIcon size={22} />
+              </View>
               <Text style={styles.title}>{n.title}</Text>
               {!n.read && <View style={styles.dot} />}
             </View>
@@ -39,7 +43,12 @@ export default function NotificationsScreen() {
 
 const styles = StyleSheet.create({
   container: { padding: Spacing.lg, gap: 10 },
-  head: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  head: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  iconBox: {
+    width: 36, height: 36, borderRadius: 12,
+    backgroundColor: Palette.primary100,
+    alignItems: 'center', justifyContent: 'center',
+  },
   title: { flex: 1, fontWeight: '800', color: Palette.text, fontSize: 15 },
   body: { color: Palette.text, marginTop: 4 },
   dot: { width: 10, height: 10, borderRadius: 5, backgroundColor: Palette.primary500 },

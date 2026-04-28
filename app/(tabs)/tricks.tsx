@@ -1,5 +1,12 @@
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import {
+  BoltIcon,
+  CheckIcon,
+  HourglassIcon,
+  LockIcon,
+  TargetIcon,
+} from '@/components/icons/Icon3D';
 import { Card } from '@/components/ui/card';
 import { Pill } from '@/components/ui/pill';
 import {
@@ -13,12 +20,16 @@ import { BraceletPaletteByLevel, Palette, Spacing } from '@/lib/theme';
 
 const STATUS: Record<
   TrickStatus,
-  { label: string; emoji: string; variant: 'plain' | 'soft' | 'yellow' | 'mint' | 'pink' | 'primary' }
+  {
+    label: string;
+    variant: 'plain' | 'soft' | 'yellow' | 'mint' | 'pink' | 'primary';
+    Icon: (props: { size?: number }) => React.ReactElement;
+  }
 > = {
-  locked: { label: 'Zamčeno', emoji: '🔒', variant: 'plain' },
-  available: { label: 'K tréninku', emoji: '🎯', variant: 'soft' },
-  in_progress: { label: 'Rozpracováno', emoji: '⏳', variant: 'yellow' },
-  mastered: { label: 'Zvládnuto', emoji: '✅', variant: 'mint' },
+  locked: { label: 'Zamčeno', variant: 'plain', Icon: ({ size }) => <LockIcon size={size} /> },
+  available: { label: 'K tréninku', variant: 'soft', Icon: ({ size }) => <TargetIcon size={size} /> },
+  in_progress: { label: 'Rozpracováno', variant: 'yellow', Icon: ({ size }) => <HourglassIcon size={size} /> },
+  mastered: { label: 'Zvládnuto', variant: 'mint', Icon: ({ size }) => <CheckIcon size={size} /> },
 };
 
 export default function TricksScreen() {
@@ -71,7 +82,7 @@ function TrickCard({ trick, disabled, accent }: { trick: Trick; disabled: boolea
     <Card pad={14}>
       <View style={styles.trickHead}>
         <View style={[styles.trickIcon, { backgroundColor: accent + '33' }]}>
-          <Text style={{ fontSize: 22 }}>{status.emoji}</Text>
+          <status.Icon size={32} />
         </View>
         <View style={{ flex: 1, gap: 4 }}>
           <Text style={styles.trickName}>{trick.name}</Text>
@@ -81,7 +92,7 @@ function TrickCard({ trick, disabled, accent }: { trick: Trick; disabled: boolea
         </View>
       </View>
       <View style={styles.trickFoot}>
-        <Pill label={`+${trick.xp} XP`} variant="soft" />
+        <Pill label={`+${trick.xp} XP`} variant="soft" icon={<BoltIcon size={14} />} />
         <Pill label={status.label} variant={status.variant} />
       </View>
     </Card>
@@ -97,7 +108,7 @@ const styles = StyleSheet.create({
   levelTitle: { fontSize: 16, fontWeight: '800', color: Palette.text },
   trickHead: { flexDirection: 'row', gap: 12, alignItems: 'center' },
   trickIcon: {
-    width: 48, height: 48, borderRadius: 16,
+    width: 56, height: 56, borderRadius: 16,
     alignItems: 'center', justifyContent: 'center',
   },
   trickName: { fontSize: 15, fontWeight: '700', color: Palette.text },

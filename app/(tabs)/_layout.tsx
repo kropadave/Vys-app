@@ -3,7 +3,13 @@ import React from 'react';
 import { Platform } from 'react-native';
 
 import { HapticTab } from '@/components/haptic-tab';
-import { IconSymbol } from '@/components/ui/icon-symbol';
+import {
+  BraceletTabIcon,
+  HomeTabIcon,
+  MedalTabIcon,
+  ProfileTabIcon,
+  TricksTabIcon,
+} from '@/components/icons/Icon3D';
 import { Palette, Radius, Shadow } from '@/lib/theme';
 
 export default function TabLayout() {
@@ -32,35 +38,35 @@ export default function TabLayout() {
         name="index"
         options={{
           title: 'Domů',
-          tabBarIcon: ({ color }) => <IconSymbol size={26} name="house.fill" color={color} />,
+          tabBarIcon: ({ color }) => <HomeTabIcon size={26} tint={color} />,
         }}
       />
       <Tabs.Screen
         name="tricks"
         options={{
           title: 'Triky',
-          tabBarIcon: ({ color }) => <IconSymbol size={26} name="figure.run" color={color} />,
+          tabBarIcon: ({ color }) => <TricksTabIcon size={26} tint={color} />,
         }}
       />
       <Tabs.Screen
         name="bracelet"
         options={{
           title: 'Náramek',
-          tabBarIcon: ({ color }) => <IconSymbol size={26} name="circle.hexagongrid.fill" color={color} />,
+          tabBarIcon: ({ color }) => <BraceletTabIcon size={26} tint={color} />,
         }}
       />
       <Tabs.Screen
         name="achievements"
         options={{
           title: 'Odznaky',
-          tabBarIcon: ({ color }) => <IconSymbol size={26} name="rosette" color={color} />,
+          tabBarIcon: ({ color }) => <MedalTabIcon size={26} tint={color} />,
         }}
       />
       <Tabs.Screen
         name="profile"
         options={{
           title: 'Profil',
-          tabBarIcon: ({ color }) => <IconSymbol size={26} name="person.crop.circle.fill" color={color} />,
+          tabBarIcon: ({ color }) => <ProfileTabIcon size={26} tint={color} />,
         }}
       />
       {/* Skrýt staré Explore – soubor zatím necháme, ať to nezlobí */}

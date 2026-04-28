@@ -1,5 +1,6 @@
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { BraceletIcon } from '@/components/icons/Icon3D';
 import { Card } from '@/components/ui/card';
 import { Pill } from '@/components/ui/pill';
 import {
@@ -28,12 +29,7 @@ export default function BraceletScreen() {
       <Card gradient={Gradients.hero} pad={20} radius={Radius.xl}>
         <Text style={styles.heroLabel}>Tvůj aktuální náramek</Text>
         <View style={styles.heroRow}>
-          <View
-            style={[
-              styles.bigBracelet,
-              { backgroundColor: palette.main, borderColor: 'rgba(255,255,255,0.6)' },
-            ]}
-          />
+          <BraceletIcon size={92} tint={palette.main} />
           <View style={{ flex: 1 }}>
             <Text style={styles.heroTitle}>{BRACELET_LEVELS[p.currentBraceletLevel - 1].name}</Text>
             <Text style={styles.heroSub}>{p.xp} XP</Text>
@@ -66,14 +62,14 @@ function LevelRow({
   return (
     <Card pad={14}>
       <View style={styles.row}>
-        <View style={[styles.bracelet, { backgroundColor: palette.main }]} />
+        <BraceletIcon size={48} tint={palette.main} />
         <View style={{ flex: 1, gap: 4 }}>
           <View style={styles.headRow}>
             <Text style={styles.levelTitle}>
               {level.id}. {level.name}
             </Text>
             <Pill
-              label={reached ? '✓ dosaženo' : `${level.xpRequired} XP`}
+              label={reached ? 'Dosaženo' : `${level.xpRequired} XP`}
               variant={reached ? 'mint' : 'plain'}
             />
           </View>
@@ -96,10 +92,8 @@ const styles = StyleSheet.create({
   heroRow: { flexDirection: 'row', alignItems: 'center', gap: 16, marginTop: 12 },
   heroTitle: { color: '#fff', fontSize: 28, fontWeight: '800' },
   heroSub: { color: 'rgba(255,255,255,0.85)' },
-  bigBracelet: { width: 76, height: 76, borderRadius: 38, borderWidth: 5 },
   row: { flexDirection: 'row', gap: 12, alignItems: 'center' },
   headRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  bracelet: { width: 36, height: 36, borderRadius: 18 },
   levelTitle: { flex: 1, fontSize: 16, fontWeight: '800', color: Palette.text },
   muted: { color: Palette.textMuted, fontSize: 12 },
 });

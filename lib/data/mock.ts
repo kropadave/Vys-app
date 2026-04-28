@@ -177,11 +177,13 @@ export const TRICKS: Trick[] = [
   },
 ];
 
+import type { IconKey } from '@/components/icons/Icon3D';
+
 export type Achievement = {
   id: string;
   name: string;
   description: string;
-  icon: string; // emoji jako placeholder
+  icon: IconKey;
   unlocked: boolean;
   reward?: {
     type: 'discount' | 'badge' | 'merch';
@@ -194,7 +196,7 @@ export const ACHIEVEMENTS: Achievement[] = [
     id: 'first-trick',
     name: 'První trik',
     description: 'Zvládl jsi svůj první trik.',
-    icon: '🎯',
+    icon: 'target',
     unlocked: true,
     reward: { type: 'badge', label: 'Odznak Začátečník' },
   },
@@ -202,7 +204,7 @@ export const ACHIEVEMENTS: Achievement[] = [
     id: 'five-tricks',
     name: '5 zvládnutých triků',
     description: 'Naučil ses 5 triků.',
-    icon: '⭐',
+    icon: 'star',
     unlocked: false,
     reward: { type: 'discount', label: '10 % sleva na workshop' },
   },
@@ -210,7 +212,7 @@ export const ACHIEVEMENTS: Achievement[] = [
     id: 'ten-tricks',
     name: '10 zvládnutých triků',
     description: 'Naučil ses 10 triků.',
-    icon: '🏅',
+    icon: 'medal',
     unlocked: false,
     reward: { type: 'discount', label: '20 % sleva na workshop' },
   },
@@ -218,14 +220,14 @@ export const ACHIEVEMENTS: Achievement[] = [
     id: 'first-camp',
     name: 'Letní tábor',
     description: 'Zúčastnil ses tábora TeamVYS.',
-    icon: '🏕️',
+    icon: 'tent',
     unlocked: true,
   },
   {
     id: 'streak-10',
     name: '10 tréninků v řadě',
     description: 'Nevynechal jsi 10 tréninků za sebou.',
-    icon: '🔥',
+    icon: 'flame',
     unlocked: false,
     reward: { type: 'merch', label: 'TeamVYS tričko zdarma' },
   },
