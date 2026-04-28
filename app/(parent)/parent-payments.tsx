@@ -1,4 +1,5 @@
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
 
 import { ParentCard, StatusPill } from '@/components/parent-card';
 import { duePaymentsTotal, parentPayments, paymentStatusLabel } from '@/lib/parent-content';
@@ -6,6 +7,7 @@ import { Palette, Radius, Spacing } from '@/lib/theme';
 
 export default function ParentPayments() {
   const total = duePaymentsTotal();
+  const [checkoutReady, setCheckoutReady] = useState(false);
 
   return (
     <ScrollView style={styles.page} contentContainerStyle={styles.container}>
@@ -16,9 +18,18 @@ export default function ParentPayments() {
       <ParentCard title="K úhradě">
         <Text style={styles.total}>{total} Kč</Text>
         <Text style={styles.muted}>{total === 0 ? 'Vše je zaplaceno.' : 'Připraveno pro budoucí Stripe platbu.'}</Text>
-        <Pressable disabled style={styles.payButton}>
-          <Text style={styles.payButtonText}>Zaplatit přes Stripe · připravujeme</Text>
+        <Pressable
+          disabled={total === 0}
+          onPress={() => setCheckoutReady(true)}
+          style={({ pressed }) => [styles.payButton, total === 0 && styles.payButtonDisabled, pressed && { opacity: 0.86 }]}>
+          <Text style={styles.payButtonText}>{total === 0 ? 'Není co platit' : 'Pokračovat k platbě přes Stripe'}</Text>
         </Pressable>
+        {checkoutReady && (
+          <View style={styles.checkoutBox}>
+            <Text style={styles.checkoutTitle}>Produkt je připravený k objednávce.</Text>
+            <Text style={styles.muted}>V dalším kroku sem napojíme skutečný Stripe checkout.</Text>
+          </View>
+        )}
       </ParentCard>
 
       {parentPayments.map((payment) => (
@@ -51,12 +62,21 @@ const styles = StyleSheet.create({
   payButton: {
     alignSelf: 'flex-start',
     backgroundColor: Palette.primaryDark,
-    opacity: 0.68,
     borderRadius: Radius.pill,
     paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.md,
   },
+  payButtonDisabled: { opacity: 0.48 },
   payButtonText: { color: '#fff', fontWeight: '900' },
+  checkoutBox: {
+    backgroundColor: Palette.primarySoft,
+    borderColor: Palette.primaryDark,
+    borderWidth: 1,
+    borderRadius: Radius.lg,
+    padding: Spacing.lg,
+    gap: 5,
+  },
+  checkoutTitle: { color: Palette.text, fontSize: 16, fontWeight: '900' },
   paymentRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.md, alignItems: 'center' },
   paymentTitle: { color: Palette.text, fontSize: 18, fontWeight: '900' },
   amountBox: { gap: Spacing.sm, alignItems: 'flex-start' },
