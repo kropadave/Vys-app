@@ -1,0 +1,1 @@
+export const DEV_BYPASS_AUTH = process.env.NEXT_PUBLIC_DEV_BYPASS_AUTH !== 'false';
