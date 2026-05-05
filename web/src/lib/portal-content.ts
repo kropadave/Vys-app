@@ -125,6 +125,157 @@ export type AdminCoachDppDocument = {
   clauses: string[];
 };
 
+export type SharedTrainingSlot = {
+  id: string;
+  activityType: ActivityType;
+  day: string;
+  time: string;
+  place: string;
+  group: string;
+  regularCoachId: string;
+  regularCoachName: string;
+  assignedCoachId?: string;
+  assignedCoachName?: string;
+  secondCoachId?: string;
+  secondCoachName?: string;
+  releasedBy?: string;
+  releaseReason?: string;
+  updatedAt: string;
+};
+
+export type WorkshopCity = 'Brno' | 'Praha' | 'Ostrava';
+export type WorkshopCoachRef = { coachId: string; coachName: string };
+export type WorkshopSlot = {
+  id: string;
+  date: string; // Saturday ISO date
+  dateTo: string; // Sunday ISO date
+  time: string;
+  city: WorkshopCity;
+  venue: string;
+  coaches: WorkshopCoachRef[];
+  maxCoaches: number;
+  notes?: string;
+  updatedAt: string;
+};
+
+export const WORKSHOP_HOURLY_RATE = 750;
+export const WORKSHOP_MAX_COACHES = 4;
+
+export type CampCoachRef = { coachId: string; coachName: string };
+export type CampTurnus = {
+  id: string;
+  campId: string;
+  campTitle: string;
+  city: string;
+  venue: string;
+  dateFrom: string;
+  dateTo: string;
+  durationDays: number;
+  coaches: CampCoachRef[];
+  maxCoaches: number;
+};
+
+export const CAMP_DAILY_RATE = 1500;
+export const CAMP_MAX_COACHES = 3;
+
+export const campTurnusy: CampTurnus[] = [
+  {
+    id: 'camp-vyskov-orel-2026-t1',
+    campId: 'camp-vyskov-orel',
+    campTitle: 'Příměstský tábor Vyškov',
+    city: 'Vyškov',
+    venue: 'Orel jednota Vyškov',
+    dateFrom: '2026-07-13',
+    dateTo: '2026-07-17',
+    durationDays: 5,
+    coaches: [
+      { coachId: 'coach-demo', coachName: 'Filip Trenér' },
+      { coachId: 'coach-tereza', coachName: 'Tereza Novotná' },
+    ],
+    maxCoaches: 3,
+  },
+  {
+    id: 'camp-vyskov-orel-2026-t2',
+    campId: 'camp-vyskov-orel',
+    campTitle: 'Příměstský tábor Vyškov',
+    city: 'Vyškov',
+    venue: 'Orel jednota Vyškov',
+    dateFrom: '2026-08-10',
+    dateTo: '2026-08-14',
+    durationDays: 5,
+    coaches: [],
+    maxCoaches: 3,
+  },
+  {
+    id: 'camp-veliny-mlynek-2026-t1',
+    campId: 'camp-veliny-mlynek',
+    campTitle: 'Příměstský tábor Veliny',
+    city: 'Veliny',
+    venue: 'Tábor Mlýnek',
+    dateFrom: '2026-07-20',
+    dateTo: '2026-07-24',
+    durationDays: 5,
+    coaches: [
+      { coachId: 'coach-anna', coachName: 'Anna Králová' },
+    ],
+    maxCoaches: 3,
+  },
+  {
+    id: 'camp-veliny-mlynek-2026-t2',
+    campId: 'camp-veliny-mlynek',
+    campTitle: 'Příměstský tábor Veliny',
+    city: 'Veliny',
+    venue: 'Tábor Mlýnek',
+    dateFrom: '2026-07-27',
+    dateTo: '2026-07-31',
+    durationDays: 5,
+    coaches: [
+      { coachId: 'coach-marek', coachName: 'Marek Hlaváč' },
+    ],
+    maxCoaches: 3,
+  },
+];
+
+const WORKSHOP_VENUES: Record<WorkshopCity, string[]> = {
+  Brno: ['Sportovní hala Vodova', 'TJ Sokol Brno-Líšeň', 'Sportovní centrum Omega Brno'],
+  Praha: ['Hala Strahov', 'TJ Sokol Vinohrady', 'Sportovní centrum Chodov Praha'],
+  Ostrava: ['Hala Poruba', 'TJ Sokol Zábřeh Ostrava', 'Sportovní hala Vítkovice'],
+};
+const WS_CITY_CYCLE: WorkshopCity[] = ['Brno', 'Praha', 'Ostrava'];
+const WS_SEEDED: Record<string, { coaches: WorkshopCoachRef[]; notes?: string }> = {
+  '2025-11-08': { coaches: [{ coachId: 'coach-demo', coachName: 'Filip Trenér' }, { coachId: 'coach-anna', coachName: 'Anna Králová' }, { coachId: 'coach-marek', coachName: 'Marek Hlaváč' }, { coachId: 'coach-tereza', coachName: 'Tereza Novotná' }] },
+  '2025-11-22': { coaches: [{ coachId: 'coach-anna', coachName: 'Anna Králová' }, { coachId: 'coach-tereza', coachName: 'Tereza Novotná' }] },
+  '2025-12-06': { coaches: [{ coachId: 'coach-marek', coachName: 'Marek Hlaváč' }, { coachId: 'coach-anna', coachName: 'Anna Králová' }, { coachId: 'coach-demo', coachName: 'Filip Trenér' }] },
+  '2026-01-24': { coaches: [{ coachId: 'coach-demo', coachName: 'Filip Trenér' }, { coachId: 'coach-anna', coachName: 'Anna Králová' }, { coachId: 'coach-tereza', coachName: 'Tereza Novotná' }, { coachId: 'coach-marek', coachName: 'Marek Hlaváč' }] },
+  '2026-02-14': { coaches: [{ coachId: 'coach-demo', coachName: 'Filip Trenér' }] },
+  '2026-04-18': { coaches: [{ coachId: 'coach-anna', coachName: 'Anna Králová' }, { coachId: 'coach-tereza', coachName: 'Tereza Novotná' }], notes: 'Speciální workshopový den – junior soustředění' },
+  '2026-05-09': { coaches: [{ coachId: 'coach-demo', coachName: 'Filip Trenér' }, { coachId: 'coach-marek', coachName: 'Marek Hlaváč' }, { coachId: 'coach-anna', coachName: 'Anna Králová' }, { coachId: 'coach-tereza', coachName: 'Tereza Novotná' }] },
+  '2026-06-06': { coaches: [{ coachId: 'coach-demo', coachName: 'Filip Trenér' }, { coachId: 'coach-anna', coachName: 'Anna Králová' }] },
+};
+function generateWeekendWorkshopSlots(): WorkshopSlot[] {
+  const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const slots: WorkshopSlot[] = [];
+  const cur = new Date(2025, 9, 1);
+  const end = new Date(2026, 5, 30);
+  let idx = 0;
+  while (cur <= end) {
+    if (cur.getDay() === 6) { // Saturdays only — workshop is the whole weekend
+      const dateStr = fmt(cur);
+      const sun = new Date(cur); sun.setDate(sun.getDate() + 1);
+      const dateToStr = fmt(sun);
+      const city = WS_CITY_CYCLE[idx % 3];
+      const venueList = WORKSHOP_VENUES[city];
+      const venue = venueList[Math.floor(idx / 3) % venueList.length];
+      const seeded = WS_SEEDED[dateStr];
+      slots.push({ id: `ws-${city.toLowerCase()}-${dateStr}`, date: dateStr, dateTo: dateToStr, time: '13:00 - 17:00', city, venue, coaches: seeded?.coaches ?? [], maxCoaches: 4, notes: seeded?.notes, updatedAt: seeded ? dateStr.split('-').reverse().join('.') : '' });
+      idx++;
+    }
+    cur.setDate(cur.getDate() + 1);
+  }
+  return slots;
+}
+export const workshopCalendar = generateWeekendWorkshopSlots();
+
 export const requiredDocumentTemplates: RequiredDocumentTemplate[] = [
   { kind: 'gdpr', title: 'GDPR souhlas', description: 'Souhlas se zpracováním osobních údajů dítěte a zákonného zástupce.', requiredFor: ['Krouzek', 'Tabor', 'Workshop'] },
   { kind: 'guardian-consent', title: 'Souhlas zákonného zástupce', description: 'Potvrzení účasti na aktivitě, pravidel TeamVYS a odpovědné osoby.', requiredFor: ['Krouzek', 'Tabor'] },
@@ -332,7 +483,7 @@ export const parentAttendanceHistory = [
 
 export const parentDocuments: ParentDocument[] = [
   { id: 'doc-course-gdpr', participantName: 'Eliška Nováková', activityTitle: 'Permanentka 10 vstupů · Vyškov', activityType: 'Krouzek', title: 'GDPR souhlas', status: 'signed', updatedAt: '24. 4. 2026' },
-  { id: 'doc-course-health', participantName: 'Eliška Nováková', activityTitle: 'Permanentka 10 vstupů · Vyškov', activityType: 'Krouzek', title: 'Zdravotní informace', status: 'draft', updatedAt: 'Čeká na rodiče' },
+  { id: 'doc-course-health', participantName: 'Eliška Nováková', activityTitle: 'Permanentka 10 vstupů · Vyškov', activityType: 'Krouzek', title: 'Zdravotní informace', status: 'signed', updatedAt: '24. 4. 2026' },
   { id: 'doc-camp-gdpr', participantName: 'Eliška Nováková', activityTitle: 'Příměstský tábor Vyškov', activityType: 'Tabor', title: 'GDPR souhlas', status: 'signed', updatedAt: '25. 4. 2026' },
 ];
 
@@ -351,6 +502,16 @@ export const adminCoachSummaries: AdminCoachSummary[] = [
   { id: 'coach-marek', name: 'Marek Hlaváč', email: 'marek@teamvys.cz', phone: '+420 777 904 118', bankAccount: '2201849034/5500', iban: 'CZ28 5500 0000 0022 0184 9034', status: 'Aktivni', locations: ['Blansko · ZS Erbenova', 'Jesenik · Gymnazium Komenskeho'], loggedHours: 7.5, baseAmount: 3750, approvedBonuses: 1000, pendingBonuses: 0, nextPayout: '15. 5. 2026', lastAttendance: '29. 4. 2026', childrenLogged: 38, qrTricksApproved: 126, profilePhotoUrl: '/vys-logo-mark.png' },
   { id: 'coach-anna', name: 'Anna Králová', email: 'anna@teamvys.cz', phone: '+420 775 441 903', bankAccount: '2500441903/0800', iban: 'CZ40 0800 0000 0025 0044 1903', status: 'Aktivni', locations: ['Brandys · ZS Na Vysluni', 'Praha · Balkan'], loggedHours: 5, baseAmount: 2500, approvedBonuses: 300, pendingBonuses: 0, nextPayout: '15. 5. 2026', lastAttendance: '28. 4. 2026', childrenLogged: 24, qrTricksApproved: 97, profilePhotoUrl: '/vys-logo-mark.png' },
   { id: 'coach-tereza', name: 'Tereza Novotná', email: 'tereza@teamvys.cz', phone: '+420 733 210 665', bankAccount: '2107330665/2700', iban: 'CZ41 2700 0000 0021 0733 0665', status: 'Ceka na klic', locations: ['Vyskov · Orel jednota Vyskov', 'Veliny · Tabor Mlynek'], loggedHours: 0, baseAmount: 0, approvedBonuses: 0, pendingBonuses: 0, nextPayout: 'Po aktivaci', lastAttendance: 'Zatim netrenovala', childrenLogged: 0, qrTricksApproved: 0, profilePhotoUrl: '/vys-logo-mark.png' },
+];
+
+export const sharedTrainingCalendar: SharedTrainingSlot[] = [
+  { id: 'slot-vyskov-purkynova', activityType: 'Krouzek', day: 'Pondělí', time: '15:30 - 16:30', place: 'Vyškov · ZŠ Purkyňova', group: 'Mladší skupina', regularCoachId: 'coach-demo', regularCoachName: 'Filip Trenér', assignedCoachId: 'coach-demo', assignedCoachName: 'Filip Trenér', secondCoachId: 'coach-anna', secondCoachName: 'Anna Králová', updatedAt: 'pravidelně' },
+  { id: 'slot-blansko-erbenova', activityType: 'Krouzek', day: 'Úterý', time: '17:30 - 18:30', place: 'Blansko · ZŠ Erbenova', group: 'Začátečníci', regularCoachId: 'coach-marek', regularCoachName: 'Marek Hlaváč', assignedCoachId: 'coach-marek', assignedCoachName: 'Marek Hlaváč', updatedAt: 'pravidelně' },
+  { id: 'slot-brandys-vysluni', activityType: 'Krouzek', day: 'Úterý / Čtvrtek', time: '17:00 - 18:00', place: 'Brandýs · ZŠ Na Výsluní', group: 'Mix level', regularCoachId: 'coach-anna', regularCoachName: 'Anna Králová', assignedCoachId: 'coach-anna', assignedCoachName: 'Anna Králová', secondCoachId: 'coach-tereza', secondCoachName: 'Tereza Novotná', updatedAt: 'pravidelně' },
+  { id: 'slot-vyskov-nadrazni', activityType: 'Krouzek', day: 'Středa', time: '16:30 - 17:30', place: 'Vyškov · ZŠ Nádražní', group: 'Začátečníci 8-12', regularCoachId: 'coach-demo', regularCoachName: 'Filip Trenér', assignedCoachId: 'coach-demo', assignedCoachName: 'Filip Trenér', secondCoachId: 'coach-marek', secondCoachName: 'Marek Hlaváč', updatedAt: 'pravidelně' },
+  { id: 'slot-jesenik-komenskeho', activityType: 'Krouzek', day: 'Pátek', time: '18:00 - 19:00', place: 'Jeseník · Gymnázium Komenského', group: 'Pokročilí', regularCoachId: 'coach-marek', regularCoachName: 'Marek Hlaváč', releasedBy: 'Marek Hlaváč', releaseReason: 'Marek nahlásil, že v pátek nemůže dorazit.', updatedAt: 'dnes 09:20' },
+  { id: 'slot-prostejov-melantrichova', activityType: 'Krouzek', day: 'Sobota', time: '10:00 - 11:00', place: 'Prostějov · ZŠ Melantrichova', group: 'Mix level', regularCoachId: 'coach-demo', regularCoachName: 'Filip Trenér', assignedCoachId: 'coach-demo', assignedCoachName: 'Filip Trenér', updatedAt: 'pravidelně' },
+  { id: 'slot-vyskov-orel', activityType: 'Krouzek', day: 'Neděle', time: '11:00 - 12:00', place: 'Vyškov · Orel jednota Vyškov', group: 'Pokročilí', regularCoachId: 'coach-tereza', regularCoachName: 'Tereza Novotná', assignedCoachId: 'coach-tereza', assignedCoachName: 'Tereza Novotná', updatedAt: 'pravidelně' },
 ];
 
 export const coachDppTemplateClauses = [
@@ -558,3 +719,112 @@ export function documentStats() {
   const missing = parentDocuments.filter((document) => document.status !== 'signed').length;
   return { signed, missing, total: parentDocuments.length };
 }
+
+export type WorkshopCoachTrickCount = { coachId: string; coachName: string; count: number };
+export type WorkshopAttendanceRecord = {
+  slotId: string;
+  attendees: number;
+  participants: string[];
+  coachTrickCounts: WorkshopCoachTrickCount[];
+};
+
+export const workshopAttendanceRecords: WorkshopAttendanceRecord[] = [
+  {
+    slotId: 'ws-ostrava-2025-11-08',
+    attendees: 31,
+    participants: ['Jakub N.', 'Eliška K.', 'Tomáš P.', 'Martin S.', 'Klára M.', 'Ondřej B.', 'Tereza V.', 'Michal H.', 'Adéla R.', 'Jan Č.', 'Barbora F.', 'Adam D.', 'Petra N.', 'David L.', 'Zuzana T.', 'Jiří K.', 'Veronika P.', 'Natálie O.', 'Filip S.', 'Lenka H.', 'Pavel M.', 'Anežka B.', 'Václav Č.', 'Simona R.', 'Radek K.', 'Lucie V.', 'Miroslav D.', 'Eva P.', 'Jana H.', 'Lukáš R.', 'Karolína T.'],
+    coachTrickCounts: [
+      { coachId: 'coach-demo', coachName: 'Filip Trenér', count: 19 },
+      { coachId: 'coach-anna', coachName: 'Anna Králová', count: 15 },
+      { coachId: 'coach-marek', coachName: 'Marek Hlaváč', count: 14 },
+      { coachId: 'coach-tereza', coachName: 'Tereza Novotná', count: 10 },
+    ],
+  },
+  {
+    slotId: 'ws-praha-2025-11-22',
+    attendees: 22,
+    participants: ['Jakub N.', 'Tomáš P.', 'Klára M.', 'Tereza V.', 'Michal H.', 'Jan Č.', 'Adam D.', 'David L.', 'Jiří K.', 'Veronika P.', 'Filip S.', 'Pavel M.', 'Václav Č.', 'Radek K.', 'Lucie V.', 'Eva P.', 'Lukáš R.', 'Ondřej B.', 'Martin S.', 'Barbora F.', 'Natálie O.', 'Lenka H.'],
+    coachTrickCounts: [
+      { coachId: 'coach-anna', coachName: 'Anna Králová', count: 17 },
+      { coachId: 'coach-tereza', coachName: 'Tereza Novotná', count: 12 },
+    ],
+  },
+  {
+    slotId: 'ws-brno-2025-12-06',
+    attendees: 27,
+    participants: ['Jakub N.', 'Eliška K.', 'Tomáš P.', 'Martin S.', 'Ondřej B.', 'Tereza V.', 'Jan Č.', 'Barbora F.', 'Adam D.', 'David L.', 'Jiří K.', 'Filip S.', 'Pavel M.', 'Václav Č.', 'Radek K.', 'Lucie V.', 'Eva P.', 'Jana H.', 'Lukáš R.', 'Karolína T.', 'Simona R.', 'Adéla R.', 'Natálie O.', 'Lenka H.', 'Zuzana T.', 'Michal H.', 'Petra N.'],
+    coachTrickCounts: [
+      { coachId: 'coach-marek', coachName: 'Marek Hlaváč', count: 16 },
+      { coachId: 'coach-anna', coachName: 'Anna Králová', count: 15 },
+      { coachId: 'coach-demo', coachName: 'Filip Trenér', count: 12 },
+    ],
+  },
+  {
+    slotId: 'ws-praha-2026-01-24',
+    attendees: 34,
+    participants: ['Jakub N.', 'Eliška K.', 'Tomáš P.', 'Martin S.', 'Klára M.', 'Ondřej B.', 'Tereza V.', 'Michal H.', 'Adéla R.', 'Jan Č.', 'Barbora F.', 'Adam D.', 'Petra N.', 'David L.', 'Zuzana T.', 'Jiří K.', 'Veronika P.', 'Natálie O.', 'Filip S.', 'Lenka H.', 'Pavel M.', 'Anežka B.', 'Václav Č.', 'Simona R.', 'Radek K.', 'Lucie V.', 'Miroslav D.', 'Eva P.', 'Jana H.', 'Lukáš R.', 'Karolína T.', 'Petr M.', 'Markéta H.', 'Josef K.'],
+    coachTrickCounts: [
+      { coachId: 'coach-demo', coachName: 'Filip Trenér', count: 18 },
+      { coachId: 'coach-anna', coachName: 'Anna Králová', count: 16 },
+      { coachId: 'coach-tereza', coachName: 'Tereza Novotná', count: 15 },
+      { coachId: 'coach-marek', coachName: 'Marek Hlaváč', count: 12 },
+    ],
+  },
+  {
+    slotId: 'ws-praha-2026-02-14',
+    attendees: 18,
+    participants: ['Jakub N.', 'Tomáš P.', 'Klára M.', 'Tereza V.', 'Jan Č.', 'Adam D.', 'Jiří K.', 'Filip S.', 'Pavel M.', 'Václav Č.', 'Radek K.', 'Eva P.', 'Lukáš R.', 'Ondřej B.', 'Barbora F.', 'Natálie O.', 'Lenka H.', 'Zuzana T.'],
+    coachTrickCounts: [
+      { coachId: 'coach-demo', coachName: 'Filip Trenér', count: 22 },
+    ],
+  },
+  {
+    slotId: 'ws-praha-2026-04-18',
+    attendees: 24,
+    participants: ['Jakub N.', 'Eliška K.', 'Tomáš P.', 'Tereza V.', 'Michal H.', 'Jan Č.', 'Adam D.', 'David L.', 'Jiří K.', 'Veronika P.', 'Filip S.', 'Pavel M.', 'Václav Č.', 'Radek K.', 'Lucie V.', 'Eva P.', 'Lukáš R.', 'Karolína T.', 'Martin S.', 'Ondřej B.', 'Barbora F.', 'Natálie O.', 'Simona R.', 'Lenka H.'],
+    coachTrickCounts: [
+      { coachId: 'coach-anna', coachName: 'Anna Králová', count: 21 },
+      { coachId: 'coach-tereza', coachName: 'Tereza Novotná', count: 17 },
+    ],
+  },
+];
+
+export type CourseEnrollment = { courseId: string; participants: Array<{ name: string; remaining: number }> };
+export const courseEnrollments: CourseEnrollment[] = [
+  {
+    courseId: 'course-blansko-erbenova',
+    participants: [
+      { name: 'Jakub Nováček', remaining: 8 }, { name: 'Tereza Procházková', remaining: 5 }, { name: 'Martin Kratochvíl', remaining: 10 }, { name: 'Klára Šimáčková', remaining: 3 }, { name: 'Adam Bartoš', remaining: 7 }, { name: 'Veronika Hrubá', remaining: 9 }, { name: 'Filip Sedláček', remaining: 6 }, { name: 'Lenka Horáková', remaining: 2 }, { name: 'David Lukáš', remaining: 8 }, { name: 'Zuzana Tichá', remaining: 10 }, { name: 'Jiří Kovář', remaining: 4 }, { name: 'Natálie Obrová', remaining: 7 },
+    ],
+  },
+  {
+    courseId: 'course-brandys-vysluni',
+    participants: [
+      { name: 'Tomáš Polívka', remaining: 9 }, { name: 'Eliška Krejčí', remaining: 6 }, { name: 'Ondřej Bláha', remaining: 10 }, { name: 'Michal Houžvička', remaining: 4 }, { name: 'Adéla Richterová', remaining: 8 }, { name: 'Jan Čech', remaining: 7 }, { name: 'Barbora Fantová', remaining: 3 }, { name: 'Petra Navrátilová', remaining: 10 }, { name: 'Václav Čermák', remaining: 5 }, { name: 'Simona Řezáčová', remaining: 9 }, { name: 'Radek Kříž', remaining: 6 }, { name: 'Lucie Vlčková', remaining: 8 }, { name: 'Pavel Matoušek', remaining: 2 }, { name: 'Eva Procházková', remaining: 10 }, { name: 'Jana Horová', remaining: 7 }, { name: 'Lukáš Rybář', remaining: 5 }, { name: 'Karolína Tůmová', remaining: 9 }, { name: 'Petr Müller', remaining: 3 },
+    ],
+  },
+  {
+    courseId: 'course-jesenik-komenskeho',
+    participants: [
+      { name: 'Jakub Nováček', remaining: 7 }, { name: 'Martin Kratochvíl', remaining: 10 }, { name: 'Filip Sedláček', remaining: 5 }, { name: 'Tereza Procházková', remaining: 8 }, { name: 'Ondřej Bláha', remaining: 4 }, { name: 'Klára Šimáčková', remaining: 9 }, { name: 'Adam Bartoš', remaining: 6 }, { name: 'Lenka Horáková', remaining: 10 }, { name: 'David Lukáš', remaining: 3 },
+    ],
+  },
+  {
+    courseId: 'course-prostejov-melantrichova',
+    participants: [
+      { name: 'Alex Svoboda', remaining: 8 }, { name: 'Eliška Krejčí', remaining: 6 }, { name: 'Tomáš Polívka', remaining: 10 }, { name: 'Michal Houžvička', remaining: 4 }, { name: 'Barbora Fantová', remaining: 9 }, { name: 'Jan Čech', remaining: 7 }, { name: 'Jiří Kovář', remaining: 5 }, { name: 'Veronika Hrubá', remaining: 10 }, { name: 'Natálie Obrová', remaining: 3 }, { name: 'Lenka Horáková', remaining: 8 }, { name: 'Václav Čermák', remaining: 6 }, { name: 'Simona Řezáčová', remaining: 9 }, { name: 'David Lukáš', remaining: 2 }, { name: 'Adéla Richterová', remaining: 7 },
+    ],
+  },
+  {
+    courseId: 'course-vyskov-nadrazni',
+    participants: [
+      { name: 'Eliška Nováková', remaining: 6 }, { name: 'Jakub Nováček', remaining: 9 }, { name: 'Klára Šimáčková', remaining: 4 }, { name: 'Martin Kratochvíl', remaining: 10 }, { name: 'Tereza Procházková', remaining: 7 }, { name: 'Adam Bartoš', remaining: 5 }, { name: 'Ondřej Bláha', remaining: 8 }, { name: 'Filip Sedláček', remaining: 3 }, { name: 'Lucie Vlčková', remaining: 10 }, { name: 'Pavel Matoušek', remaining: 6 }, { name: 'Jan Čech', remaining: 9 }, { name: 'Barbora Fantová', remaining: 4 }, { name: 'Radek Kříž', remaining: 7 }, { name: 'Eva Procházková', remaining: 10 }, { name: 'Petra Navrátilová', remaining: 5 }, { name: 'Lukáš Rybář', remaining: 8 }, { name: 'Jana Horová', remaining: 2 },
+    ],
+  },
+  {
+    courseId: 'course-vyskov-purkynova',
+    participants: [
+      { name: 'Tomáš Polívka', remaining: 9 }, { name: 'Michal Houžvička', remaining: 5 }, { name: 'Adéla Richterová', remaining: 8 }, { name: 'Jiří Kovář', remaining: 3 }, { name: 'Veronika Hrubá', remaining: 10 }, { name: 'Simona Řezáčová', remaining: 6 }, { name: 'Václav Čermák', remaining: 9 }, { name: 'Natálie Obrová', remaining: 4 }, { name: 'Karolína Tůmová', remaining: 7 }, { name: 'David Lukáš', remaining: 10 }, { name: 'Zuzana Tichá', remaining: 5 },
+    ],
+  },
+];
