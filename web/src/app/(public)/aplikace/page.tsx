@@ -2,9 +2,8 @@
 
 import { motion } from 'framer-motion';
 import { Apple, Bell, Check, Download, Fingerprint, QrCode, Smartphone, Sparkles, Trophy } from 'lucide-react';
+import Image from 'next/image';
 import Link from 'next/link';
-
-import { TeamVysLogo } from '@/components/brand/team-vys-logo';
 
 const easeBrand = [0.22, 1, 0.36, 1] as const;
 
@@ -108,40 +107,36 @@ export default function AplikacePage() {
             initial={{ opacity: 0, scale: 0.92 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ duration: 0.7, ease: easeBrand, delay: 0.1 }}
-            className="relative mx-auto w-full max-w-[360px]"
+            className="relative mx-auto w-full max-w-[300px] lg:max-w-[320px]"
           >
-            <div className="relative rounded-[42px] border border-brand-ink/10 bg-gradient-to-b from-brand-ink to-[#241733] p-3 shadow-brand-float">
-              <div className="relative overflow-hidden rounded-[34px] bg-gradient-to-br from-brand-purple via-brand-pink to-brand-orange p-6 text-white">
-                <div className="absolute -right-12 -top-16 h-48 w-48 rounded-full bg-white/15 blur-2xl" />
-                <div className="absolute -bottom-20 -left-10 h-44 w-44 rounded-full bg-brand-cyan/30 blur-2xl" />
-                <div className="relative z-10 flex items-center gap-3">
-                  <TeamVysLogo size={28} />
-                  <span className="text-sm font-black uppercase tracking-wider">TeamVYS</span>
-                </div>
-                <div className="relative z-10 mt-8 space-y-4">
-                  <div className="rounded-2xl bg-white/15 p-4 backdrop-blur-md">
-                    <p className="text-xs font-black uppercase tracking-wider opacity-80">Účastník</p>
-                    <p className="mt-1 text-2xl font-black">Eliška Nováková</p>
-                    <p className="text-xs font-bold opacity-80">Růžová · level 7 · 920 XP</p>
-                  </div>
-                  <div className="rounded-2xl bg-white/15 p-4 backdrop-blur-md">
-                    <p className="text-xs font-black uppercase tracking-wider opacity-80">Permanentka</p>
-                    <p className="mt-1 text-base font-black">6 / 10 vstupů</p>
-                    <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/25">
-                      <motion.div
-                        initial={{ width: 0 }}
-                        animate={{ width: '60%' }}
-                        transition={{ duration: 1.4, ease: easeBrand, delay: 0.4 }}
-                        className="h-full rounded-full bg-white"
-                      />
-                    </div>
-                  </div>
-                  <div className="rounded-2xl bg-white/15 p-4 backdrop-blur-md">
-                    <p className="text-xs font-black uppercase tracking-wider opacity-80">Další trénink</p>
-                    <p className="mt-1 text-base font-black">Středa 16:30</p>
-                    <p className="text-xs font-bold opacity-80">Vyškov · ZŠ Nádražní</p>
-                  </div>
-                </div>
+            {/* Volume up */}
+            <div className="absolute -left-[5px] top-[108px] h-[34px] w-[5px] rounded-l-[3px] bg-[#1a1a1a]" aria-hidden="true" />
+            {/* Volume down */}
+            <div className="absolute -left-[5px] top-[152px] h-[34px] w-[5px] rounded-l-[3px] bg-[#1a1a1a]" aria-hidden="true" />
+            {/* Silent switch */}
+            <div className="absolute -left-[5px] top-[66px] h-[30px] w-[5px] rounded-l-[3px] bg-[#1a1a1a]" aria-hidden="true" />
+            {/* Power button */}
+            <div className="absolute -right-[5px] top-[124px] h-[64px] w-[5px] rounded-r-[3px] bg-[#1a1a1a]" aria-hidden="true" />
+
+            {/* Phone body */}
+            <div className="relative rounded-[44px] bg-[#0f0f0f] p-[10px] shadow-[0_40px_80px_rgba(0,0,0,0.50),0_0_0_1px_rgba(255,255,255,0.08)]">
+              {/* Inner bezel edge */}
+              <div className="relative overflow-hidden rounded-[36px] bg-white shadow-[inset_0_0_0_1px_rgba(0,0,0,0.12)]">
+                {/* Dynamic Island */}
+                <div className="pointer-events-none absolute left-1/2 top-3 z-20 h-[30px] w-[120px] -translate-x-1/2 rounded-full bg-black shadow-[0_4px_14px_rgba(0,0,0,0.60)]" />
+                {/* Screen content */}
+                <Image
+                  src="/app-home-iphone-screen.png"
+                  alt="Ukázka účastnické obrazovky aplikace TeamVYS v iPhonu"
+                  width={390}
+                  height={844}
+                  priority
+                  sizes="(min-width: 1024px) 320px, 80vw"
+                  className="block w-full rounded-[36px]"
+                  style={{ display: 'block' }}
+                />
+                {/* Screen gloss */}
+                <div className="pointer-events-none absolute inset-0 rounded-[36px] bg-gradient-to-b from-white/[0.04] to-transparent" />
               </div>
             </div>
           </motion.div>
