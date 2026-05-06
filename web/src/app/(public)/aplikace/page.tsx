@@ -71,11 +71,11 @@ export default function AplikacePage() {
               <Sparkles size={14} /> TeamVYS aplikace
             </span>
             <h1 className="text-4xl font-black leading-[1.05] text-brand-ink md:text-6xl">
-              Online aplikace TeamVYS <span className="gradient-text">rovnou v telefonu</span>.
+              Aplikace pro účastníky a trenéry <span className="gradient-text">rovnou v telefonu</span>.
             </h1>
             <p className="max-w-xl text-base font-bold text-brand-ink-soft md:text-lg">
-              Než půjde Android verze do Google Play, funguje TeamVYS jako instalovatelná online aplikace. Běží přes web,
-              ale chová se jako appka na ploše telefonu a načítá reálná data z backendu, Supabase a Stripe flow.
+              TeamVYS aplikace je jen pro účastníky a trenéry v terénu. Děti v ní sledují progres, trenéři řeší docházku,
+              QR triky a přehled práce. Rodiče a administrace zůstávají ve webovém portálu.
             </p>
 
             <div className="flex flex-wrap gap-3">
@@ -84,7 +84,7 @@ export default function AplikacePage() {
                 className="inline-flex items-center gap-2 rounded-brand bg-gradient-brand px-5 py-3.5 text-sm font-black text-white shadow-brand-soft transition-transform hover:-translate-y-px"
               >
                 <ExternalLink size={18} />
-                Spustit online aplikaci
+                Spustit aplikaci
               </Link>
               <AppInstallButton />
               <button
@@ -109,7 +109,7 @@ export default function AplikacePage() {
 
             <p className="text-xs font-bold text-brand-ink-soft">
               Na Androidu použij instalační tlačítko nebo nabídku prohlížeče. Na iPhonu použij Sdílet → Přidat na plochu.
-              Jakmile bude hotové produkční APK/AAB, přidáme sem přímé stažení i Google Play.
+              Webové profily pro rodiče a adminy se používají dál přes běžný web TeamVYS.
             </p>
 
             <div className="flex flex-wrap gap-2 pt-2">
@@ -187,7 +187,7 @@ export default function AplikacePage() {
               <ol className="mt-5 space-y-4 text-sm font-bold text-brand-ink-soft md:text-base">
                 <li className="flex gap-3">
                   <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-brand text-xs font-black text-white">1</span>
-                  Otevři online aplikaci přes tlačítko výše a přihlas se rodičovským nebo admin účtem.
+                  Otevři aplikaci přes tlačítko výše a přihlas se jako účastník nebo trenér.
                 </li>
                 <li className="flex gap-3">
                   <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-brand text-xs font-black text-white">2</span>
@@ -195,7 +195,7 @@ export default function AplikacePage() {
                 </li>
                 <li className="flex gap-3">
                   <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-brand text-xs font-black text-white">3</span>
-                  Platby, dokumenty, účastníci a admin produkty se tahají z online backendu, takže rodič i admin vidí stejná data.
+                  Účastník vidí progres a náramky, trenér řeší docházku, QR potvrzení triků a svůj přehled.
                 </li>
               </ol>
             </div>
@@ -206,7 +206,7 @@ export default function AplikacePage() {
               >
                 <span>
                   <span className="block text-[10px] font-black uppercase tracking-wider opacity-70">Aktuální verze</span>
-                  <span className="text-base font-black">Online app · živá data</span>
+                  <span className="text-base font-black">Účastník + trenér · živá data</span>
                 </span>
                 <RefreshCw size={22} />
               </Link>
@@ -214,12 +214,12 @@ export default function AplikacePage() {
                 <div className="flex items-start gap-3">
                   <span className="rounded-[14px] bg-brand-purple-light p-2 text-brand-purple"><ShieldCheck size={18} /></span>
                   <p className="text-xs font-bold leading-6 text-brand-ink-soft">
-                    Online verze necachuje API odpovědi. Data z plateb, dokumentů a produktů se vždy berou z aktuálního backendu.
+                    Aplikace necachuje API odpovědi. Docházka, QR triky a progres se berou z aktuálního backendu.
                   </p>
                 </div>
               </div>
               <p className="text-xs font-bold text-brand-ink-soft">
-                Po vydání v Google Play půjde aplikace updatovat automaticky. Do té doby je nejjistější tahle online verze.
+                Rodičovský a admin profil zůstává na webu, aplikace je určená pro tréninkový provoz.
               </p>
             </div>
           </div>

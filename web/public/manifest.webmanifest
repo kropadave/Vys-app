@@ -1,7 +1,7 @@
 {
-  "name": "TeamVYS online aplikace",
+  "name": "TeamVYS aplikace",
   "short_name": "TeamVYS",
-  "description": "Online aplikace TeamVYS pro rodiče, trenéry a administraci s daty ze Supabase.",
+  "description": "Online aplikace TeamVYS pro účastníky a trenéry s daty ze Supabase.",
   "start_url": "/sign-in?app=1",
   "scope": "/",
   "display": "standalone",
