@@ -1,13 +1,16 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { Apple, Bell, Check, Download, Fingerprint, QrCode, Smartphone, Sparkles, Trophy } from 'lucide-react';
+import { Apple, Bell, Check, ExternalLink, Fingerprint, QrCode, RefreshCw, ShieldCheck, Smartphone, Sparkles, Trophy, Wifi } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
+
+import { AppInstallButton } from '@/components/app-install-button';
 
 const easeBrand = [0.22, 1, 0.36, 1] as const;
 
 const featurePills = [
+  { icon: Wifi, label: 'Online data ze Supabase' },
   { icon: Trophy, label: 'Skill tree a XP' },
   { icon: QrCode, label: 'QR triky a NFC' },
   { icon: Bell, label: 'Push notifikace' },
@@ -50,29 +53,30 @@ export default function AplikacePage() {
               <Sparkles size={14} /> TeamVYS aplikace
             </span>
             <h1 className="text-4xl font-black leading-[1.05] text-brand-ink md:text-6xl">
-              Stáhni si aplikaci pro <span className="gradient-text">trenéra a účastníka</span>.
+              Online aplikace TeamVYS <span className="gradient-text">rovnou v telefonu</span>.
             </h1>
             <p className="max-w-xl text-base font-bold text-brand-ink-soft md:text-lg">
-              Mobilní aplikace funguje přímo na telefonu — najdeš v ní skill tree, NFC permanentku, QR triky a celý
-              trenérský přehled. Webový portál slouží rodičům a administraci, aplikace je pro děti a trenéry v terénu.
+              Než půjde Android verze do Google Play, funguje TeamVYS jako instalovatelná online aplikace. Běží přes web,
+              ale chová se jako appka na ploše telefonu a načítá reálná data z backendu, Supabase a Stripe flow.
             </p>
 
             <div className="flex flex-wrap gap-3">
-              <a
-                href="/downloads/teamvys.apk"
+              <Link
+                href="/sign-in?app=1"
                 className="inline-flex items-center gap-2 rounded-brand bg-gradient-brand px-5 py-3.5 text-sm font-black text-white shadow-brand-soft transition-transform hover:-translate-y-px"
               >
-                <Download size={18} />
-                Stáhnout APK (Android)
-              </a>
+                <ExternalLink size={18} />
+                Spustit online aplikaci
+              </Link>
+              <AppInstallButton />
               <button
                 type="button"
                 disabled
                 className="inline-flex cursor-not-allowed items-center gap-2 rounded-brand border border-brand-purple/15 bg-white px-5 py-3.5 text-sm font-black text-brand-ink-soft opacity-80"
-                title="Brzy v Google Play"
+                title="APK build připravujeme"
               >
                 <Smartphone size={18} />
-                Brzy v Google Play
+                APK · připravujeme
               </button>
               <button
                 type="button"
@@ -86,8 +90,8 @@ export default function AplikacePage() {
             </div>
 
             <p className="text-xs font-bold text-brand-ink-soft">
-              Aplikace se neotevírá v prohlížeči — nainstaluj si ji do telefonu. Aktuálně .apk přímo z webu, brzy přes
-              Google Play.
+              Na Androidu použij instalační tlačítko nebo nabídku prohlížeče. Na iPhonu použij Sdílet → Přidat na plochu.
+              Jakmile bude hotové produkční APK/AAB, přidáme sem přímé stažení i Google Play.
             </p>
 
             <div className="flex flex-wrap gap-2 pt-2">
@@ -104,41 +108,25 @@ export default function AplikacePage() {
           </motion.div>
 
           <motion.div
-            initial={{ opacity: 0, scale: 0.92 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.7, ease: easeBrand, delay: 0.1 }}
-            className="relative mx-auto w-full max-w-[300px] lg:max-w-[320px]"
+            initial={{ opacity: 0, y: 48, scale: 0.88 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ duration: 1.0, ease: easeBrand, delay: 0.15 }}
+            className="relative mx-auto w-full max-w-[380px] lg:max-w-[460px]"
           >
-            {/* Volume up */}
-            <div className="absolute -left-[5px] top-[108px] h-[34px] w-[5px] rounded-l-[3px] bg-[#1a1a1a]" aria-hidden="true" />
-            {/* Volume down */}
-            <div className="absolute -left-[5px] top-[152px] h-[34px] w-[5px] rounded-l-[3px] bg-[#1a1a1a]" aria-hidden="true" />
-            {/* Silent switch */}
-            <div className="absolute -left-[5px] top-[66px] h-[30px] w-[5px] rounded-l-[3px] bg-[#1a1a1a]" aria-hidden="true" />
-            {/* Power button */}
-            <div className="absolute -right-[5px] top-[124px] h-[64px] w-[5px] rounded-r-[3px] bg-[#1a1a1a]" aria-hidden="true" />
-
-            {/* Phone body */}
-            <div className="relative rounded-[44px] bg-[#0f0f0f] p-[10px] shadow-[0_40px_80px_rgba(0,0,0,0.50),0_0_0_1px_rgba(255,255,255,0.08)]">
-              {/* Inner bezel edge */}
-              <div className="relative overflow-hidden rounded-[36px] bg-white shadow-[inset_0_0_0_1px_rgba(0,0,0,0.12)]">
-                {/* Dynamic Island */}
-                <div className="pointer-events-none absolute left-1/2 top-3 z-20 h-[30px] w-[120px] -translate-x-1/2 rounded-full bg-black shadow-[0_4px_14px_rgba(0,0,0,0.60)]" />
-                {/* Screen content */}
-                <Image
-                  src="/app-home-iphone-screen.png"
-                  alt="Ukázka účastnické obrazovky aplikace TeamVYS v iPhonu"
-                  width={390}
-                  height={844}
-                  priority
-                  sizes="(min-width: 1024px) 320px, 80vw"
-                  className="block w-full rounded-[36px]"
-                  style={{ display: 'block' }}
-                />
-                {/* Screen gloss */}
-                <div className="pointer-events-none absolute inset-0 rounded-[36px] bg-gradient-to-b from-white/[0.04] to-transparent" />
-              </div>
-            </div>
+            <motion.div
+              animate={{ y: [0, -10, 0] }}
+              transition={{ duration: 4, ease: 'easeInOut', repeat: Infinity, repeatType: 'loop' }}
+            >
+              <Image
+                src="/telefon-mockup.png"
+                alt="Ukázka aplikace TeamVYS v iPhonu"
+                width={760}
+                height={960}
+                priority
+                sizes="(min-width: 1024px) 460px, 90vw"
+                className="w-full drop-shadow-[0_40px_80px_rgba(139,29,255,0.28)]"
+              />
+            </motion.div>
           </motion.div>
         </div>
       </section>
@@ -180,31 +168,39 @@ export default function AplikacePage() {
               <ol className="mt-5 space-y-4 text-sm font-bold text-brand-ink-soft md:text-base">
                 <li className="flex gap-3">
                   <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-brand text-xs font-black text-white">1</span>
-                  Stáhni APK přes tlačítko výše a povol instalaci v nastavení telefonu.
+                  Otevři online aplikaci přes tlačítko výše a přihlas se rodičovským nebo admin účtem.
                 </li>
                 <li className="flex gap-3">
                   <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-brand text-xs font-black text-white">2</span>
-                  Přihlas se účastnickým nebo trenérským kódem — data se sdílí s rodičovským portálem.
+                  Přidej si aplikaci na plochu telefonu, ať funguje jako samostatná ikona bez hledání v prohlížeči.
                 </li>
                 <li className="flex gap-3">
                   <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-brand text-xs font-black text-white">3</span>
-                  V terénu používej NFC docházku, QR triky a sleduj progres v reálném čase.
+                  Platby, dokumenty, účastníci a admin produkty se tahají z online backendu, takže rodič i admin vidí stejná data.
                 </li>
               </ol>
             </div>
             <div className="space-y-3">
               <Link
-                href="/downloads/teamvys.apk"
+                href="/sign-in?app=1"
                 className="flex items-center justify-between gap-4 rounded-brand bg-brand-ink px-5 py-4 text-white shadow-brand-soft transition-transform hover:-translate-y-px"
               >
                 <span>
                   <span className="block text-[10px] font-black uppercase tracking-wider opacity-70">Aktuální verze</span>
-                  <span className="text-base font-black">teamvys.apk · 1.0.0</span>
+                  <span className="text-base font-black">Online app · živá data</span>
                 </span>
-                <Download size={22} />
+                <RefreshCw size={22} />
               </Link>
+              <div className="rounded-brand border border-brand-purple/12 bg-white p-4 shadow-brand-soft">
+                <div className="flex items-start gap-3">
+                  <span className="rounded-[14px] bg-brand-purple-light p-2 text-brand-purple"><ShieldCheck size={18} /></span>
+                  <p className="text-xs font-bold leading-6 text-brand-ink-soft">
+                    Online verze necachuje API odpovědi. Data z plateb, dokumentů a produktů se vždy berou z aktuálního backendu.
+                  </p>
+                </div>
+              </div>
               <p className="text-xs font-bold text-brand-ink-soft">
-                Po vydání v Google Play půjde aplikace updatovat automaticky. Zatím prosím stahujte ručně.
+                Po vydání v Google Play půjde aplikace updatovat automaticky. Do té doby je nejjistější tahle online verze.
               </p>
             </div>
           </div>
