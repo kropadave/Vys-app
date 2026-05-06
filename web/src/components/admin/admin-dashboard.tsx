@@ -1,8 +1,10 @@
 'use client';
 
 import { AnimatePresence, motion } from 'framer-motion';
+import { cn } from '@/lib/utils';
 import {
     Banknote,
+    BarChart2,
     Bell,
     CalendarDays,
     CheckCircle2,
@@ -30,6 +32,8 @@ import {
     ShieldCheck,
     SlidersHorizontal,
     Trash2,
+    TrendingDown,
+    TrendingUp,
     Trophy,
     UserCheck,
     Users,
@@ -43,6 +47,10 @@ import { TeamVysLogo } from '@/components/brand/team-vys-logo';
 import { useAdminCreatedProducts, type AdminProductInput } from '@/lib/admin-created-products';
 import { createCoachStripeOnboarding, saveCoachAttendance, sendTrainerPayout, type TrainerPayoutTransfer } from '@/lib/api-client';
 import {
+    CAMP_DAILY_RATE,
+    CAMP_MAX_COACHES,
+    WORKSHOP_HOURLY_RATE,
+    WORKSHOP_MAX_COACHES,
     activityLabel,
     adminActivityRows,
     adminAttendanceAdjustments,
@@ -51,7 +59,9 @@ import {
     adminCoachDppDocuments,
     adminCoachSummaries,
     adminPaymentRows,
+    campTurnusy,
     coachDppTemplateClauses,
+    courseEnrollments,
     currency,
     documentStatusLabel,
     linkedParticipants,
@@ -61,15 +71,23 @@ import {
     parentProducts,
     parentProfile,
     requiredDocumentsForProduct,
+    sharedTrainingCalendar,
     trainersForProduct,
+    workshopAttendanceRecords,
+    workshopCalendar,
     type ActivityType,
     type AdminCoachDppDocument,
     type AdminCoachSummary,
+    type CampTurnus,
     type CoachDppStatus,
     type DocumentStatus,
     type ParentDocument,
     type ParentParticipant,
-    type ParentProduct
+    type ParentProduct,
+    type SharedTrainingSlot,
+    type WorkshopAttendanceRecord,
+    type WorkshopCity,
+    type WorkshopSlot
 } from '@/lib/portal-content';
 
 export type AdminFinanceResponse = {
@@ -96,7 +114,7 @@ type AdminDashboardProps = {
   devMode: boolean;
 };
 
-type SectionKey = 'overview' | 'attendance' | 'participants' | 'products' | 'coaches' | 'payouts' | 'documents' | 'invoices';
+type SectionKey = 'overview' | 'attendance' | 'participants' | 'products' | 'coaches' | 'payouts' | 'invoices' | 'finance';
 
 type Invoice = {
   id: string;
@@ -132,7 +150,7 @@ type CoachAttendanceRecord = {
   coachName: string;
   sessionTitle: string;
   date: string;
-  present: string;
+  present?: string;
   durationHours: number;
   amount: number;
   reason: string;
@@ -144,7 +162,7 @@ type ManualCoachAttendanceInput = {
   coachName: string;
   sessionTitle: string;
   date: string;
-  present: string;
+  present?: string;
   durationHours: number;
   hourlyRate: number;
   reason: string;
@@ -203,6 +221,8 @@ type CoachPlacementGroup = {
   coaches: AdminCoachSummary[];
 };
 
+type SharedTrainingState = Record<string, Pick<SharedTrainingSlot, 'assignedCoachId' | 'assignedCoachName' | 'secondCoachId' | 'secondCoachName' | 'releasedBy' | 'releaseReason' | 'updatedAt'>>;
+
 const sections: Array<{ key: SectionKey; label: string; description: string; icon: ReactNode }> = [
   { key: 'overview', label: 'Přehled', description: 'co hoří', icon: <LayoutDashboard size={18} /> },
   { key: 'attendance', label: 'Docházka', description: 'kroužky a děti', icon: <ClipboardList size={18} /> },
@@ -210,8 +230,8 @@ const sections: Array<{ key: SectionKey; label: string; description: string; ico
   { key: 'products', label: 'Produkty', description: 'nabídka webu', icon: <PackagePlus size={18} /> },
   { key: 'coaches', label: 'Trenéři', description: 'data a výkon', icon: <UserCheck size={18} /> },
   { key: 'payouts', label: 'Výplaty', description: 'Stripe sandbox', icon: <Banknote size={18} /> },
-  { key: 'documents', label: 'Dokumenty', description: 'kompletace', icon: <FileCheck2 size={18} /> },
   { key: 'invoices', label: 'Faktury', description: 'výdaje a platby', icon: <Receipt size={18} /> },
+  { key: 'finance', label: 'Finance', description: 'cash flow přehled', icon: <TrendingUp size={18} /> },
 ];
 
 const payoutPeriod = {
@@ -232,6 +252,9 @@ export function AdminDashboard({ finance, financeError, showSignOut, devMode }: 
   const [generatingOnboarding, setGeneratingOnboarding] = useState<string | null>(null);
   const [coachAttendanceRecords, setCoachAttendanceRecords] = useState<CoachAttendanceRecord[]>(() => buildInitialCoachAttendanceRecords());
   const [coachDppDocuments, setCoachDppDocuments] = useState<AdminCoachDppDocument[]>(() => adminCoachDppDocuments);
+  const [sharedTrainingState, setSharedTrainingState] = useState<SharedTrainingState>(() => buildInitialSharedTrainingState());
+  const [workshopSlots, setWorkshopSlots] = useState<WorkshopSlot[]>(workshopCalendar);
+  const [campTurnusyState, setCampTurnusyState] = useState<CampTurnus[]>(campTurnusy);
   const [keyRequests, setKeyRequests] = useState(() => adminCoachAccessRequests);
   const [selectedActivityDetail, setSelectedActivityDetail] = useState<ReturnType<typeof adminActivityRows>[number] | null>(null);
   const [selectedParticipantDetail, setSelectedParticipantDetail] = useState<ParticipantDetailState | null>(null);
@@ -242,6 +265,7 @@ export function AdminDashboard({ finance, financeError, showSignOut, devMode }: 
   const paymentRows = useMemo(() => buildPaymentRows(finance), [finance]);
   const activityRows = useMemo(() => adminActivityRows(allProducts), [allProducts]);
   const coaches = useMemo(() => mergeCoachData(finance), [finance]);
+  const sharedTrainingSlots = useMemo(() => resolveSharedTrainingSlots(sharedTrainingState), [sharedTrainingState]);
   const totals = useMemo(() => buildTotals(paymentRows, activityRows, coaches, transfers, coachAttendanceRecords), [paymentRows, activityRows, coaches, transfers, coachAttendanceRecords]);
   const currentSection = sections.find((section) => section.key === activeSection) ?? sections[0];
 
@@ -278,6 +302,76 @@ export function AdminDashboard({ finance, financeError, showSignOut, devMode }: 
 
   function handleMarkCoachDppSigned(coachId: string) {
     setCoachDppDocuments((current) => current.map((document) => document.coachId === coachId ? { ...document, status: 'signed', signedAt: '1. 5. 2026 · digitálně', updatedAt: '1. 5. 2026' } : document));
+  }
+
+  function handleReleaseSharedTraining(slot: SharedTrainingSlot, position: 'first' | 'second' = 'first') {
+    const coachName = position === 'first' ? (slot.assignedCoachName ?? slot.regularCoachName) : (slot.secondCoachName ?? '');
+    setSharedTrainingState((current) => ({
+      ...current,
+      [slot.id]: {
+        ...current[slot.id],
+        ...(position === 'first'
+          ? { assignedCoachId: undefined, assignedCoachName: undefined }
+          : { secondCoachId: undefined, secondCoachName: undefined }),
+        releasedBy: coachName,
+        releaseReason: `${coachName} nemůže dorazit. Slot čeká na náhradního trenéra.`,
+        updatedAt: `dnes ${new Date().toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' })}`,
+      },
+    }));
+  }
+
+  function handleAssignSharedTraining(slot: SharedTrainingSlot, coach: AdminCoachSummary) {
+    const hasFirst = Boolean(slot.assignedCoachId);
+    setSharedTrainingState((current) => ({
+      ...current,
+      [slot.id]: {
+        ...current[slot.id],
+        ...(hasFirst
+          ? { secondCoachId: coach.id, secondCoachName: coach.name }
+          : { assignedCoachId: coach.id, assignedCoachName: coach.name }),
+        releasedBy: undefined,
+        releaseReason: undefined,
+        updatedAt: `přiřazeno dnes ${new Date().toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' })}`,
+      },
+    }));
+  }
+
+  function handleAddWorkshopCoach(slot: WorkshopSlot, coach: AdminCoachSummary) {
+    if (slot.coaches.length >= slot.maxCoaches) return;
+    if (slot.coaches.some((c) => c.coachId === coach.id)) return;
+    setWorkshopSlots((prev) => prev.map((s) => s.id !== slot.id ? s : {
+      ...s,
+      coaches: [...s.coaches, { coachId: coach.id, coachName: coach.name }],
+      updatedAt: new Date().toLocaleDateString('cs-CZ'),
+    }));
+  }
+  function handleRemoveWorkshopCoach(slot: WorkshopSlot, coachId: string) {
+    setWorkshopSlots((prev) => prev.map((s) => s.id !== slot.id ? s : {
+      ...s,
+      coaches: s.coaches.filter((c) => c.coachId !== coachId),
+      updatedAt: new Date().toLocaleDateString('cs-CZ'),
+    }));
+  }
+  function handleAddWorkshopSlot(date: string, city: WorkshopCity) {
+    const id = `ws-${city.toLowerCase()}-${date}-${Date.now()}`;
+    const d = new Date(date); d.setDate(d.getDate() + 1);
+    const dateTo = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    setWorkshopSlots((prev) => [...prev, { id, date, dateTo, time: '10:00 - 17:00', city, venue: `TBD – ${city} centrum`, coaches: [], maxCoaches: WORKSHOP_MAX_COACHES, updatedAt: new Date().toLocaleDateString('cs-CZ') }]);
+  }
+
+  function handleAddCampCoach(turnus: CampTurnus, coach: AdminCoachSummary) {
+    if (turnus.coaches.length >= turnus.maxCoaches) return;
+    if (turnus.coaches.some((c) => c.coachId === coach.id)) return;
+    setCampTurnusyState((prev) => prev.map((t) => t.id !== turnus.id ? t : {
+      ...t,
+      coaches: [...t.coaches, { coachId: coach.id, coachName: coach.name }],
+    }));
+  }
+  function handleRemoveCampCoach(turnus: CampTurnus, coachId: string) {
+    setCampTurnusyState((prev) => prev.map((t) => t.id !== turnus.id ? t : {
+      ...t,
+      coaches: t.coaches.filter((c) => c.coachId !== coachId),
+    }));
   }
 
   function openParticipantDetail(participant: ParentParticipant, activityType: ActivityType = 'Krouzek', place = participant.activeCourse) {
@@ -348,13 +442,13 @@ export function AdminDashboard({ finance, financeError, showSignOut, devMode }: 
   }
 
   return (
-    <div className="grid gap-5 xl:grid-cols-[232px_minmax(0,1fr)]">
+    <div className="grid gap-5 lg:grid-cols-[232px_minmax(0,1fr)]">
       <button
         type="button"
         aria-label="Otevřít menu administrace"
         aria-expanded={mobileMenuOpen}
         onClick={() => setMobileMenuOpen(true)}
-        className="fixed right-3 top-3 z-50 inline-flex h-12 w-12 items-center justify-center rounded-[16px] border border-brand-purple/12 bg-white/82 text-brand-purple shadow-brand backdrop-blur-xl xl:hidden"
+        className="fixed right-3 top-3 z-50 inline-flex h-12 w-12 items-center justify-center rounded-[16px] border border-white/20 bg-[#2B1247]/86 text-brand-cyan shadow-brand ring-1 ring-white/10 backdrop-blur-xl lg:hidden"
       >
         <Menu size={22} />
       </button>
@@ -362,22 +456,23 @@ export function AdminDashboard({ finance, financeError, showSignOut, devMode }: 
       <AnimatePresence>
         {mobileMenuOpen ? (
           <motion.div
-            className="fixed inset-0 z-[80] overflow-y-auto bg-white/72 px-5 py-5 text-brand-ink backdrop-blur-2xl xl:hidden"
+            className="fixed inset-0 z-[80] overflow-y-auto bg-[#1D0D31] px-5 py-5 text-white shadow-[inset_0_0_120px_rgba(86,33,140,0.34)] backdrop-blur-xl lg:hidden"
+            style={{ background: 'linear-gradient(180deg, #241039 0%, #2D144A 46%, #180A28 100%)' }}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
           >
             <div className="mx-auto flex min-h-full max-w-[420px] flex-col justify-center py-8">
-              <div className="flex items-center justify-between gap-4 rounded-[22px] border border-brand-purple/12 bg-white/82 p-4 shadow-brand backdrop-blur-xl">
+              <div className="flex items-center justify-between gap-4 rounded-[22px] border border-white/14 bg-[#442160]/82 p-4 shadow-[0_18px_50px_rgba(10,5,22,0.34)] backdrop-blur-xl">
                 <div className="flex min-w-0 items-center gap-3">
                   <TeamVysLogo size={42} priority />
                   <div className="min-w-0">
-                    <p className="text-[10px] font-black uppercase text-brand-purple-deep">Admin centrum</p>
-                    <p className="mt-0.5 text-base font-black leading-tight text-brand-ink">TeamVYS provoz</p>
+                    <p className="text-[10px] font-black uppercase text-brand-cyan">Admin centrum</p>
+                    <p className="mt-0.5 text-base font-black leading-tight text-white">TeamVYS provoz</p>
                   </div>
                 </div>
-                <button type="button" aria-label="Zavřít menu" onClick={() => setMobileMenuOpen(false)} className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[16px] bg-brand-paper text-brand-ink transition hover:bg-brand-purple hover:text-white">
+                <button type="button" aria-label="Zavřít menu" onClick={() => setMobileMenuOpen(false)} className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[16px] bg-white/14 text-white transition hover:bg-white/24">
                   <X size={21} />
                 </button>
               </div>
@@ -393,18 +488,18 @@ export function AdminDashboard({ finance, financeError, showSignOut, devMode }: 
                       className={`grid grid-cols-[48px_minmax(0,1fr)_auto] items-center gap-3 rounded-[20px] border px-4 py-3 text-left shadow-brand-soft backdrop-blur-xl transition ${
                         isActive
                           ? 'border-brand-purple bg-brand-purple text-white'
-                          : 'border-brand-purple/12 bg-white/84 text-brand-ink hover:border-brand-purple/30 hover:bg-white'
+                          : 'border-white/14 bg-[#3A1A56]/86 text-white/92 hover:border-white/24 hover:bg-[#4A2370]'
                       }`}
                       initial={{ opacity: 0, y: 12 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ duration: 0.22, delay: index * 0.025 }}
                     >
-                      <span className={`flex h-12 w-12 items-center justify-center rounded-[16px] ${isActive ? 'bg-white/16 text-white' : 'bg-brand-purple-light text-brand-purple'}`}>{section.icon}</span>
+                      <span className={`flex h-12 w-12 items-center justify-center rounded-[16px] ${isActive ? 'bg-white/16 text-white' : 'bg-white/10 text-brand-cyan'}`}>{section.icon}</span>
                       <span className="min-w-0">
                         <span className="block text-base font-black leading-tight">{section.label}</span>
-                        <span className={`mt-0.5 block text-xs font-bold ${isActive ? 'text-white/70' : 'text-brand-ink-soft'}`}>{section.description}</span>
+                        <span className={`mt-0.5 block text-xs font-bold ${isActive ? 'text-white/72' : 'text-white/68'}`}>{section.description}</span>
                       </span>
-                      <ChevronDown className={`-rotate-90 ${isActive ? 'text-white/70' : 'text-brand-ink-soft'}`} size={18} />
+                        <ChevronDown className={`-rotate-90 ${isActive ? 'text-white/72' : 'text-white/58'}`} size={18} />
                     </motion.button>
                   );
                 })}
@@ -414,17 +509,17 @@ export function AdminDashboard({ finance, financeError, showSignOut, devMode }: 
         ) : null}
       </AnimatePresence>
 
-      <div className="hidden p-2 xl:sticky xl:top-3 xl:block xl:self-start rounded-[22px] border border-brand-purple/12 bg-white/72 shadow-brand backdrop-blur-2xl">
-        <div className="flex min-w-0 items-center gap-2 xl:block">
-          <div className="hidden h-16 w-full shrink-0 items-center gap-3 rounded-[18px] bg-brand-purple-light px-3 xl:flex">
+      <div className="hidden p-2 lg:sticky lg:top-3 lg:block lg:self-start rounded-[22px] border border-brand-purple/20 bg-[#2B1247]/95 shadow-brand ring-1 ring-brand-purple/20 backdrop-blur-2xl">
+        <div className="flex min-w-0 items-center gap-2 lg:block">
+          <div className="hidden h-16 w-full shrink-0 items-center gap-3 rounded-[18px] bg-white/10 px-3 ring-1 ring-white/10 lg:flex">
             <TeamVysLogo size={36} priority />
             <div className="min-w-0">
-              <p className="text-[9px] font-black uppercase leading-none text-brand-purple-deep">Admin centrum</p>
-              <p className="mt-0.5 text-[13px] font-black leading-tight text-brand-ink">TeamVYS provoz</p>
+              <p className="text-[9px] font-black uppercase leading-none text-brand-cyan">Admin centrum</p>
+              <p className="mt-0.5 text-[13px] font-black leading-tight text-white">TeamVYS provoz</p>
             </div>
           </div>
 
-          <nav className="grid w-full min-w-0 flex-1 grid-cols-4 gap-1.5 md:grid-cols-7 xl:mt-2 xl:grid-cols-1">
+          <nav className="grid w-full min-w-0 flex-1 grid-cols-4 gap-1.5 md:grid-cols-7 lg:mt-2 lg:grid-cols-1">
             {sections.map((section) => {
               const isActive = activeSection === section.key;
               return (
@@ -434,15 +529,15 @@ export function AdminDashboard({ finance, financeError, showSignOut, devMode }: 
                   aria-label={section.label}
                   title={section.label}
                   onClick={() => selectSection(section.key)}
-                  className={`flex h-[58px] min-w-0 flex-col items-center justify-center gap-1 rounded-[14px] border px-1 text-center transition-all duration-300 md:h-14 xl:h-11 xl:flex-row xl:justify-start xl:gap-2 xl:px-3 xl:text-left ${
+                  className={`flex h-[58px] min-w-0 flex-col items-center justify-center gap-1 rounded-[14px] border px-1 text-center transition-all duration-300 md:h-14 lg:h-11 lg:flex-row lg:justify-start lg:gap-2 lg:px-3 lg:text-left ${
                     isActive
                       ? 'border-brand-purple bg-brand-purple text-white shadow-brand'
-                      : 'border-brand-purple/10 bg-white text-brand-ink hover:border-brand-purple/24 hover:bg-brand-paper hover:shadow-brand-soft'
+                      : 'border-brand-purple/20 bg-white/10 text-white/80 hover:border-brand-purple/30 hover:bg-white/20 hover:text-white'
                   }`}
                 >
-                  <span className={`shrink-0 ${isActive ? 'text-white' : 'text-brand-purple'}`}>{section.icon}</span>
+                  <span className={`shrink-0 ${isActive ? 'text-white' : 'text-brand-cyan'}`}>{section.icon}</span>
                   <span className="min-w-0">
-                    <span className="block max-w-full text-[10px] font-black leading-tight sm:text-xs md:text-[11px] xl:whitespace-nowrap xl:text-[13px]">{section.label}</span>
+                    <span className="block max-w-full text-[10px] font-black leading-tight sm:text-xs md:text-[11px] lg:whitespace-nowrap lg:text-[13px]">{section.label}</span>
                   </span>
                 </button>
               );
@@ -451,7 +546,7 @@ export function AdminDashboard({ finance, financeError, showSignOut, devMode }: 
         </div>
       </div>
 
-      <main className="min-w-0 space-y-5 pb-8 xl:pb-0">
+      <main className="min-w-0 space-y-5 pb-8 lg:pb-0">
         <AdminHeader activeSection={currentSection} devMode={devMode} showSignOut={showSignOut} totals={totals} />
 
         {financeError ? <BackendNotice error={financeError} /> : null}
@@ -465,10 +560,10 @@ export function AdminDashboard({ finance, financeError, showSignOut, devMode }: 
             transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
           >
             {activeSection === 'overview' ? <OverviewSection totals={totals} coaches={coaches} coachAttendanceRecords={coachAttendanceRecords} dppDocuments={coachDppDocuments} keyRequests={keyRequests} onApproveKeyRequest={(id) => setKeyRequests((current) => current.filter((r) => r.id !== id))} onNavigate={setActiveSection} /> : null}
-            {activeSection === 'attendance' ? <AttendanceSection query={attendanceQuery} onQueryChange={setAttendanceQuery} activityRows={activityRows} coaches={coaches} coachAttendanceRecords={coachAttendanceRecords} onAddCoachAttendance={handleAddCoachAttendance} onOpenActivityDetail={setSelectedActivityDetail} onOpenParticipantDetail={openParticipantDetail} /> : null}
-            {activeSection === 'participants' ? <ParticipantsSection products={allProducts} onOpenParticipantDetail={openParticipantDetail} /> : null}
+            {activeSection === 'attendance' ? <AttendanceSection query={attendanceQuery} onQueryChange={setAttendanceQuery} activityRows={activityRows} workshopSlots={workshopSlots} workshopAttendanceRecords={workshopAttendanceRecords} coaches={coaches} coachAttendanceRecords={coachAttendanceRecords} onAddCoachAttendance={handleAddCoachAttendance} onOpenActivityDetail={setSelectedActivityDetail} onOpenParticipantDetail={openParticipantDetail} /> : null}
+            {activeSection === 'participants' ? <ParticipantsSection products={allProducts} workshopSlots={workshopSlots} workshopAttendanceRecords={workshopAttendanceRecords} onOpenParticipantDetail={openParticipantDetail} /> : null}
             {activeSection === 'products' ? <ProductsSection products={allProducts} createdProducts={adminCreatedProducts} coaches={coaches} onAddProduct={addAdminCreatedProduct} onRemoveProduct={removeAdminCreatedProduct} /> : null}
-            {activeSection === 'coaches' ? <CoachesSection coaches={coaches} coachAttendanceRecords={coachAttendanceRecords} dppDocuments={coachDppDocuments} onAddCoachAttendance={handleAddCoachAttendance} onCreateCoachDpp={handleCreateCoachDpp} onMarkCoachDppSigned={handleMarkCoachDppSigned} /> : null}
+            {activeSection === 'coaches' ? <CoachesSection coaches={coaches} coachAttendanceRecords={coachAttendanceRecords} dppDocuments={coachDppDocuments} sharedTrainingSlots={sharedTrainingSlots} workshopSlots={workshopSlots} campTurnusy={campTurnusyState} onAddCoachAttendance={handleAddCoachAttendance} onCreateCoachDpp={handleCreateCoachDpp} onMarkCoachDppSigned={handleMarkCoachDppSigned} onReleaseSharedTraining={(slot, pos) => handleReleaseSharedTraining(slot, pos)} onAssignSharedTraining={handleAssignSharedTraining} onAddWorkshopCoach={handleAddWorkshopCoach} onRemoveWorkshopCoach={handleRemoveWorkshopCoach} onAddWorkshopSlot={handleAddWorkshopSlot} onAddCampCoach={handleAddCampCoach} onRemoveCampCoach={handleRemoveCampCoach} /> : null}
             {activeSection === 'payouts' ? (
               <PayoutsSection
                 coaches={coaches}
@@ -482,8 +577,8 @@ export function AdminDashboard({ finance, financeError, showSignOut, devMode }: 
                 onPayout={handlePayout}
               />
             ) : null}
-            {activeSection === 'documents' ? <DocumentsSection activityRows={activityRows} /> : null}
             {activeSection === 'invoices' ? <InvoicesSection invoices={invoices} onTogglePaid={(id) => setInvoices((prev) => prev.map((inv) => inv.id === id ? { ...inv, paid: !inv.paid, paidDate: !inv.paid ? new Date().toISOString().slice(0, 10) : undefined } : inv))} onAddInvoice={(inv) => setInvoices((prev) => [inv, ...prev])} onDeleteInvoice={(id) => setInvoices((prev) => prev.filter((inv) => inv.id !== id))} /> : null}
+            {activeSection === 'finance' ? <FinanceOverviewSection totals={totals} invoices={invoices} paymentRows={paymentRows} coaches={coaches} coachAttendanceRecords={coachAttendanceRecords} onNavigate={setActiveSection} /> : null}
           </motion.div>
         </AnimatePresence>
       </main>
@@ -503,19 +598,17 @@ export function AdminDashboard({ finance, financeError, showSignOut, devMode }: 
 
 function AdminHeader({ activeSection, devMode, showSignOut, totals }: { activeSection: (typeof sections)[number]; devMode: boolean; showSignOut: boolean; totals: AdminTotals }) {
   return (
-    <div className="relative overflow-hidden rounded-[22px] border border-brand-purple/12 bg-white px-4 py-4 shadow-brand-soft sm:px-5">
-      <div className="flex flex-wrap items-center justify-between gap-4">
+    <div className="relative overflow-hidden rounded-[22px] border border-brand-purple/20 bg-gradient-to-br from-[#331650] via-[#27113D] to-[#4A1D78] px-4 py-4 text-white shadow-brand sm:px-5">
+      <div className="absolute inset-x-0 top-0 h-1 bg-gradient-brand" />
+      <div className="flex flex-wrap items-center justify-between gap-4 pt-1">
         <div className="flex min-w-0 items-center gap-3">
-          <div className="relative flex h-14 w-14 shrink-0 items-center justify-center rounded-[18px] bg-brand-purple-light">
-            <TeamVysLogo size={38} priority />
-            <span className="absolute -right-1 -top-1 inline-flex h-6 w-6 items-center justify-center rounded-full bg-brand-cyan text-white shadow-sm">
-              {activeSection.icon}
-            </span>
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[16px] bg-white/10 text-brand-cyan ring-1 ring-white/10">
+            {activeSection.icon}
           </div>
           <div className="min-w-0">
-            <p className="text-[10px] font-black uppercase text-brand-cyan">{activeSection.label}</p>
-            <h1 className="text-base font-black leading-tight text-brand-ink md:text-lg">{headlineForSection(activeSection.key)}</h1>
-            {devMode ? <p className="mt-1 text-[11px] font-black uppercase text-brand-purple">Testovací režim bez přihlášení</p> : null}
+            <p className="text-[10px] font-black uppercase tracking-[0.14em] text-brand-cyan">{activeSection.label}</p>
+            <h1 className="mt-0.5 text-lg font-black leading-tight md:text-xl">{headlineForSection(activeSection.key)}</h1>
+            {devMode ? <p className="mt-1 text-[11px] font-black uppercase text-brand-lime">Testovací režim bez přihlášení</p> : null}
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -523,11 +616,11 @@ function AdminHeader({ activeSection, devMode, showSignOut, totals }: { activeSe
           {showSignOut ? <SignOutButton /> : null}
         </div>
       </div>
-      <div className="mt-3 grid grid-cols-2 gap-2 text-center sm:grid-cols-4">
-        <Metric value={`${linkedParticipants.length}`} label="účastníci" />
-        <Metric value={`${adminCoachSummaries.length}`} label="trenéři" />
-        <Metric value={currency(totals.payoutTotal)} label="k výplatě" />
-        <Metric value={currency(totals.paidTotal)} label="zaplaceno" />
+      <div className="mt-4 grid grid-cols-2 gap-2 text-center sm:grid-cols-4">
+        <AdminSignal value={`${linkedParticipants.length}`} label="účastníci" tone="cyan" />
+        <AdminSignal value={`${adminCoachSummaries.length}`} label="trenéři" tone="purple" />
+        <AdminSignal value={currency(totals.payoutTotal)} label="k výplatě" tone="orange" />
+        <AdminSignal value={currency(totals.paidTotal)} label="zaplaceno" tone="mint" />
       </div>
     </div>
   );
@@ -550,18 +643,16 @@ function BackendNotice({ error }: { error: string }) {
 function OverviewSection({ totals, coaches, coachAttendanceRecords, dppDocuments, keyRequests, onApproveKeyRequest, onNavigate }: { totals: AdminTotals; coaches: AdminCoachSummary[]; coachAttendanceRecords: CoachAttendanceRecord[]; dppDocuments: AdminCoachDppDocument[]; keyRequests: typeof adminCoachAccessRequests; onApproveKeyRequest: (id: string) => void; onNavigate: (section: SectionKey) => void }) {
   const [expandedRequestId, setExpandedRequestId] = useState<string | null>(null);
   const unsignedDpp = coaches.filter((coach) => dppStatusForCoach(coach.id, dppDocuments) !== 'signed');
-  const missingDocuments = allParticipantDocuments().filter((document) => document.status !== 'signed');
 
   return (
     <div className="grid items-start gap-5 xl:grid-cols-[1.1fr_0.9fr]">
       <div className="space-y-5">
-        <Panel className="p-4 sm:p-5">
+        <Panel className="border-brand-purple/20 bg-[#2B1247] p-4 shadow-brand sm:p-5">
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <ActionTile icon={<ClipboardList size={18} />} label="Docházka" value={`${totals.courseCount} aktivit`} onClick={() => onNavigate('attendance')} />
             <ActionTile icon={<Users size={18} />} label="Účastníci" value={`${linkedParticipants.length} profily`} onClick={() => onNavigate('participants')} />
             <ActionTile icon={<PackagePlus size={18} />} label="Produkty" value="kroužky, tábory, workshopy" onClick={() => onNavigate('products')} />
             <ActionTile icon={<Banknote size={18} />} label="Výplaty" value={currency(totals.payoutTotal)} onClick={() => onNavigate('payouts')} />
-            <ActionTile icon={<FileCheck2 size={18} />} label="Dokumenty" value={`${missingDocuments.length} chybí`} onClick={() => onNavigate('documents')} />
           </div>
         </Panel>
 
@@ -640,12 +731,13 @@ function OverviewSection({ totals, coaches, coachAttendanceRecords, dppDocuments
   );
 }
 
-function AttendanceSection({ query, onQueryChange, activityRows, coaches, coachAttendanceRecords, onAddCoachAttendance, onOpenActivityDetail, onOpenParticipantDetail }: { query: string; onQueryChange: (value: string) => void; activityRows: ReturnType<typeof adminActivityRows>; coaches: AdminCoachSummary[]; coachAttendanceRecords: CoachAttendanceRecord[]; onAddCoachAttendance: (input: ManualCoachAttendanceInput) => CoachAttendanceRecord; onOpenActivityDetail: (activity: ReturnType<typeof adminActivityRows>[number]) => void; onOpenParticipantDetail: (participant: ParentParticipant, activityType: ActivityType, place: string) => void }) {
+function AttendanceSection({ query, onQueryChange, activityRows, workshopSlots, workshopAttendanceRecords, coaches, coachAttendanceRecords, onAddCoachAttendance, onOpenActivityDetail, onOpenParticipantDetail }: { query: string; onQueryChange: (value: string) => void; activityRows: ReturnType<typeof adminActivityRows>; workshopSlots: WorkshopSlot[]; workshopAttendanceRecords: WorkshopAttendanceRecord[]; coaches: AdminCoachSummary[]; coachAttendanceRecords: CoachAttendanceRecord[]; onAddCoachAttendance: (input: ManualCoachAttendanceInput) => CoachAttendanceRecord; onOpenActivityDetail: (activity: ReturnType<typeof adminActivityRows>[number]) => void; onOpenParticipantDetail: (participant: ParentParticipant, activityType: ActivityType, place: string) => void }) {
   const visibleActivities = filterActivityRows(activityRows, query);
   const childAttendance = parentAttendanceHistory.filter((record) => matchesQuery(`${record.participantName} ${record.location} ${record.date}`, query));
   const visibleCoaches = coaches.filter((coach) => matchesQuery(`${coach.name} ${coach.locations.join(' ')}`, query) || recordsForCoach(coach, coachAttendanceRecords).some((record) => matchesQuery(`${record.coachName} ${record.sessionTitle} ${record.date}`, query)));
   const courseStats = buildCourseLocationStats(visibleActivities);
-  const eventActivities = visibleActivities.filter((activity) => activity.type === 'Workshop');
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const upcomingWsSlots = workshopSlots.filter((s) => s.date >= todayKey).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 24);
 
   return (
     <div className="space-y-5">
@@ -665,14 +757,6 @@ function AttendanceSection({ query, onQueryChange, activityRows, coaches, coachA
       </Panel>
 
       <Panel className="p-5">
-        <SectionTitle icon={<ListChecks size={18} />} title="Workshopy" subtitle="stručně, detail se otevře v okně" />
-        <div className="mt-4 grid gap-2">
-          {eventActivities.map((activity) => <ActivityAttendanceRow key={activity.id} activity={activity} onOpenDetail={() => onOpenActivityDetail(activity)} />)}
-          {eventActivities.length === 0 ? <EmptyState text="Pro zadaný filtr nejsou žádné workshopy." /> : null}
-        </div>
-      </Panel>
-
-      <Panel className="p-5">
         <SectionTitle icon={<Banknote size={18} />} title="Trenérská docházka podle trenéra" subtitle="celý záznam trenéra včetně admin doplnění" />
         <div className="mt-4 grid gap-3 lg:grid-cols-2">
           {visibleCoaches.map((coach) => (
@@ -682,33 +766,21 @@ function AttendanceSection({ query, onQueryChange, activityRows, coaches, coachA
         </div>
       </Panel>
 
-      <div className="grid items-start gap-5 xl:grid-cols-[0.85fr_1.15fr]">
-        <ManualAttendancePanel coaches={coaches} onAdd={onAddCoachAttendance} />
-        <Panel className="p-5">
-          <SectionTitle icon={<History size={18} />} title="Docházka dětí" subtitle="záznamy rozdělené po měsících" />
-          <div className="mt-4 grid gap-4">
-            {groupByMonthAdmin(childAttendance, (r) => r.date).map(({ label, items }) => (
-              <div key={label}>
-                <p className="mb-2 border-b border-brand-purple/10 pb-1 text-xs font-black uppercase tracking-wide text-brand-purple">{label}</p>
-                <div className="grid gap-2">
-                  {items.map((record) => <ParticipantAttendanceRow key={record.id} record={record} onOpenParticipant={onOpenParticipantDetail} />)}
-                </div>
-              </div>
-            ))}
-            {childAttendance.length === 0 ? <EmptyState text="Pro zadaný filtr není žádná docházka dětí." /> : null}
-          </div>
-        </Panel>
-      </div>
+      <ManualAttendancePanel coaches={coaches} onAdd={onAddCoachAttendance} />
     </div>
   );
 }
 
-function ParticipantsSection({ products, onOpenParticipantDetail }: { products: ParentProduct[]; onOpenParticipantDetail: (participant: ParentParticipant, activityType: ActivityType, place: string) => void }) {
+function ParticipantsSection({ products, workshopSlots, workshopAttendanceRecords, onOpenParticipantDetail }: { products: ParentProduct[]; workshopSlots: WorkshopSlot[]; workshopAttendanceRecords: WorkshopAttendanceRecord[]; onOpenParticipantDetail: (participant: ParentParticipant, activityType: ActivityType, place: string) => void }) {
   const [query, setQuery] = useState('');
   const [activeParticipantType, setActiveParticipantType] = useState<ActivityType>('Krouzek');
   const participantGroups = useMemo(() => buildParticipantGroups(query, products), [query, products]);
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const upcomingWsSlots = useMemo(() => workshopSlots.filter((s) => s.date >= todayKey).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 24), [workshopSlots, todayKey]);
   const participantSubtitle = activeParticipantType === 'Tabor'
     ? 'tábory jsou rozdělené podle termínu, potom podle města a lokality'
+    : activeParticipantType === 'Workshop'
+    ? 'nadcházející termíny · přihlášení podle data'
     : 'přepni typ aktivity nahoře, města zůstávají jako hlavní rozbalení';
   const groupsByType = {
     Krouzek: participantGroups.filter((group) => group.type === 'Krouzek'),
@@ -723,27 +795,43 @@ function ParticipantsSection({ products, onOpenParticipantDetail }: { products: 
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px] xl:items-end">
           <div className="space-y-4">
             <SectionTitle icon={<Users size={18} />} title="Účastníci podle místa" subtitle={participantSubtitle} />
-            <ParticipantTypeSwitch activeType={activeParticipantType} groupsByType={groupsByType} onChange={setActiveParticipantType} />
+            <ParticipantTypeSwitch activeType={activeParticipantType} groupsByType={groupsByType} workshopUpcomingCount={upcomingWsSlots.length} onChange={setActiveParticipantType} />
           </div>
           <SearchField value={query} onChange={setQuery} placeholder="Hledat účastníka nebo lokalitu..." />
         </div>
       </Panel>
 
-      <ActivityParticipantTypeSection type={activeParticipantType} groups={activeGroups} onOpenParticipantDetail={onOpenParticipantDetail} />
-      {participantGroups.length === 0 ? <EmptyState text="Žádná lokalita ani účastník neodpovídá filtru." /> : null}
+      {activeParticipantType === 'Workshop'
+        ? <>
+            <WorkshopUpcomingPanel slots={upcomingWsSlots} attendanceRecords={workshopAttendanceRecords} onOpenParticipant={(p, place) => onOpenParticipantDetail(p, 'Workshop', place)} />
+            <WorkshopStatsPanel allSlots={workshopSlots} attendanceRecords={workshopAttendanceRecords} onOpenParticipant={(p, place) => onOpenParticipantDetail(p, 'Workshop', place)} />
+          </>
+        : <>
+            <ActivityParticipantTypeSection type={activeParticipantType} groups={activeGroups} onOpenParticipantDetail={onOpenParticipantDetail} />
+            {participantGroups.length === 0 ? <EmptyState text="Žádná lokalita ani účastník neodpovídá filtru." /> : null}
+          </>
+      }
     </div>
   );
 }
 
-function CoachesSection({ coaches, coachAttendanceRecords, dppDocuments, onAddCoachAttendance, onCreateCoachDpp, onMarkCoachDppSigned }: { coaches: AdminCoachSummary[]; coachAttendanceRecords: CoachAttendanceRecord[]; dppDocuments: AdminCoachDppDocument[]; onAddCoachAttendance: (input: ManualCoachAttendanceInput) => CoachAttendanceRecord; onCreateCoachDpp: (coach: AdminCoachSummary) => AdminCoachDppDocument; onMarkCoachDppSigned: (coachId: string) => void }) {
+function CoachesSection({ coaches, coachAttendanceRecords, dppDocuments, sharedTrainingSlots, workshopSlots, campTurnusy, onAddCoachAttendance, onCreateCoachDpp, onMarkCoachDppSigned, onReleaseSharedTraining, onAssignSharedTraining, onAddWorkshopCoach, onRemoveWorkshopCoach, onAddWorkshopSlot, onAddCampCoach, onRemoveCampCoach }: { coaches: AdminCoachSummary[]; coachAttendanceRecords: CoachAttendanceRecord[]; dppDocuments: AdminCoachDppDocument[]; sharedTrainingSlots: SharedTrainingSlot[]; workshopSlots: WorkshopSlot[]; campTurnusy: CampTurnus[]; onAddCoachAttendance: (input: ManualCoachAttendanceInput) => CoachAttendanceRecord; onCreateCoachDpp: (coach: AdminCoachSummary) => AdminCoachDppDocument; onMarkCoachDppSigned: (coachId: string) => void; onReleaseSharedTraining: (slot: SharedTrainingSlot, position?: 'first' | 'second') => void; onAssignSharedTraining: (slot: SharedTrainingSlot, coach: AdminCoachSummary) => void; onAddWorkshopCoach: (slot: WorkshopSlot, coach: AdminCoachSummary) => void; onRemoveWorkshopCoach: (slot: WorkshopSlot, coachId: string) => void; onAddWorkshopSlot: (date: string, city: WorkshopCity) => void; onAddCampCoach: (turnus: CampTurnus, coach: AdminCoachSummary) => void; onRemoveCampCoach: (turnus: CampTurnus, coachId: string) => void }) {
   const [query, setQuery] = useState('');
   const [selectedCoachId, setSelectedCoachId] = useState<string | null>(null);
+  const [typeFilter, setTypeFilter] = useState<'all' | 'Krouzek' | 'Tabor' | 'Workshop'>('all');
   const placementGroups = useMemo(() => buildCoachPlacementGroups(coaches, query), [coaches, query]);
   const courseGroups = placementGroups.filter((group) => group.type === 'Krouzek');
   const campGroups = placementGroups.filter((group) => group.type === 'Tabor');
   const workshopGroups = placementGroups.filter((group) => group.type === 'Workshop');
   const signedCount = coaches.filter((coach) => dppStatusForCoach(coach.id, dppDocuments) === 'signed').length;
   const selectedCoach = selectedCoachId ? coaches.find((coach) => coach.id === selectedCoachId) : null;
+
+  const TYPE_TABS: { key: 'all' | 'Krouzek' | 'Tabor' | 'Workshop'; label: string; count: number }[] = [
+    { key: 'all', label: 'Vše', count: placementGroups.length },
+    { key: 'Krouzek', label: 'Kroužky', count: courseGroups.length },
+    { key: 'Tabor', label: 'Tábory', count: campGroups.length },
+    { key: 'Workshop', label: 'Workshopy', count: workshopGroups.length },
+  ];
 
   return (
     <div className="space-y-5">
@@ -754,19 +842,804 @@ function CoachesSection({ coaches, coachAttendanceRecords, dppDocuments, onAddCo
         </div>
       </Panel>
 
-      <div className="grid items-start gap-5 xl:grid-cols-[1.1fr_0.9fr]">
-        <CoachPlacementSection title="Kroužky podle míst" subtitle="lokalita, den a přiřazený trenér" groups={courseGroups} emptyText="Pro zadaný filtr není žádný kroužek ani trenér." dppDocuments={dppDocuments} coachAttendanceRecords={coachAttendanceRecords} onOpenCoach={setSelectedCoachId} />
-        <div className="space-y-5">
-          <CoachPlacementSection title="Tábory" subtitle="turnusy a táboroví trenéři" groups={campGroups} emptyText="Pro zadaný filtr není žádný táborový trenér." dppDocuments={dppDocuments} coachAttendanceRecords={coachAttendanceRecords} onOpenCoach={setSelectedCoachId} compact />
-          <CoachPlacementSection title="Workshopy" subtitle="trenéři pro jednorázové akce" groups={workshopGroups} emptyText="Pro zadaný filtr není žádný workshopový trenér." dppDocuments={dppDocuments} coachAttendanceRecords={coachAttendanceRecords} onOpenCoach={setSelectedCoachId} compact />
+      <SharedTrainerCalendarPanel slots={sharedTrainingSlots} coaches={coaches} onRelease={onReleaseSharedTraining} onAssign={onAssignSharedTraining} />
+
+      {(typeFilter === 'all' || typeFilter === 'Workshop') && (
+        <WorkshopCalendarPanel slots={workshopSlots} coaches={coaches} onAddCoach={onAddWorkshopCoach} onRemoveCoach={onRemoveWorkshopCoach} onAddSlot={onAddWorkshopSlot} />
+      )}
+
+      {(typeFilter === 'all' || typeFilter === 'Tabor') && (
+        <CampCalendarPanel turnusy={campTurnusy} coaches={coaches} onAddCoach={onAddCampCoach} onRemoveCoach={onRemoveCampCoach} />
+      )}
+
+      <Panel className="p-5">
+        <div className="flex flex-wrap items-center gap-2">
+          {TYPE_TABS.map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => setTypeFilter(tab.key)}
+              className={`inline-flex items-center gap-1.5 rounded-[13px] px-3.5 py-2 text-xs font-black transition ${
+                typeFilter === tab.key
+                  ? 'bg-brand-purple text-white shadow-brand'
+                  : 'border border-brand-purple/15 bg-white text-brand-ink-soft hover:bg-brand-purple/5 hover:text-brand-purple'
+              }`}
+            >
+              {tab.label}
+              <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-black ${typeFilter === tab.key ? 'bg-white/20 text-white' : 'bg-brand-paper text-brand-ink-soft'}`}>
+                {tab.count}
+              </span>
+            </button>
+          ))}
         </div>
-      </div>
+      </Panel>
+
+      {(typeFilter === 'all' || typeFilter === 'Krouzek') && (typeFilter === 'Krouzek') && (
+        <CoachPlacementSection title="Kroužky podle míst" subtitle="lokalita, den a přiřazený trenér" groups={courseGroups} emptyText="Pro zadaný filtr není žádný kroužek ani trenér." dppDocuments={dppDocuments} coachAttendanceRecords={coachAttendanceRecords} onOpenCoach={setSelectedCoachId} />
+      )}
+      {typeFilter === 'Tabor' && (
+        <CoachPlacementSection title="Tábory" subtitle="turnusy a táboroví trenéři" groups={campGroups} emptyText="Pro zadaný filtr není žádný táborový trenér." dppDocuments={dppDocuments} coachAttendanceRecords={coachAttendanceRecords} onOpenCoach={setSelectedCoachId} />
+      )}
+      {typeFilter === 'Workshop' && (
+        <CoachPlacementSection title="Workshopy" subtitle="trenéři pro jednorázové akce" groups={workshopGroups} emptyText="Pro zadaný filtr není žádný workshopový trenér." dppDocuments={dppDocuments} coachAttendanceRecords={coachAttendanceRecords} onOpenCoach={setSelectedCoachId} />
+      )}
+      {typeFilter === 'all' && (
+        <div className="grid items-start gap-5 xl:grid-cols-[1.1fr_0.9fr]">
+          <CoachPlacementSection title="Kroužky podle míst" subtitle="lokalita, den a přiřazený trenér" groups={courseGroups} emptyText="Pro zadaný filtr není žádný kroužek ani trenér." dppDocuments={dppDocuments} coachAttendanceRecords={coachAttendanceRecords} onOpenCoach={setSelectedCoachId} />
+          <div className="space-y-5">
+            <CoachPlacementSection title="Tábory" subtitle="turnusy a táboroví trenéři" groups={campGroups} emptyText="Pro zadaný filtr není žádný táborový trenér." dppDocuments={dppDocuments} coachAttendanceRecords={coachAttendanceRecords} onOpenCoach={setSelectedCoachId} compact />
+            <CoachPlacementSection title="Workshopy" subtitle="trenéři pro jednorázové akce" groups={workshopGroups} emptyText="Pro zadaný filtr není žádný workshopový trenér." dppDocuments={dppDocuments} coachAttendanceRecords={coachAttendanceRecords} onOpenCoach={setSelectedCoachId} compact />
+          </div>
+        </div>
+      )}
       {selectedCoach ? (
         <DetailModal title={selectedCoach.name} subtitle={`${coachStatusLabel(selectedCoach.status)} · ${selectedCoach.locations.join(' · ')}`} onClose={() => setSelectedCoachId(null)}>
           <CoachDetailCard coach={selectedCoach} coachAttendanceRecords={coachAttendanceRecords} dppDocument={documentForCoach(selectedCoach, dppDocuments)} onAddCoachAttendance={onAddCoachAttendance} onCreateCoachDpp={onCreateCoachDpp} onMarkCoachDppSigned={onMarkCoachDppSigned} />
         </DetailModal>
       ) : null}
     </div>
+  );
+}
+
+const WEEK_DAY_NAMES_WEB = ['Pondělí', 'Úterý', 'Středa', 'Čtvrtek', 'Pátek', 'Sobota', 'Neděle'];
+const WEEK_DAY_ABBR_WEB = ['Po', 'Út', 'St', 'Čt', 'Pá', 'So', 'Ne'];
+const CZECH_MONTH_NAMES_WEB = ['Leden', 'Únor', 'Březen', 'Duben', 'Květen', 'Červen', 'Červenec', 'Srpen', 'Září', 'Říjen', 'Listopad', 'Prosinec'];
+const SEASON_START_WEB = { year: 2025, month: 9 }; // October 2025
+const SEASON_END_WEB = { year: 2026, month: 5 };   // June 2026
+
+function slotDayIndicesWeb(dayStr: string): number[] {
+  return dayStr.split(/\s*\/\s*/).map((d) => WEEK_DAY_NAMES_WEB.indexOf(d.trim())).filter((i) => i >= 0);
+}
+function slotCoachCountWeb(slot: { assignedCoachId?: string; secondCoachId?: string }): number {
+  return (slot.assignedCoachId ? 1 : 0) + (slot.secondCoachId ? 1 : 0);
+}
+function computeEasterWeb(year: number): Date {
+  const a = year % 19, b = Math.floor(year / 100), c = year % 100;
+  const d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31);
+  const day = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(year, month - 1, day);
+}
+function czechHolidaySetWeb(startYear: number): Set<string> {
+  const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const y0 = startYear, y1 = startYear + 1;
+  const s = new Set<string>([
+    `${y0}-10-28`, `${y0}-11-17`, `${y0}-12-24`, `${y0}-12-25`, `${y0}-12-26`,
+    `${y1}-01-01`, `${y1}-05-01`, `${y1}-05-08`,
+  ]);
+  const easter = computeEasterWeb(y1);
+  const gf = new Date(easter); gf.setDate(gf.getDate() - 2);
+  const em = new Date(easter); em.setDate(em.getDate() + 1);
+  s.add(fmt(gf)); s.add(fmt(em));
+  return s;
+}
+function getMonthGridWeb(year: number, month: number): (Date | null)[][] {
+  const first = new Date(year, month, 1);
+  const last = new Date(year, month + 1, 0);
+  const firstDow = (first.getDay() + 6) % 7;
+  const grid: (Date | null)[][] = [];
+  let row: (Date | null)[] = Array(firstDow).fill(null);
+  for (let d = 1; d <= last.getDate(); d++) {
+    row.push(new Date(year, month, d));
+    if (row.length === 7) { grid.push(row); row = []; }
+  }
+  if (row.length > 0) { while (row.length < 7) row.push(null); grid.push(row); }
+  return grid;
+}
+function dateKeyWeb(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function SharedTrainerCalendarPanel({ slots, coaches, onRelease, onAssign }: { slots: SharedTrainingSlot[]; coaches: AdminCoachSummary[]; onRelease: (slot: SharedTrainingSlot, position?: 'first' | 'second') => void; onAssign: (slot: SharedTrainingSlot, coach: AdminCoachSummary) => void }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const now = new Date();
+  const [calYear, setCalYear] = useState(now.getFullYear());
+  const [calMonth, setCalMonth] = useState(now.getMonth());
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+
+  const incompleteCount = slots.filter((s) => slotCoachCountWeb(s) < 2).length;
+  const activeCoaches = coaches.filter((c) => c.status === 'Aktivni' || c.status === 'Ceka na klic');
+  const holidays = useMemo(() => czechHolidaySetWeb(SEASON_START_WEB.year), []);
+  const grid = useMemo(() => getMonthGridWeb(calYear, calMonth), [calYear, calMonth]);
+
+  const ymVal = (y: number, m: number) => y * 12 + m;
+  const canGoPrev = ymVal(calYear, calMonth) > ymVal(SEASON_START_WEB.year, SEASON_START_WEB.month);
+  const canGoNext = ymVal(calYear, calMonth) < ymVal(SEASON_END_WEB.year, SEASON_END_WEB.month);
+
+  function goPrev() {
+    if (!canGoPrev) return;
+    setSelectedKey(null);
+    if (calMonth === 0) { setCalYear((y) => y - 1); setCalMonth(11); } else setCalMonth((m) => m - 1);
+  }
+  function goNext() {
+    if (!canGoNext) return;
+    setSelectedKey(null);
+    if (calMonth === 11) { setCalYear((y) => y + 1); setCalMonth(0); } else setCalMonth((m) => m + 1);
+  }
+
+  const selectedSlotId = selectedKey ? selectedKey.split('|')[0] : null;
+  const selectedSlot = selectedSlotId ? slots.find((s) => s.id === selectedSlotId) ?? null : null;
+
+  const closeModal = () => { setIsOpen(false); setSelectedKey(null); };
+
+  return (
+    <>
+    <Panel className="p-5">
+      {/* Panel header */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <SectionTitle icon={<CalendarDays size={18} />} title="Sdílený kalendář tréninků" subtitle="říjen – červen · 2 trenéři na trénink · svátky = volno" />
+          <div className="flex flex-wrap gap-2">
+            <StatusPill label={`${slots.length} vzorů`} tone="purple" />
+            <StatusPill label={incompleteCount > 0 ? `${incompleteCount} neúplných` : 'Vše obsazeno'} tone={incompleteCount > 0 ? 'pink' : 'mint'} />
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => setIsOpen(true)}
+          className="flex items-center gap-1.5 rounded-[13px] border border-brand-purple/20 bg-white px-3 py-2 text-xs font-black text-brand-purple transition hover:bg-brand-purple/5"
+        >
+          <ChevronDown size={14} />
+          Zobrazit
+        </button>
+      </div>
+    </Panel>
+
+    <AnimatePresence>
+      {isOpen && (
+        <>
+          {/* Backdrop */}
+          <motion.div
+            key="shared-backdrop"
+            className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.22 }}
+            onClick={closeModal}
+          />
+          {/* Modal */}
+          <motion.div
+            key="shared-modal"
+            className="fixed inset-x-3 bottom-0 top-6 z-50 mx-auto flex max-w-3xl flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl"
+            initial={{ y: 60, opacity: 0, scale: 0.97 }}
+            animate={{ y: 0, opacity: 1, scale: 1 }}
+            exit={{ y: 60, opacity: 0, scale: 0.97 }}
+            transition={{ type: 'spring', damping: 28, stiffness: 320 }}
+          >
+            {/* Modal header */}
+            <div className="flex flex-shrink-0 items-center justify-between border-b border-brand-purple/8 bg-white px-6 py-4">
+              <div className="flex flex-wrap items-center gap-3">
+                <SectionTitle icon={<CalendarDays size={18} />} title="Sdílený kalendář tréninků" subtitle="říjen – červen · 2 trenéři na trénink · svátky = volno" />
+                <div className="flex flex-wrap gap-2">
+                  <StatusPill label={`${slots.length} vzorů`} tone="purple" />
+                  <StatusPill label={incompleteCount > 0 ? `${incompleteCount} neúplných` : 'Vše obsazeno'} tone={incompleteCount > 0 ? 'pink' : 'mint'} />
+                </div>
+              </div>
+              <button type="button" onClick={closeModal} className="ml-4 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-brand-paper text-brand-ink-soft transition hover:bg-brand-purple/10 hover:text-brand-purple">
+                <ChevronDown size={16} className="rotate-180" />
+              </button>
+            </div>
+            {/* Scrollable content */}
+            <div className="flex-1 overflow-y-auto px-6 pb-8 pt-5">
+          <>
+          {/* Month navigation */}
+          <div className="mt-5 flex items-center justify-between">
+            <button
+              type="button"
+              disabled={!canGoPrev}
+              onClick={goPrev}
+              className="flex h-8 w-8 items-center justify-center rounded-xl border border-brand-purple/20 bg-white text-brand-purple transition hover:bg-brand-purple/5 disabled:opacity-30"
+            >
+              <ChevronDown size={14} className="rotate-90" />
+            </button>
+            <div className="text-center">
+              <p className="text-sm font-black text-brand-purple-deep">{CZECH_MONTH_NAMES_WEB[calMonth]} {calYear}</p>
+              <p className="text-[11px] text-brand-ink-soft">sezóna říjen {SEASON_START_WEB.year} – červen {SEASON_END_WEB.year}</p>
+            </div>
+            <button
+              type="button"
+              disabled={!canGoNext}
+              onClick={goNext}
+              className="flex h-8 w-8 items-center justify-center rounded-xl border border-brand-purple/20 bg-white text-brand-purple transition hover:bg-brand-purple/5 disabled:opacity-30"
+            >
+              <ChevronDown size={14} className="-rotate-90" />
+            </button>
+          </div>
+
+          {/* Legend */}
+          <div className="mt-3 flex flex-wrap gap-4 text-xs font-bold text-brand-ink-soft">
+            <span className="flex items-center gap-1.5"><span className="inline-block h-2.5 w-2.5 rounded-full bg-[#1FB37A]" />Obsazeno</span>
+            <span className="flex items-center gap-1.5"><span className="inline-block h-2.5 w-2.5 rounded-full bg-[#FFB21A]" />Potřeba 2. trenéra</span>
+            <span className="flex items-center gap-1.5"><span className="inline-block h-2.5 w-2.5 rounded-full bg-[#F0445B]" />Bez trenéra</span>
+            <span className="flex items-center gap-1.5"><span className="inline-block h-2.5 w-2.5 rounded-full bg-brand-ink-soft/20" />Svátek</span>
+          </div>
+
+          {/* Day-of-week headers */}
+          <div className="mt-4 grid grid-cols-7 gap-1">
+            {WEEK_DAY_ABBR_WEB.map((abbr) => (
+              <div key={abbr} className="pb-1 text-center text-[11px] font-black uppercase text-brand-purple-deep">{abbr}</div>
+            ))}
+          </div>
+
+          {/* Calendar date grid */}
+          <div className="grid grid-cols-7 gap-1">
+            {grid.flat().map((date, idx) => {
+              if (!date) return <div key={`empty-${idx}`} className="min-h-[56px]" />;
+              const key = dateKeyWeb(date);
+              const isHoliday = holidays.has(key);
+              const czechIdx = (date.getDay() + 6) % 7;
+              const daySlots = isHoliday ? [] : slots.filter((s) => slotDayIndicesWeb(s.day).includes(czechIdx));
+              const today = new Date(); today.setHours(0, 0, 0, 0);
+              const isToday = date.getTime() === today.getTime();
+              const isPast = date < today;
+              return (
+                <div
+                  key={key}
+                  className={`min-h-[56px] rounded-xl p-1.5 transition ${
+                    isHoliday
+                      ? 'bg-brand-paper/70'
+                      : daySlots.length > 0
+                        ? 'border border-brand-purple/8 bg-white'
+                        : 'bg-transparent'
+                  }`}
+                >
+                  <div className={`mb-1 flex items-center justify-end`}>
+                    <span className={`flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-black ${
+                      isToday ? 'bg-brand-purple text-white' : isPast ? 'text-brand-ink-soft/40' : isHoliday ? 'text-brand-ink-soft/30' : 'text-brand-ink'
+                    }`}>
+                      {date.getDate()}
+                    </span>
+                  </div>
+                  {isHoliday && <div className="text-center text-[9px] font-bold text-brand-ink-soft/40">svátek</div>}
+                  <div className="flex flex-col gap-0.5">
+                    {daySlots.map((slot) => {
+                      const count = slotCoachCountWeb(slot);
+                      const isSelected = selectedKey === `${slot.id}|${key}`;
+                      const bg = count === 0 ? 'bg-[#F0445B]' : count === 1 ? 'bg-[#FFB21A]' : 'bg-[#1FB37A]';
+                      return (
+                        <button
+                          key={slot.id}
+                          type="button"
+                          onClick={() => setSelectedKey(isSelected ? null : `${slot.id}|${key}`)}
+                          className={`w-full rounded-[5px] px-1 py-0.5 text-left text-[9px] font-black text-white transition hover:opacity-80 ${bg} ${isSelected ? 'ring-2 ring-brand-purple ring-offset-1' : ''}`}
+                          title={`${slot.time} · ${slot.place}`}
+                        >
+                          {slot.time.split(' - ')[0]}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Selected slot detail */}
+          {selectedSlot ? (
+            <div className="mt-4 rounded-2xl border border-brand-purple/12 bg-white p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-black text-brand-purple-deep">{selectedSlot.time}</p>
+                  <p className="mt-0.5 text-xs font-bold text-brand-ink">{selectedSlot.place}</p>
+                  <p className="text-[11px] text-brand-ink-soft">{selectedSlot.group} · {selectedSlot.activityType}</p>
+                </div>
+                <button type="button" onClick={() => setSelectedKey(null)} className="rounded-xl border border-brand-purple/15 bg-brand-paper px-3 py-1.5 text-xs font-black text-brand-purple-deep transition hover:bg-brand-purple/5">
+                  Zavřít
+                </button>
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <div className={`rounded-xl p-2.5 ${selectedSlot.assignedCoachId ? 'bg-brand-paper' : 'bg-[#F0445B]/8 border border-[#F0445B]/20'}`}>
+                  <p className="text-[10px] font-black uppercase text-brand-ink-soft/60">1. Trenér</p>
+                  <p className={`mt-0.5 text-xs font-black ${selectedSlot.assignedCoachId ? 'text-brand-ink' : 'text-[#F0445B]'}`}>{selectedSlot.assignedCoachName ?? '—'}</p>
+                  {selectedSlot.assignedCoachId && (
+                    <button type="button" onClick={() => onRelease(selectedSlot, 'first')} className="mt-1.5 w-full rounded-[8px] border border-[#F0445B]/20 px-2 py-1 text-[10px] font-black text-[#F0445B] transition hover:bg-[#F0445B]/8">
+                      Uvolnit
+                    </button>
+                  )}
+                </div>
+                <div className={`rounded-xl p-2.5 ${selectedSlot.secondCoachId ? 'bg-brand-paper' : 'bg-[#FFB21A]/8 border border-[#FFB21A]/25'}`}>
+                  <p className="text-[10px] font-black uppercase text-brand-ink-soft/60">2. Trenér</p>
+                  <p className={`mt-0.5 text-xs font-black ${selectedSlot.secondCoachId ? 'text-brand-ink' : 'text-[#b37200]'}`}>{selectedSlot.secondCoachName ?? '—'}</p>
+                  {selectedSlot.secondCoachId && (
+                    <button type="button" onClick={() => onRelease(selectedSlot, 'second')} className="mt-1.5 w-full rounded-[8px] border border-[#FFB21A]/30 px-2 py-1 text-[10px] font-black text-[#b37200] transition hover:bg-[#FFB21A]/10">
+                      Uvolnit
+                    </button>
+                  )}
+                </div>
+              </div>
+              {slotCoachCountWeb(selectedSlot) < 2 && (
+                <div className="mt-3">
+                  <p className="mb-1.5 text-[10px] font-black uppercase text-brand-ink-soft/60">
+                    {selectedSlot.assignedCoachId ? 'Přiřadit 2. trenéra' : 'Přiřadit trenéra'}
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {activeCoaches.filter((c) => c.id !== selectedSlot.assignedCoachId).map((coach) => (
+                      <button
+                        key={coach.id}
+                        type="button"
+                        onClick={() => onAssign(selectedSlot, coach)}
+                        className="rounded-[10px] bg-brand-purple px-3 py-1.5 text-[11px] font-black text-white transition hover:bg-brand-purple-deep"
+                      >
+                        + {coach.name.split(' ')[0]}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <p className="mt-4 text-center text-xs text-brand-ink-soft/50">Klikni na trénink v kalendáři pro správu trenérů.</p>
+          )}
+            </>
+            </div>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
+    </>
+  );
+}
+
+function WorkshopCalendarPanel({ slots, coaches, onAddCoach, onRemoveCoach, onAddSlot }: { slots: WorkshopSlot[]; coaches: AdminCoachSummary[]; onAddCoach: (slot: WorkshopSlot, coach: AdminCoachSummary) => void; onRemoveCoach: (slot: WorkshopSlot, coachId: string) => void; onAddSlot: (date: string, city: WorkshopCity) => void }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [cityFilter, setCityFilter] = useState<WorkshopCity>('Brno');
+  const now = new Date();
+  const [calYear, setCalYear] = useState(now.getFullYear());
+  const [calMonth, setCalMonth] = useState(now.getMonth());
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [addingSlotDate, setAddingSlotDate] = useState<string | null>(null);
+  const [addingSlotCity, setAddingSlotCity] = useState<WorkshopCity>('Brno');
+
+  const ymVal = (y: number, m: number) => y * 12 + m;
+  const canGoPrev = ymVal(calYear, calMonth) > ymVal(SEASON_START_WEB.year, SEASON_START_WEB.month);
+  const canGoNext = ymVal(calYear, calMonth) < ymVal(SEASON_END_WEB.year, SEASON_END_WEB.month);
+  function goPrev() { if (!canGoPrev) return; setSelectedId(null); if (calMonth === 0) { setCalYear((y) => y - 1); setCalMonth(11); } else setCalMonth((m) => m - 1); }
+  function goNext() { if (!canGoNext) return; setSelectedId(null); if (calMonth === 11) { setCalYear((y) => y + 1); setCalMonth(0); } else setCalMonth((m) => m + 1); }
+  const grid = useMemo(() => getMonthGridWeb(calYear, calMonth), [calYear, calMonth]);
+  const activeCoaches = coaches.filter((c) => c.status === 'Aktivni' || c.status === 'Ceka na klic');
+  const filteredSlots = slots.filter((s) => s.city === cityFilter);
+  const openCount = filteredSlots.filter((s) => s.coaches.length < s.maxCoaches).length;
+  const selectedSlot = selectedId ? slots.find((s) => s.id === selectedId) ?? null : null;
+
+  const CITY_COLORS: Record<WorkshopCity, string> = {
+    Brno: 'bg-[#8B1DFF]',
+    Praha: 'bg-[#1FB37A]',
+    Ostrava: 'bg-[#FFB21A]',
+  };
+  const CITY_BORDER_COLORS: Record<WorkshopCity, string> = {
+    Brno: 'border-[#8B1DFF]/30 bg-[#8B1DFF]/6',
+    Praha: 'border-[#1FB37A]/30 bg-[#1FB37A]/6',
+    Ostrava: 'border-[#FFB21A]/40 bg-[#FFB21A]/8',
+  };
+
+  const closeWsModal = () => { setIsOpen(false); setSelectedId(null); setAddingSlotDate(null); };
+
+  return (
+    <>
+    <Panel className="p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <SectionTitle icon={<CalendarDays size={18} />} title="Workshopy" subtitle={`Brno · Praha · Ostrava · ${WORKSHOP_HOURLY_RATE} Kč/h · ${WORKSHOP_MAX_COACHES} trenéři · termíny přidávají trenéři`} />
+          <div className="flex flex-wrap gap-2">
+            <StatusPill label={`${slots.length} workshopů`} tone="purple" />
+            <StatusPill label={openCount > 0 ? `${openCount} neúplných` : 'Vše obsazeno'} tone={openCount > 0 ? 'pink' : 'mint'} />
+          </div>
+        </div>
+        <button type="button" onClick={() => setIsOpen(true)}
+          className="flex items-center gap-1.5 rounded-[13px] border border-brand-purple/20 bg-white px-3 py-2 text-xs font-black text-brand-purple transition hover:bg-brand-purple/5">
+          <ChevronDown size={14} />
+          Zobrazit
+        </button>
+      </div>
+    </Panel>
+
+    <AnimatePresence>
+      {isOpen && (
+        <>
+          <motion.div
+            key="ws-backdrop"
+            className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.22 }}
+            onClick={closeWsModal}
+          />
+          <motion.div
+            key="ws-modal"
+            className="fixed inset-x-3 bottom-0 top-6 z-50 mx-auto flex max-w-3xl flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl"
+            initial={{ y: 60, opacity: 0, scale: 0.97 }}
+            animate={{ y: 0, opacity: 1, scale: 1 }}
+            exit={{ y: 60, opacity: 0, scale: 0.97 }}
+            transition={{ type: 'spring', damping: 28, stiffness: 320 }}
+          >
+            <div className="flex flex-shrink-0 items-center justify-between border-b border-brand-purple/8 bg-white px-6 py-4">
+              <div className="flex flex-wrap items-center gap-3">
+                <SectionTitle icon={<CalendarDays size={18} />} title="Workshopy" subtitle={`Brno · Praha · Ostrava · ${WORKSHOP_HOURLY_RATE} Kč/h`} />
+                <div className="flex flex-wrap gap-2">
+                  <StatusPill label={`${slots.length} workshopů`} tone="purple" />
+                  <StatusPill label={openCount > 0 ? `${openCount} neúplných` : 'Vše obsazeno'} tone={openCount > 0 ? 'pink' : 'mint'} />
+                </div>
+              </div>
+              <button type="button" onClick={closeWsModal} className="ml-4 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-brand-paper text-brand-ink-soft transition hover:bg-brand-purple/10 hover:text-brand-purple">
+                <ChevronDown size={16} className="rotate-180" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-6 pb-8 pt-5">
+          <>
+          {/* City filter */}
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            {(['Brno', 'Praha', 'Ostrava'] as const).map((city) => (
+              <button key={city} type="button"
+                onClick={() => { setCityFilter(city); setSelectedId(null); }}
+                className={`rounded-[11px] px-3 py-1.5 text-xs font-black transition ${cityFilter === city ? 'bg-brand-purple text-white' : 'border border-brand-purple/20 bg-white text-brand-purple hover:bg-brand-purple/5'}`}>
+                {city}
+              </button>
+            ))}
+          </div>
+
+          {/* Month nav */}
+          <div className="mt-4 flex items-center justify-between">
+            <button type="button" disabled={!canGoPrev} onClick={goPrev}
+              className="flex h-8 w-8 items-center justify-center rounded-xl border border-brand-purple/20 bg-white text-brand-purple transition hover:bg-brand-purple/5 disabled:opacity-30">
+              <ChevronDown size={14} className="rotate-90" />
+            </button>
+            <div className="text-center">
+              <p className="text-sm font-black text-brand-purple-deep">{CZECH_MONTH_NAMES_WEB[calMonth]} {calYear}</p>
+              <p className="text-[11px] text-brand-ink-soft">klikni na datum pro správu · prázdná data = přidat workshop</p>
+            </div>
+            <button type="button" disabled={!canGoNext} onClick={goNext}
+              className="flex h-8 w-8 items-center justify-center rounded-xl border border-brand-purple/20 bg-white text-brand-purple transition hover:bg-brand-purple/5 disabled:opacity-30">
+              <ChevronDown size={14} className="-rotate-90" />
+            </button>
+          </div>
+
+          {/* Legend */}
+          <div className="mt-3 flex flex-wrap gap-4 text-xs font-bold text-brand-ink-soft">
+            <span className="flex items-center gap-1.5"><span className="inline-block h-2.5 w-2.5 rounded-full bg-[#8B1DFF]" />Brno</span>
+            <span className="flex items-center gap-1.5"><span className="inline-block h-2.5 w-2.5 rounded-full bg-[#1FB37A]" />Praha</span>
+            <span className="flex items-center gap-1.5"><span className="inline-block h-2.5 w-2.5 rounded-full bg-[#FFB21A]" />Ostrava</span>
+            <span className="flex items-center gap-1.5"><span className="inline-block h-2.5 w-2.5 rounded-full border border-brand-purple/20 bg-transparent" />Obsazeno</span>
+          </div>
+
+          {/* Day headers */}
+          <div className="mt-4 grid grid-cols-7 gap-1">
+            {WEEK_DAY_ABBR_WEB.map((abbr) => (
+              <div key={abbr} className="pb-1 text-center text-[11px] font-black uppercase text-brand-purple-deep">{abbr}</div>
+            ))}
+          </div>
+
+          {/* Calendar grid */}
+          <div className="grid grid-cols-7 gap-1">
+            {grid.flat().map((date, idx) => {
+              if (!date) return <div key={`empty-${idx}`} className="min-h-[52px]" />;
+              const key = dateKeyWeb(date);
+              const daySlots = filteredSlots.filter((s) => s.date === key || s.dateTo === key);
+              const todayD = new Date(); todayD.setHours(0, 0, 0, 0);
+              const isToday = date.getTime() === todayD.getTime();
+              const isPast = date < todayD;
+              const isSelected = daySlots.some((s) => s.id === selectedId);
+              return (
+                <div key={key}
+                  className={`min-h-[52px] cursor-pointer rounded-xl p-1.5 transition ${isSelected ? 'ring-2 ring-brand-purple ring-offset-1 bg-brand-purple/5' : daySlots.length > 0 ? 'hover:bg-brand-paper' : 'hover:bg-brand-paper/50'}`}
+                  onClick={() => {
+                    if (daySlots.length > 0) {
+                      // Cycle through slots on this day
+                      const currentIdx = daySlots.findIndex((s) => s.id === selectedId);
+                      const nextIdx = (currentIdx + 1) % (daySlots.length + 1);
+                      if (nextIdx === daySlots.length) { setSelectedId(null); } else { setSelectedId(daySlots[nextIdx].id); }
+                      setAddingSlotDate(null);
+                    } else if (!isPast) { setAddingSlotDate(addingSlotDate === key ? null : key); setSelectedId(null); }
+                  }}
+                >
+                  <div className="flex justify-end">
+                    <span className={`flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-black ${isToday ? 'bg-brand-purple text-white' : isPast ? 'text-brand-ink-soft/40' : 'text-brand-ink'}`}>
+                      {date.getDate()}
+                    </span>
+                  </div>
+                  <div className="flex flex-col gap-0.5">
+                    {daySlots.map((slot) => {
+                      const isFull = slot.coaches.length >= slot.maxCoaches;
+                      const cityBg = CITY_COLORS[slot.city];
+                      return (
+                        <div key={slot.id} className={`flex items-center gap-0.5 rounded-[4px] px-1 py-0.5 ${isFull ? 'opacity-60' : ''}`}>
+                          <span className={`inline-block h-1.5 w-1.5 flex-shrink-0 rounded-full ${cityBg}`} />
+                          <span className="truncate text-[9px] font-black text-brand-ink">{slot.coaches.length}/{slot.maxCoaches}</span>
+                        </div>
+                      );
+                    })}
+                    {daySlots.length === 0 && !isPast && addingSlotDate !== key && (
+                      <div className="mt-0.5 text-center text-[9px] text-brand-ink-soft/30">+</div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Add slot form */}
+          {addingSlotDate && (
+            <div className="mt-4 rounded-2xl border border-dashed border-brand-purple/30 bg-brand-paper/60 p-4">
+              <p className="mb-3 text-xs font-black text-brand-purple-deep">Přidat workshop: {addingSlotDate}</p>
+              <div className="flex flex-wrap gap-2">
+                {(['Brno', 'Praha', 'Ostrava'] as WorkshopCity[]).map((city) => (
+                  <button key={city} type="button"
+                    onClick={() => setAddingSlotCity(city)}
+                    className={`rounded-[10px] px-3 py-1.5 text-xs font-black transition ${addingSlotCity === city ? 'bg-brand-purple text-white' : 'border border-brand-purple/20 bg-white text-brand-purple'}`}>
+                    {city}
+                  </button>
+                ))}
+                <button type="button"
+                  onClick={() => { onAddSlot(addingSlotDate, addingSlotCity); setAddingSlotDate(null); }}
+                  className="rounded-[10px] bg-brand-purple px-4 py-1.5 text-xs font-black text-white transition hover:bg-brand-purple-deep">
+                  Vytvořit
+                </button>
+                <button type="button" onClick={() => setAddingSlotDate(null)}
+                  className="rounded-[10px] border border-brand-purple/15 bg-white px-3 py-1.5 text-xs font-black text-brand-purple-deep">
+                  Zrušit
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Selected slot detail */}
+          {selectedSlot ? (
+            <div className="mt-4 rounded-2xl border border-brand-purple/12 bg-white p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div className={`mb-1 inline-block rounded-lg px-2 py-0.5 text-xs font-black text-white ${CITY_COLORS[selectedSlot.city]}`}>{selectedSlot.city}</div>
+                  <p className="text-sm font-black text-brand-purple-deep">{selectedSlot.date} · {selectedSlot.time}</p>
+                  <p className="mt-0.5 text-xs font-bold text-brand-ink">{selectedSlot.venue}</p>
+                  {selectedSlot.notes && <p className="mt-1 text-[11px] italic text-brand-ink-soft">{selectedSlot.notes}</p>}
+                  <p className="mt-1 text-[11px] text-brand-ink-soft">{WORKSHOP_HOURLY_RATE} Kč/h · 4 h = {WORKSHOP_HOURLY_RATE * 4} Kč / trenér</p>
+                  {/* Show other cities running same day */}
+                  {(() => {
+                    const sameDaySlots = slots.filter((s) => s.id !== selectedSlot.id && s.date === selectedSlot.date);
+                    if (sameDaySlots.length === 0) return null;
+                    return (
+                      <p className="mt-1.5 text-[11px] font-bold text-[#FFB21A]">
+                        ⚠ Tento den probíhá také: {sameDaySlots.map((s) => s.city).join(', ')} — trenér nemůže být na obou místech najednou.
+                      </p>
+                    );
+                  })()}
+                </div>
+                <button type="button" onClick={() => setSelectedId(null)} className="rounded-xl border border-brand-purple/15 bg-brand-paper px-3 py-1.5 text-xs font-black text-brand-purple-deep hover:bg-brand-purple/5">
+                  Zavřít
+                </button>
+              </div>
+              {/* 4 coach slots */}
+              <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {Array.from({ length: selectedSlot.maxCoaches }).map((_, i) => {
+                  const coach = selectedSlot.coaches[i];
+                  return (
+                    <div key={i} className={`rounded-xl p-2.5 ${coach ? 'bg-brand-paper' : `border border-dashed border-brand-purple/20 bg-transparent`}`}>
+                      <p className="text-[9px] font-black uppercase text-brand-ink-soft/60">{i + 1}. trenér</p>
+                      {coach ? (
+                        <>
+                          <p className="mt-0.5 truncate text-xs font-black text-brand-ink">{coach.coachName}</p>
+                          <button type="button" onClick={() => onRemoveCoach(selectedSlot, coach.coachId)}
+                            className="mt-1 w-full rounded-[7px] border border-[#F0445B]/20 px-1 py-0.5 text-[9px] font-black text-[#F0445B] hover:bg-[#F0445B]/8">
+                            Odebrat
+                          </button>
+                        </>
+                      ) : (
+                        <p className="mt-0.5 text-[10px] text-brand-ink-soft/40">Volné místo</p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              {/* Assign coach */}
+              {selectedSlot.coaches.length < selectedSlot.maxCoaches && (
+                <div className="mt-3">
+                  <p className="mb-1.5 text-[10px] font-black uppercase text-brand-ink-soft/60">Přiřadit trenéra</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {activeCoaches
+                      .filter((c) => !selectedSlot.coaches.some((sc) => sc.coachId === c.id))
+                      .map((coach) => {
+                        const conflictSlot = slots.find((s) => s.id !== selectedSlot.id && s.date === selectedSlot.date && s.coaches.some((sc) => sc.coachId === coach.id));
+                        return (
+                          <button key={coach.id} type="button"
+                            disabled={!!conflictSlot}
+                            title={conflictSlot ? `${coach.name.split(' ')[0]} je ten den v ${conflictSlot.city}` : undefined}
+                            onClick={() => !conflictSlot && onAddCoach(selectedSlot, coach)}
+                            className={`rounded-[10px] px-3 py-1.5 text-[11px] font-black transition ${conflictSlot ? 'cursor-not-allowed border border-brand-purple/15 bg-brand-paper text-brand-ink-soft/40 line-through' : 'bg-brand-purple text-white hover:bg-brand-purple-deep'}`}>
+                            {conflictSlot ? `${coach.name.split(' ')[0]} (${conflictSlot.city})` : `+ ${coach.name.split(' ')[0]}`}
+                          </button>
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : !addingSlotDate && (
+            <p className="mt-4 text-center text-xs text-brand-ink-soft/50">Klikni na datum pro správu workshopu · prázdné datum = přidat nový termín.</p>
+          )}
+            </>
+            </div>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
+    </>
+  );
+}
+
+function CampCalendarPanel({ turnusy, coaches, onAddCoach, onRemoveCoach }: { turnusy: CampTurnus[]; coaches: AdminCoachSummary[]; onAddCoach: (turnus: CampTurnus, coach: AdminCoachSummary) => void; onRemoveCoach: (turnus: CampTurnus, coachId: string) => void }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  const activeCoaches = coaches.filter((c) => c.status === 'Aktivni' || c.status === 'Ceka na klic');
+  const selectedTurnus = selectedId ? turnusy.find((t) => t.id === selectedId) ?? null : null;
+  const totalAssigned = turnusy.reduce((sum, t) => sum + t.coaches.length, 0);
+  const openCount = turnusy.filter((t) => t.coaches.length < t.maxCoaches).length;
+
+  const closeCampModal = () => { setIsOpen(false); setSelectedId(null); };
+
+  const formatDate = (iso: string) => {
+    const [y, m, d] = iso.split('-');
+    return `${d}. ${m}. ${y}`;
+  };
+
+  return (
+    <>
+    <Panel className="p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <SectionTitle icon={<CalendarDays size={18} />} title="Tábory" subtitle={`turnusy · ${CAMP_DAILY_RATE} Kč/den/trenér · ${CAMP_MAX_COACHES} trenéři na turnus`} />
+          <div className="flex flex-wrap gap-2">
+            <StatusPill label={`${turnusy.length} turnusů`} tone="purple" />
+            <StatusPill label={openCount > 0 ? `${openCount} neúplných` : 'Vše obsazeno'} tone={openCount > 0 ? 'pink' : 'mint'} />
+            <StatusPill label={`${totalAssigned} přiřazených`} />
+          </div>
+        </div>
+        <button type="button" onClick={() => setIsOpen(true)}
+          className="flex items-center gap-1.5 rounded-[13px] border border-brand-purple/20 bg-white px-3 py-2 text-xs font-black text-brand-purple transition hover:bg-brand-purple/5">
+          <ChevronDown size={14} />
+          Zobrazit
+        </button>
+      </div>
+    </Panel>
+
+    <AnimatePresence>
+      {isOpen && (
+        <>
+          <motion.div
+            key="camp-backdrop"
+            className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.22 }}
+            onClick={closeCampModal}
+          />
+          <motion.div
+            key="camp-modal"
+            className="fixed inset-x-3 bottom-0 top-6 z-50 mx-auto flex max-w-3xl flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl"
+            initial={{ y: 60, opacity: 0, scale: 0.97 }}
+            animate={{ y: 0, opacity: 1, scale: 1 }}
+            exit={{ y: 60, opacity: 0, scale: 0.97 }}
+            transition={{ type: 'spring', damping: 28, stiffness: 320 }}
+          >
+            <div className="flex flex-shrink-0 items-center justify-between border-b border-brand-purple/8 bg-white px-6 py-4">
+              <div className="flex flex-wrap items-center gap-3">
+                <SectionTitle icon={<CalendarDays size={18} />} title="Tábory – přiřazení trenérů" subtitle={`${CAMP_DAILY_RATE} Kč/den · ${CAMP_MAX_COACHES} trenéři na turnus`} />
+                <div className="flex flex-wrap gap-2">
+                  <StatusPill label={`${turnusy.length} turnusů`} tone="purple" />
+                  <StatusPill label={openCount > 0 ? `${openCount} neúplných` : 'Vše obsazeno'} tone={openCount > 0 ? 'pink' : 'mint'} />
+                </div>
+              </div>
+              <button type="button" onClick={closeCampModal} className="ml-4 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-brand-paper text-brand-ink-soft transition hover:bg-brand-purple/10 hover:text-brand-purple">
+                <ChevronDown size={16} className="rotate-180" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-6 pb-8 pt-5">
+              <div className="space-y-3">
+                {turnusy.map((turnus) => {
+                  const isSelected = turnus.id === selectedId;
+                  const isFull = turnus.coaches.length >= turnus.maxCoaches;
+                  const payout = turnus.durationDays * CAMP_DAILY_RATE;
+                  return (
+                    <div key={turnus.id}
+                      className={`rounded-2xl border p-4 transition cursor-pointer ${isSelected ? 'border-brand-purple/40 bg-brand-purple/5 ring-2 ring-brand-purple ring-offset-1' : 'border-brand-purple/12 bg-white hover:bg-brand-paper/60'}`}
+                      onClick={() => setSelectedId(isSelected ? null : turnus.id)}
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="rounded-lg bg-brand-purple px-2 py-0.5 text-[11px] font-black text-white">{turnus.city}</span>
+                            <span className={`rounded-lg px-2 py-0.5 text-[11px] font-black ${isFull ? 'bg-[#1FB37A]/12 text-[#1FB37A]' : 'bg-[#F0445B]/10 text-[#F0445B]'}`}>{isFull ? 'Obsazeno' : `${turnus.coaches.length}/${turnus.maxCoaches} trenérů`}</span>
+                          </div>
+                          <p className="mt-1 text-sm font-black text-brand-purple-deep">{turnus.campTitle}</p>
+                          <p className="text-xs font-bold text-brand-ink">{turnus.venue}</p>
+                          <p className="mt-0.5 text-[11px] text-brand-ink-soft">{formatDate(turnus.dateFrom)} – {formatDate(turnus.dateTo)} · {turnus.durationDays} dní · {payout} Kč/trenér</p>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {turnus.coaches.map((c) => (
+                            <span key={c.coachId} className="rounded-full bg-brand-paper px-2 py-0.5 text-[11px] font-black text-brand-ink">{c.coachName.split(' ')[0]}</span>
+                          ))}
+                        </div>
+                      </div>
+
+                      {isSelected && (
+                        <div className="mt-4" onClick={(e) => e.stopPropagation()}>
+                          {/* Coach slots */}
+                          <div className="grid grid-cols-3 gap-2">
+                            {Array.from({ length: turnus.maxCoaches }).map((_, i) => {
+                              const coach = turnus.coaches[i];
+                              return (
+                                <div key={i} className={`rounded-xl p-2.5 ${coach ? 'bg-brand-paper' : 'border border-dashed border-brand-purple/20 bg-transparent'}`}>
+                                  <p className="text-[9px] font-black uppercase text-brand-ink-soft/60">{i + 1}. trenér</p>
+                                  {coach ? (
+                                    <>
+                                      <p className="mt-0.5 truncate text-xs font-black text-brand-ink">{coach.coachName}</p>
+                                      <button type="button" onClick={() => onRemoveCoach(turnus, coach.coachId)}
+                                        className="mt-1 w-full rounded-[7px] border border-[#F0445B]/20 px-1 py-0.5 text-[9px] font-black text-[#F0445B] hover:bg-[#F0445B]/8">
+                                        Odebrat
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <p className="mt-0.5 text-[10px] text-brand-ink-soft/40">Volné místo</p>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          {/* Assign coach */}
+                          {turnus.coaches.length < turnus.maxCoaches && (
+                            <div className="mt-3">
+                              <p className="mb-1.5 text-[10px] font-black uppercase text-brand-ink-soft/60">Přiřadit trenéra</p>
+                              <div className="flex flex-wrap gap-1.5">
+                                {activeCoaches.filter((c) => !turnus.coaches.some((tc) => tc.coachId === c.id)).map((coach) => (
+                                  <button key={coach.id} type="button" onClick={() => onAddCoach(turnus, coach)}
+                                    className="rounded-[10px] bg-brand-purple px-3 py-1.5 text-[11px] font-black text-white transition hover:bg-brand-purple-deep">
+                                    + {coach.name.split(' ')[0]}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              {!selectedTurnus && (
+                <p className="mt-4 text-center text-xs text-brand-ink-soft/50">Klikni na turnus pro správu přiřazení trenérů.</p>
+              )}
+            </div>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
+    </>
   );
 }
 
@@ -1472,10 +2345,13 @@ function GroupedCourseCard({ group, coaches, isCreated, onRemove, onEdit }: { gr
   const { base, variant15 } = group;
   const coachNames = productCoachNames(base, coaches);
   const [editing, setEditing] = useState(false);
+  const [showParticipants, setShowParticipants] = useState(false);
   const [title, setTitle] = useState(base.title);
   const [place, setPlace] = useState(base.place);
   const [primaryMeta, setPrimaryMeta] = useState(base.primaryMeta);
   const [capacityTotal, setCapacityTotal] = useState(String(base.capacityTotal));
+
+  const enrollment = courseEnrollments.find((e) => e.courseId === group.baseId);
 
   function handleSave() {
     onEdit({ title, place, primaryMeta, capacityTotal: Number(capacityTotal) });
@@ -1526,6 +2402,33 @@ function GroupedCourseCard({ group, coaches, isCreated, onRemove, onEdit }: { gr
             <Metric value={`${base.capacityCurrent}/${base.capacityTotal}`} label="kapacita" />
             <Metric value={isCreated ? 'Přidáno' : 'Vestavěný'} label="původ" />
           </div>
+          {enrollment && (
+            <div className="mt-3">
+              <button
+                type="button"
+                onClick={() => setShowParticipants((v) => !v)}
+                className="flex w-full items-center justify-between rounded-[12px] border border-brand-purple/15 bg-white px-3 py-2 text-sm font-black text-brand-ink transition hover:border-brand-purple/40"
+              >
+                <span className="flex items-center gap-2">
+                  <Users size={14} className="text-brand-purple" />
+                  Přihlášení ({enrollment.participants.length})
+                </span>
+                <ChevronDown size={14} className={`text-brand-ink-soft transition-transform ${showParticipants ? 'rotate-180' : ''}`} />
+              </button>
+              {showParticipants && (
+                <div className="mt-2 space-y-1">
+                  {enrollment.participants.map((p) => (
+                    <div key={p.name} className="flex items-center justify-between rounded-[10px] bg-white px-3 py-1.5">
+                      <span className="text-sm font-bold text-brand-ink">{p.name}</span>
+                      <span className={`text-xs font-black ${p.remaining <= 2 ? 'text-[#F0445B]' : p.remaining <= 4 ? 'text-[#FFB21A]' : 'text-brand-purple'}`}>
+                        {p.remaining} vstupů
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </>
       )}
     </div>
@@ -1611,18 +2514,314 @@ function productDefaults(type: ActivityType) {
   return { city: 'Vyškov', venue: 'Nová tělocvična', primaryMeta: 'Pondělí 16:00-17:00', price: '1790', capacityTotal: '25', trainingFocus: 'bezpečné dopady, přeskoky, skill tree, NFC docházka' };
 }
 
-function ParticipantTypeSwitch({ activeType, groupsByType, onChange }: { activeType: ActivityType; groupsByType: Record<ActivityType, ParticipantGroup[]>; onChange: (type: ActivityType) => void }) {
-  const typeOptions: Array<{ type: ActivityType; label: string; icon: ReactNode }> = [
-    { type: 'Krouzek', label: 'Kroužky', icon: <MapPin size={17} /> },
-    { type: 'Tabor', label: 'Tábory', icon: <ShieldCheck size={17} /> },
-    { type: 'Workshop', label: 'Workshopy', icon: <ListChecks size={17} /> },
+function PastSessionRow({ rec, slotTricks, cityBadge, cityText, fmtDate }: {
+  rec: WorkshopAttendanceRecord & { slot: WorkshopSlot };
+  slotTricks: number;
+  cityBadge: string;
+  cityText: string;
+  fmtDate: (iso: string) => string;
+}) {
+  return (
+    <div className="rounded-[14px] bg-brand-paper px-3 py-2.5">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className={`shrink-0 rounded-[8px] px-2 py-0.5 text-xs font-black ${cityBadge}`}>{rec.slot.city}</span>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-black text-brand-ink leading-tight">{fmtDate(rec.slot.date)}</p>
+          <p className="text-[11px] text-brand-ink-soft">{rec.slot.venue} · {rec.slot.time}</p>
+        </div>
+        <div className="flex shrink-0 items-center gap-3">
+          <div className="text-right">
+            <p className="text-sm font-black text-brand-ink leading-tight">{rec.attendees}</p>
+            <p className="text-[9px] font-bold uppercase text-brand-ink-soft">účastníků</p>
+          </div>
+          <div className="text-right">
+            <p className={`text-sm font-black leading-tight ${cityText}`}>{slotTricks}</p>
+            <p className="text-[9px] font-bold uppercase text-brand-ink-soft">triků</p>
+          </div>
+        </div>
+      </div>
+      {rec.coachTrickCounts.length > 0 && (
+        <div className="mt-1.5 flex flex-wrap gap-1">
+          {rec.coachTrickCounts.map((ct) => (
+            <span key={ct.coachId} className="rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-brand-ink shadow-sm">
+              {ct.coachName.split(' ')[0]} · {ct.count} triků
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WorkshopStatsPanel({ allSlots, attendanceRecords, onOpenParticipant }: { allSlots: WorkshopSlot[]; attendanceRecords: WorkshopAttendanceRecord[]; onOpenParticipant?: (participant: ParentParticipant, place: string) => void }) {
+  const CITY_BADGE: Record<WorkshopCity, string> = { Brno: 'bg-[#8B1DFF] text-white', Praha: 'bg-[#1FB37A] text-white', Ostrava: 'bg-[#FFB21A] text-brand-ink' };
+  const CITY_TEXT: Record<WorkshopCity, string> = { Brno: 'text-[#8B1DFF]', Praha: 'text-[#1FB37A]', Ostrava: 'text-[#FFB21A]' };
+  const CITY_BG: Record<WorkshopCity, string> = { Brno: 'bg-[#8B1DFF]/10', Praha: 'bg-[#1FB37A]/10', Ostrava: 'bg-[#FFB21A]/15' };
+  const [monthIdx, setMonthIdx] = useState(0);
+
+  const allRecords = attendanceRecords.map((rec) => {
+    const slot = allSlots.find((s) => s.id === rec.slotId);
+    return { ...rec, slot };
+  }).filter((r): r is WorkshopAttendanceRecord & { slot: WorkshopSlot } => !!r.slot);
+
+  // Group by month (newest first)
+  const groups: { key: string; label: string; items: typeof allRecords }[] = [];
+  for (const rec of [...allRecords].sort((a, b) => b.slot.date.localeCompare(a.slot.date))) {
+    const [y, m] = rec.slot.date.split('-');
+    const key = `${y}-${m}`;
+    const label = new Date(Number(y), Number(m) - 1, 1).toLocaleString('cs-CZ', { month: 'long', year: 'numeric' });
+    const existing = groups.find((g) => g.key === key);
+    if (existing) { existing.items.push(rec); } else { groups.push({ key, label, items: [rec] }); }
+  }
+
+  const safeIdx = groups.length > 0 ? Math.min(monthIdx, groups.length - 1) : 0;
+  const records = groups.length > 0 ? groups[safeIdx].items : allRecords;
+  const currentLabel = groups[safeIdx]?.label;
+
+  const totalAttendees = records.reduce((s, r) => s + r.attendees, 0);
+  const totalTricks = records.reduce((s, r) => s + r.coachTrickCounts.reduce((a, c) => a + c.count, 0), 0);
+
+  const cities: WorkshopCity[] = ['Brno', 'Praha', 'Ostrava'];
+  const cityStats = cities.map((city) => {
+    const cityRecs = records.filter((r) => r.slot.city === city);
+    return { city, count: cityRecs.length, attendees: cityRecs.reduce((s, r) => s + r.attendees, 0), tricks: cityRecs.reduce((s, r) => s + r.coachTrickCounts.reduce((a, c) => a + c.count, 0), 0) };
+  });
+
+  const coachMap = new Map<string, { name: string; tricks: number; workshops: number }>();
+  for (const rec of records) {
+    for (const ct of rec.coachTrickCounts) {
+      const existing = coachMap.get(ct.coachId);
+      if (existing) { existing.tricks += ct.count; existing.workshops++; }
+      else { coachMap.set(ct.coachId, { name: ct.coachName, tricks: ct.count, workshops: 1 }); }
+    }
+  }
+  const coachLeaderboard = [...coachMap.entries()].map(([id, v]) => ({ id, ...v })).sort((a, b) => b.tricks - a.tricks);
+  const maxTricks = coachLeaderboard[0]?.tricks ?? 1;
+
+  return (
+    <article className="rounded-[18px] border border-brand-purple/10 bg-white p-5 shadow-brand-soft">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <SectionTitle icon={<BarChart2 size={18} />} title="Statistiky proběhlých workshopů" subtitle={`${allRecords.length} workshopů · sezóna 2025/2026`} />
+        {groups.length > 1 && (
+          <div className="flex items-center gap-1">
+            <button type="button" disabled={safeIdx >= groups.length - 1} onClick={() => setMonthIdx(safeIdx + 1)} className="flex h-8 w-8 items-center justify-center rounded-[10px] bg-brand-paper text-brand-purple transition hover:bg-brand-purple/10 disabled:cursor-default disabled:opacity-30">
+              <ChevronDown size={15} className="rotate-90" />
+            </button>
+            <span className="min-w-[124px] text-center text-xs font-black uppercase tracking-wide text-brand-purple">{currentLabel}</span>
+            <button type="button" disabled={safeIdx === 0} onClick={() => setMonthIdx(safeIdx - 1)} className="flex h-8 w-8 items-center justify-center rounded-[10px] bg-brand-paper text-brand-purple transition hover:bg-brand-purple/10 disabled:cursor-default disabled:opacity-30">
+              <ChevronDown size={15} className="-rotate-90" />
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Summary row */}
+      <div className="mt-4 grid grid-cols-3 gap-3">
+        {[
+          { label: 'workshopů', value: records.length },
+          { label: 'účastníků', value: totalAttendees },
+          { label: 'triků rozdáno', value: totalTricks },
+        ].map(({ label, value }) => (
+          <div key={label} className="rounded-[14px] bg-brand-paper px-3 py-3 text-center">
+            <p className="text-2xl font-black text-brand-purple">{value}</p>
+            <p className="mt-0.5 text-[10px] font-black uppercase tracking-wide text-brand-ink-soft">{label}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* City breakdown */}
+      <div className="mt-4 grid gap-2 sm:grid-cols-3">
+        {cityStats.map(({ city, count, attendees, tricks }) => (
+          <div key={city} className={`rounded-[14px] px-4 py-3 ${CITY_BG[city]}`}>
+            <div className="flex items-center justify-between">
+              <span className={`rounded-[8px] px-2 py-0.5 text-xs font-black ${CITY_BADGE[city]}`}>{city}</span>
+              <span className={`text-xs font-black ${CITY_TEXT[city]}`}>{count}×</span>
+            </div>
+            <div className="mt-2 flex items-end justify-between gap-2">
+              <div>
+                <p className="text-lg font-black text-brand-ink leading-none">{attendees}</p>
+                <p className="text-[10px] font-bold text-brand-ink-soft uppercase tracking-wide">účastníků</p>
+              </div>
+              <div className="text-right">
+                <p className={`text-lg font-black leading-none ${CITY_TEXT[city]}`}>{tricks}</p>
+                <p className="text-[10px] font-bold text-brand-ink-soft uppercase tracking-wide">triků</p>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Coach leaderboard */}
+      {coachLeaderboard.length > 0 && (
+        <div className="mt-4">
+          <p className="mb-2 text-[10px] font-black uppercase tracking-wide text-brand-ink-soft">Trenéři · triky rozdáné na workshopech</p>
+          <div className="space-y-1.5">
+            {coachLeaderboard.map((coach, i) => (
+              <div key={coach.id} className="flex items-center gap-3">
+                <span className="w-4 shrink-0 text-center text-xs font-black text-brand-ink-soft">{i + 1}</span>
+                <span className="w-28 shrink-0 truncate text-sm font-bold text-brand-ink">{coach.name}</span>
+                <div className="flex-1 overflow-hidden rounded-full bg-brand-purple/10">
+                  <div className="h-2 rounded-full bg-brand-purple transition-all" style={{ width: `${Math.round((coach.tricks / maxTricks) * 100)}%` }} />
+                </div>
+                <span className="w-10 shrink-0 text-right text-sm font-black text-brand-purple">{coach.tricks}</span>
+                <span className="w-16 shrink-0 text-right text-[10px] font-bold text-brand-ink-soft">{coach.workshops} WS</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+    </article>
+  );
+}
+
+function WorkshopUpcomingPanel({ slots, attendanceRecords = [], onOpenParticipant }: { slots: WorkshopSlot[]; attendanceRecords?: WorkshopAttendanceRecord[]; onOpenParticipant?: (participant: ParentParticipant, place: string) => void }) {
+  const WS_CAPACITY = 40;
+  const CITY_BADGE: Record<WorkshopCity, string> = { Brno: 'bg-[#8B1DFF] text-white', Praha: 'bg-[#1FB37A] text-white', Ostrava: 'bg-[#FFB21A] text-brand-ink' };
+  const CITY_BAR: Record<WorkshopCity, string> = { Brno: 'bg-[#8B1DFF]', Praha: 'bg-[#1FB37A]', Ostrava: 'bg-[#FFB21A]' };
+  const DOW_CS = ['Ne', 'Po', 'Út', 'St', 'Čt', 'Pá', 'So'];
+  const [monthIdx, setMonthIdx] = useState(0);
+  const [openSlotId, setOpenSlotId] = useState<string | null>(null);
+
+  const WS_MOCK_NAMES = ['Jakub N.', 'Eliška K.', 'Tomáš P.', 'Martin S.', 'Klára M.', 'Ondřej B.', 'Tereza V.', 'Michal H.', 'Adéla R.', 'Jan Č.', 'Barbora F.', 'Adam D.', 'Petra N.', 'David L.', 'Zuzana T.', 'Jiří K.', 'Veronika P.', 'Natálie O.', 'Filip S.', 'Lenka H.', 'Pavel M.', 'Anežka B.', 'Václav Č.', 'Simona R.', 'Radek K.', 'Lucie V.', 'Miroslav D.', 'Eva P.', 'Jana H.', 'Lukáš R.', 'Karolína T.', 'Petr M.', 'Markéta H.', 'Josef K.', 'Dominika S.'];
+  function mockRegistered(slot: WorkshopSlot): number {
+    const seed = slot.id.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
+    return (seed % 28) + 7;
+  }
+  function mockRegisteredNames(slot: WorkshopSlot): string[] {
+    const count = mockRegistered(slot);
+    const seed = slot.id.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
+    const result: string[] = [];
+    for (let i = 0; i < count; i++) {
+      const candidate = WS_MOCK_NAMES[(seed + i * 7) % WS_MOCK_NAMES.length];
+      result.push(result.includes(candidate) ? WS_MOCK_NAMES[(seed + i * 7 + 3) % WS_MOCK_NAMES.length] : candidate);
+    }
+    return result;
+  }
+  function fmtDate(iso: string) {
+    const [y, m, d] = iso.split('-').map(Number);
+    const dow = DOW_CS[new Date(y, m - 1, d).getDay()];
+    return `${dow} ${d}. ${m}. ${y}`;
+  }
+
+  const groups: { key: string; label: string; items: WorkshopSlot[] }[] = [];
+  for (const slot of slots) {
+    const [y, m] = slot.date.split('-');
+    const key = `${y}-${m}`;
+    const label = new Date(Number(y), Number(m) - 1, 1).toLocaleString('cs-CZ', { month: 'long', year: 'numeric' });
+    const existing = groups.find((g) => g.key === key);
+    if (existing) { existing.items.push(slot); } else { groups.push({ key, label, items: [slot] }); }
+  }
+
+  const safeIdx = Math.min(monthIdx, Math.max(0, groups.length - 1));
+  const currentGroup = groups[safeIdx];
+
+  return (
+    <article className="rounded-[18px] border border-brand-purple/10 bg-white p-5 shadow-brand-soft">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <SectionTitle icon={<ListChecks size={18} />} title="Nadcházející workshopy" subtitle={`${slots.length} termínů · přihlášení na každý termín`} />
+        {groups.length > 1 && (
+          <div className="flex items-center gap-1">
+            <button type="button" disabled={safeIdx === 0} onClick={() => { setMonthIdx(safeIdx - 1); setOpenSlotId(null); }} className="flex h-8 w-8 items-center justify-center rounded-[10px] bg-brand-paper text-brand-purple transition hover:bg-brand-purple/10 disabled:cursor-default disabled:opacity-30">
+              <ChevronDown size={15} className="rotate-90" />
+            </button>
+            <span className="min-w-[124px] text-center text-xs font-black uppercase tracking-wide text-brand-purple">{currentGroup?.label}</span>
+            <button type="button" disabled={safeIdx >= groups.length - 1} onClick={() => { setMonthIdx(safeIdx + 1); setOpenSlotId(null); }} className="flex h-8 w-8 items-center justify-center rounded-[10px] bg-brand-paper text-brand-purple transition hover:bg-brand-purple/10 disabled:cursor-default disabled:opacity-30">
+              <ChevronDown size={15} className="-rotate-90" />
+            </button>
+          </div>
+        )}
+      </div>
+      {groups.length === 0 ? <div className="mt-4"><EmptyState text="Žádné nadcházející workshopy." /></div> : null}
+      {currentGroup && (
+        <div className="mt-4 grid gap-2">
+          {currentGroup.items.map((slot) => {
+            const registered = mockRegistered(slot);
+            const pct = Math.min(100, Math.round((registered / WS_CAPACITY) * 100));
+            const isFull = registered >= WS_CAPACITY;
+            const isAlmostFull = pct >= 80;
+            const isOpen = openSlotId === slot.id;
+            const attendance = attendanceRecords.find((r) => r.slotId === slot.id);
+            return (
+              <div key={slot.id} className="overflow-hidden rounded-[14px] bg-brand-paper">
+                <button
+                  type="button"
+                  onClick={() => setOpenSlotId(isOpen ? null : slot.id)}
+                  className="flex w-full items-center gap-3 px-4 py-3 text-left transition hover:bg-brand-purple/5"
+                >
+                  <span className={`shrink-0 rounded-[9px] px-2.5 py-1.5 text-xs font-black ${CITY_BADGE[slot.city]}`}>{slot.city}</span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-black text-brand-ink">{fmtDate(slot.date)}{slot.dateTo ? ` – ${fmtDate(slot.dateTo)}` : ''}</p>
+                    <p className="mt-0.5 truncate text-xs font-bold text-brand-ink-soft">{slot.venue} · {slot.time}</p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <div className="min-w-[72px] text-right">
+                      <p className={`text-sm font-black ${isFull ? 'text-[#F0445B]' : isAlmostFull ? 'text-[#FFB21A]' : 'text-brand-ink'}`}>
+                        {registered}/{WS_CAPACITY}
+                      </p>
+                      <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-brand-purple/10">
+                        <div className={`h-full rounded-full transition-all ${isFull ? 'bg-[#F0445B]' : isAlmostFull ? 'bg-[#FFB21A]' : CITY_BAR[slot.city]}`} style={{ width: `${pct}%` }} />
+                      </div>
+                    </div>
+                    <ChevronDown size={14} className={`shrink-0 text-brand-ink-soft transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+                  </div>
+                </button>
+                {isOpen && (
+                  <div className="border-t border-brand-purple/10 px-4 py-3">
+                    {attendance ? (
+                      <>
+                        <p className="mb-2 text-xs font-black uppercase tracking-wide text-brand-ink-soft">{attendance.attendees} účastníků</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {attendance.participants.map((name) => {
+                            const p = workshopParticipantFromShortName(name, slot.venue);
+                            return onOpenParticipant ? (
+                              <button key={name} type="button" onClick={() => onOpenParticipant(p, slot.venue)} className="rounded-[999px] bg-brand-purple/10 px-2.5 py-1 text-xs font-black text-brand-purple-deep transition hover:bg-brand-purple hover:text-white">
+                                {name}
+                              </button>
+                            ) : (
+                              <span key={name} className="rounded-[999px] bg-brand-purple/10 px-2.5 py-1 text-xs font-bold text-brand-ink-soft">{name}</span>
+                            );
+                          })}
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <p className="mb-2 text-xs font-black uppercase tracking-wide text-brand-ink-soft">Přihlášeni · {registered} z {WS_CAPACITY}</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {mockRegisteredNames(slot).map((name) => {
+                            const p = workshopParticipantFromShortName(name, slot.venue);
+                            return onOpenParticipant ? (
+                              <button key={name} type="button" onClick={() => onOpenParticipant(p, slot.venue)} className="rounded-full bg-brand-purple/10 px-2.5 py-0.5 text-xs font-black text-brand-purple-deep transition hover:bg-brand-purple hover:text-white">
+                                {name}
+                              </button>
+                            ) : (
+                              <span key={name} className="rounded-full bg-white px-2.5 py-0.5 text-xs font-bold text-brand-ink shadow-sm">{name}</span>
+                            );
+                          })}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </article>
+  );
+}
+
+function ParticipantTypeSwitch({ activeType, groupsByType, workshopUpcomingCount, onChange }: { activeType: ActivityType; groupsByType: Record<ActivityType, ParticipantGroup[]>; workshopUpcomingCount: number; onChange: (type: ActivityType) => void }) {
+  const typeOptions: Array<{ type: ActivityType; label: string; sublabel: string; icon: ReactNode; count: number }> = [
+    { type: 'Krouzek', label: 'Kroužky', sublabel: `${groupsByType.Krouzek.length} lokalit`, icon: <MapPin size={17} />, count: groupsByType.Krouzek.reduce((s, g) => s + g.participants.length, 0) },
+    { type: 'Tabor', label: 'Tábory', sublabel: `${groupsByType.Tabor.length} turnusů`, icon: <ShieldCheck size={17} />, count: groupsByType.Tabor.reduce((s, g) => s + g.participants.length, 0) },
+    { type: 'Workshop', label: 'Workshopy', sublabel: 'nadcházející termíny', icon: <ListChecks size={17} />, count: workshopUpcomingCount },
   ];
 
   return (
     <div className="grid gap-2 rounded-[18px] border border-brand-purple/10 bg-brand-paper p-1.5 sm:grid-cols-3">
       {typeOptions.map((option) => {
-        const groups = groupsByType[option.type];
-        const participantCount = groups.reduce((sum, group) => sum + group.participants.length, 0);
         const active = activeType === option.type;
         return (
           <button key={option.type} type="button" onClick={() => onChange(option.type)} className={`flex min-w-0 items-center justify-between gap-3 rounded-[14px] px-3 py-3 text-left transition ${active ? 'bg-brand-purple text-white shadow-brand-soft' : 'bg-white text-brand-ink hover:bg-brand-purple-light'}`}>
@@ -1630,10 +2829,10 @@ function ParticipantTypeSwitch({ activeType, groupsByType, onChange }: { activeT
               <span className={active ? 'text-white' : 'text-brand-purple'}>{option.icon}</span>
               <span className="min-w-0">
                 <span className="block text-sm font-black leading-tight">{option.label}</span>
-                <span className={`mt-0.5 block text-[10px] font-black uppercase ${active ? 'text-white/72' : 'text-brand-ink-soft'}`}>{groups.length} lokalit</span>
+                <span className={`mt-0.5 block text-[10px] font-black uppercase ${active ? 'text-white/72' : 'text-brand-ink-soft'}`}>{option.sublabel}</span>
               </span>
             </span>
-            <span className={`shrink-0 rounded-[999px] px-2.5 py-1 text-xs font-black ${active ? 'bg-white/18 text-white' : 'bg-brand-purple-light text-brand-purple-deep'}`}>{participantCount}</span>
+            <span className={`shrink-0 rounded-[999px] px-2.5 py-1 text-xs font-black ${active ? 'bg-white/18 text-white' : 'bg-brand-purple-light text-brand-purple-deep'}`}>{option.count}</span>
           </button>
         );
       })}
@@ -1963,7 +3162,7 @@ function CourseLocationStatCard({ stat, onOpenDetail }: { stat: ReturnType<typeo
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="font-black text-brand-ink">{stat.place}</p>
-          <p className="mt-1 text-sm font-bold text-brand-ink-soft">průměr {stat.averagePresent} dětí · max {stat.maxPresent}</p>
+          <p className="mt-1 text-sm font-bold text-brand-ink-soft">průměr {stat.averagePresent} dětí · max {stat.maxPresent} · <span className="text-brand-purple">{stat.enrolledCount} přihlášeno</span></p>
         </div>
         <StatusPill label={`${stat.lastPresent}/${stat.capacityTotal}`} tone="purple" />
       </div>
@@ -2018,7 +3217,14 @@ function ActivityAttendanceRow({ activity, onOpenDetail }: { activity: ReturnTyp
 
 function ActivityDetailModal({ activity, onClose, onOpenParticipant }: { activity: ReturnType<typeof adminActivityRows>[number]; onClose: () => void; onOpenParticipant: (participant: ParentParticipant) => void }) {
   const [selectedSessionDate, setSelectedSessionDate] = useState<string | null>(null);
-  const sessions = buildActivitySessions(activity);
+  const [monthIdx, setMonthIdx] = useState(() => {
+    const groups = buildActivitySessions(activity);
+    return Math.max(0, groups.length - 1); // default to latest month
+  });
+  const monthGroups = buildActivitySessions(activity);
+  const safeMonthIdx = Math.min(monthIdx, monthGroups.length - 1);
+  const currentMonthGroup = monthGroups[safeMonthIdx];
+  const sessions = currentMonthGroup.sessions;
   const participants = registeredParticipantsForActivity(activity);
   const maxPresent = Math.max(...sessions.map((session) => session.present), 1);
   const missingDocuments = missingDocumentsForActivity(activity);
@@ -2039,6 +3245,17 @@ function ActivityDetailModal({ activity, onClose, onOpenParticipant }: { activit
       {showLessonRecords ? (
         <section className="mt-5 rounded-[18px] border border-brand-purple/10 bg-brand-paper p-4">
           <SectionTitle icon={<Gauge size={18} />} title="Časový graf docházky" subtitle={selectedSession ? `vybraný den ${selectedSession.date} · klikni na jiný sloupec pro změnu` : 'klikni na sloupec a dole uvidíš děti z konkrétní lekce'} />
+          {monthGroups.length > 1 && (
+            <div className="mt-3 flex items-center gap-1">
+              <button type="button" disabled={safeMonthIdx === 0} onClick={() => { setMonthIdx(safeMonthIdx - 1); setSelectedSessionDate(null); }} className="flex h-7 w-7 items-center justify-center rounded-[8px] bg-white text-brand-purple transition hover:bg-brand-purple/10 disabled:cursor-default disabled:opacity-30">
+                <ChevronDown size={13} className="rotate-90" />
+              </button>
+              <span className="min-w-[112px] text-center text-xs font-black uppercase tracking-wide text-brand-purple">{currentMonthGroup.month}</span>
+              <button type="button" disabled={safeMonthIdx >= monthGroups.length - 1} onClick={() => { setMonthIdx(safeMonthIdx + 1); setSelectedSessionDate(null); }} className="flex h-7 w-7 items-center justify-center rounded-[8px] bg-white text-brand-purple transition hover:bg-brand-purple/10 disabled:cursor-default disabled:opacity-30">
+                <ChevronDown size={13} className="-rotate-90" />
+              </button>
+            </div>
+          )}
           <div className="mt-4 flex h-36 items-end gap-2 rounded-[16px] bg-white px-3 py-4">
             {sessions.map((session) => {
               const active = selectedSessionDate === session.date;
@@ -2061,7 +3278,7 @@ function ActivityDetailModal({ activity, onClose, onOpenParticipant }: { activit
       {showLessonRecords ? (
         <section className="mt-5 rounded-[18px] border border-brand-purple/10 bg-brand-paper p-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <SectionTitle icon={<History size={18} />} title={selectedSession ? `Účastníci ${selectedSession.date}` : 'Přesné záznamy lekcí'} subtitle={selectedSession ? 'děti z vybraného sloupce grafu, účastníka můžeš rozkliknout' : 'všechny dny zůstávají dostupné pod sebou'} />
+            <SectionTitle icon={<History size={18} />} title={selectedSession ? `Účastníci ${selectedSession.date}` : 'Přesné záznamy lekcí'} subtitle={selectedSession ? 'děti z vybraného sloupce grafu, účastníka můžeš rozkliknout' : `${currentMonthGroup.month} · kliknutím na den v grafu vyfiltrujete`} />
             {selectedSession ? (
               <button type="button" onClick={() => setSelectedSessionDate(null)} className="inline-flex items-center justify-center rounded-[14px] bg-white px-4 py-3 text-xs font-black text-brand-purple transition hover:bg-brand-purple hover:text-white">
                 Zobrazit všechny dny
@@ -2202,6 +3419,9 @@ function RegisteredParticipantCard({ activity, participant, onOpenParticipant }:
   const linkedParticipant = participant.participant;
   const participantDocuments = linkedParticipant ? activityDocumentsForParticipant(linkedParticipant, activity) : [];
   const activityMetricLabel = activity.type === 'Krouzek' ? 'docházka' : 'stav';
+  const missingDocs = participantDocuments.filter((d) => d.status !== 'signed').length;
+  const [docsOpen, setDocsOpen] = useState(false);
+
   const content = (
     <>
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -2228,17 +3448,24 @@ function RegisteredParticipantCard({ activity, participant, onOpenParticipant }:
       ) : content}
 
       {participantDocuments.length > 0 ? (
-        <div className="mt-4 border-t border-brand-purple/10 pt-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="inline-flex items-center gap-2 text-xs font-black uppercase text-brand-purple">
-              <FileCheck2 size={15} />
-              Dokumenty účastníka
-            </p>
-            <StatusPill label={`${participantDocuments.length} dokumentů`} tone="purple" />
-          </div>
-          <div className="mt-3 grid gap-2">
-            {participantDocuments.map((document) => <DocumentRow key={document.id} document={document} />)}
-          </div>
+        <div className="mt-3 border-t border-brand-purple/10 pt-3">
+          <button
+            type="button"
+            onClick={() => setDocsOpen((v) => !v)}
+            className="flex w-full items-center justify-between gap-2 text-xs font-black text-brand-ink-soft transition hover:text-brand-purple"
+          >
+            <span className="inline-flex items-center gap-1.5">
+              <FileCheck2 size={13} />
+              {participantDocuments.length} dokumentů
+              {missingDocs > 0 && <span className="ml-1 rounded-full bg-[#F0445B]/12 px-1.5 py-0.5 text-[10px] font-black text-[#F0445B]">{missingDocs} chybí</span>}
+            </span>
+            <ChevronDown size={13} className={`transition-transform ${docsOpen ? 'rotate-180' : ''}`} />
+          </button>
+          <CollapsibleContent open={docsOpen} className="pt-3">
+            <div className="grid gap-2">
+              {participantDocuments.map((document) => <DocumentRow key={document.id} document={document} />)}
+            </div>
+          </CollapsibleContent>
         </div>
       ) : null}
     </div>
@@ -2535,8 +3762,8 @@ function DetailModal({ title, subtitle, onClose, children }: { title: string; su
   );
 }
 
-function Panel({ children, className = '' }: { children: ReactNode; className?: string }) {
-  return <section className={`self-start rounded-[22px] border border-brand-purple/12 bg-white shadow-brand ${className}`}>{children}</section>;
+function Panel({ children, className }: { children: ReactNode; className?: string }) {
+  return <section className={cn('self-start rounded-[22px] border border-brand-purple/12 bg-white shadow-brand', className)}>{children}</section>;
 }
 
 function SectionTitle({ icon, title, subtitle }: { icon: ReactNode; title: string; subtitle: string }) {
@@ -2560,13 +3787,29 @@ function Metric({ value, label }: { value: string; label: string }) {
   );
 }
 
+function AdminSignal({ value, label, tone }: { value: string; label: string; tone: 'cyan' | 'mint' | 'orange' | 'purple' }) {
+  const toneClass = {
+    cyan: 'text-brand-cyan',
+    mint: 'text-brand-mint',
+    orange: 'text-brand-orange',
+    purple: 'text-brand-purple-light',
+  }[tone];
+
+  return (
+    <div className="rounded-[16px] bg-white/10 px-3 py-3 ring-1 ring-white/10">
+      <p className={`text-base font-black leading-tight ${toneClass}`}>{value}</p>
+      <p className="mt-1 text-[10px] font-black uppercase text-white/60">{label}</p>
+    </div>
+  );
+}
+
 function ActionTile({ icon, label, value, onClick }: { icon: ReactNode; label: string; value: string; onClick: () => void }) {
   return (
-    <button type="button" onClick={onClick} className="grid min-h-[86px] grid-cols-[44px_minmax(0,1fr)] items-center gap-3 rounded-[16px] border border-brand-purple/10 bg-brand-paper p-3 text-left transition hover:-translate-y-0.5 hover:border-brand-purple/30 hover:bg-white hover:shadow-brand-soft">
-      <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] bg-white text-brand-purple shadow-sm">{icon}</span>
+    <button type="button" onClick={onClick} className="grid min-h-[86px] grid-cols-[44px_minmax(0,1fr)] items-center gap-3 rounded-[16px] border border-white/10 bg-white/10 p-3 text-left text-white transition hover:-translate-y-0.5 hover:border-white/20 hover:bg-white/16 hover:shadow-brand-soft">
+      <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] bg-white/10 text-brand-cyan shadow-sm ring-1 ring-white/10">{icon}</span>
       <span className="min-w-0">
-        <span className="block break-words text-[15px] font-black leading-tight text-brand-ink sm:text-base">{label}</span>
-        <span className="mt-1 block break-words text-sm font-bold leading-tight text-brand-ink-soft">{value}</span>
+        <span className="block break-words text-[15px] font-black leading-tight sm:text-base">{label}</span>
+        <span className="mt-1 block break-words text-sm font-bold leading-tight text-white/64">{value}</span>
       </span>
     </button>
   );
@@ -2655,26 +3898,45 @@ function CollapsiblePanel({ icon, title, subtitle, count, defaultOpen = false, c
 function ManualCoachAttendanceForm({ coaches, lockedCoach, onAdd }: { coaches: AdminCoachSummary[]; lockedCoach?: AdminCoachSummary; onAdd: (input: ManualCoachAttendanceInput) => CoachAttendanceRecord }) {
   const [coachId, setCoachId] = useState(lockedCoach?.id ?? coaches[0]?.id ?? '');
   const selectedCoach = lockedCoach ?? coaches.find((coach) => coach.id === coachId) ?? coaches[0];
+
+  const deriveRate = (coach: AdminCoachSummary) =>
+    coach.loggedHours > 0 ? Math.round(coach.baseAmount / coach.loggedHours) : 500;
+
   const [sessionTitle, setSessionTitle] = useState(selectedCoach?.locations[0] ?? '');
+  const [time, setTime] = useState('16:00');
   const [date, setDate] = useState('30. 4. 2026');
-  const [present, setPresent] = useState('12/14');
   const [durationHours, setDurationHours] = useState('1');
-  const [hourlyRate, setHourlyRate] = useState('500');
+  const [hourlyRate, setHourlyRate] = useState(String(deriveRate(selectedCoach ?? coaches[0])));
   const [reason, setReason] = useState('Trenér zapomněl zapsat docházku po lekci.');
   const [message, setMessage] = useState<string | null>(null);
   const amount = Math.round(Number(durationHours || 0) * Number(hourlyRate || 0));
+
+  const TIME_OPTIONS = ['08:00', '09:00', '10:00', '11:00', '14:00', '15:00', '15:30', '16:00', '16:30', '17:00', '17:30', '18:00', '18:30', '19:00'];
+
+  function onCoachChange(id: string) {
+    setCoachId(id);
+    const coach = coaches.find((c) => c.id === id);
+    if (coach) {
+      setSessionTitle(coach.locations[0] ?? '');
+      setHourlyRate(String(deriveRate(coach)));
+    }
+  }
+
+  function onLocationChange(loc: string) {
+    setSessionTitle(loc);
+  }
 
   async function submitManualAttendance(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedCoach) return;
 
     const place = sessionTitle || selectedCoach.locations[0] || 'Lekce bez lokace';
+    const sessionLabel = `${place} · ${time}`;
     const record = onAdd({
       coachId: selectedCoach.id,
       coachName: selectedCoach.name,
-      sessionTitle: place,
+      sessionTitle: sessionLabel,
       date,
-      present,
       durationHours: Number(durationHours || 0),
       hourlyRate: Number(hourlyRate || 0),
       reason,
@@ -2685,7 +3947,7 @@ function ManualCoachAttendanceForm({ coaches, lockedCoach, onAdd }: { coaches: A
         coachId: selectedCoach.id,
         sessionId: slugForId(place),
         place,
-        present,
+        present: '',
         durationHours: Number(durationHours || 0),
         hourlyRate: Number(hourlyRate || 0),
       });
@@ -2704,31 +3966,37 @@ function ManualCoachAttendanceForm({ coaches, lockedCoach, onAdd }: { coaches: A
         ) : (
           <label className="grid gap-2 text-sm font-black text-brand-ink">
             Trenér
-            <select value={coachId} onChange={(event) => setCoachId(event.target.value)} className="rounded-[16px] border border-brand-purple/15 bg-white px-3 py-2.5 text-sm font-bold outline-none focus:border-brand-purple">
+            <select value={coachId} onChange={(event) => onCoachChange(event.target.value)} className="rounded-[16px] border border-brand-purple/15 bg-white px-3 py-2.5 text-sm font-bold outline-none focus:border-brand-purple">
               {coaches.map((coach) => <option key={coach.id} value={coach.id}>{coach.name}</option>)}
             </select>
           </label>
         )}
         <label className="grid gap-2 text-sm font-black text-brand-ink">
           Lekce / místo
-          <input value={sessionTitle} onChange={(event) => setSessionTitle(event.target.value)} className="rounded-[16px] border border-brand-purple/15 bg-white px-3 py-2.5 text-sm font-bold outline-none focus:border-brand-purple" />
+          <select value={sessionTitle} onChange={(event) => onLocationChange(event.target.value)} className="rounded-[16px] border border-brand-purple/15 bg-white px-3 py-2.5 text-sm font-bold outline-none focus:border-brand-purple">
+            {(selectedCoach?.locations ?? []).map((loc) => <option key={loc} value={loc}>{loc}</option>)}
+          </select>
         </label>
         <label className="grid gap-2 text-sm font-black text-brand-ink">
           Datum
           <input value={date} onChange={(event) => setDate(event.target.value)} className="rounded-[16px] border border-brand-purple/15 bg-white px-3 py-2.5 text-sm font-bold outline-none focus:border-brand-purple" />
         </label>
         <label className="grid gap-2 text-sm font-black text-brand-ink">
-          Docházka dětí
-          <input value={present} onChange={(event) => setPresent(event.target.value)} className="rounded-[16px] border border-brand-purple/15 bg-white px-3 py-2.5 text-sm font-bold outline-none focus:border-brand-purple" />
+          Čas lekce
+          <select value={time} onChange={(event) => setTime(event.target.value)} className="rounded-[16px] border border-brand-purple/15 bg-white px-3 py-2.5 text-sm font-bold outline-none focus:border-brand-purple">
+            {TIME_OPTIONS.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
         </label>
         <label className="grid gap-2 text-sm font-black text-brand-ink">
           Hodiny
           <input inputMode="decimal" value={durationHours} onChange={(event) => setDurationHours(event.target.value)} className="rounded-[16px] border border-brand-purple/15 bg-white px-3 py-2.5 text-sm font-bold outline-none focus:border-brand-purple" />
         </label>
-        <label className="grid gap-2 text-sm font-black text-brand-ink">
+        <div className="grid gap-2 text-sm font-black text-brand-ink">
           Sazba / hod
-          <input inputMode="numeric" value={hourlyRate} onChange={(event) => setHourlyRate(event.target.value)} className="rounded-[16px] border border-brand-purple/15 bg-white px-3 py-2.5 text-sm font-bold outline-none focus:border-brand-purple" />
-        </label>
+          <div className="flex items-center rounded-[16px] border border-brand-purple/10 bg-brand-paper px-3 py-2.5 text-sm font-bold text-brand-ink-soft">
+            {hourlyRate} Kč
+          </div>
+        </div>
       </div>
       <label className="grid gap-2 text-sm font-black text-brand-ink">
         Poznámka
@@ -2761,7 +4029,7 @@ function CoachAttendancePanel({ coach, records, onAdd, compact = false }: { coac
             <p className="mb-2 border-b border-brand-purple/10 pb-1 text-xs font-black uppercase tracking-wide text-brand-purple">{label}</p>
             <div className="grid gap-2">
               {items.map((record) => (
-                <MiniRow key={record.id} label={`${record.sessionTitle} · ${record.present}`} meta={`${record.date} · ${record.durationHours} h · ${record.reason}`} value={record.source === 'admin' ? `Admin · ${currency(record.amount)}` : currency(record.amount)} />
+                <MiniRow key={record.id} label={record.present ? `${record.sessionTitle} · ${record.present}` : record.sessionTitle} meta={`${record.date} · ${record.durationHours} h · ${record.reason}`} value={record.source === 'admin' ? `Admin · ${currency(record.amount)}` : currency(record.amount)} />
               ))}
             </div>
           </div>
@@ -3006,6 +4274,25 @@ function groupByMonthAdmin<T>(items: T[], getDate: (item: T) => string): { label
     else { groups.push({ key, label, items: [item] }); }
   }
   return groups;
+}
+
+function buildInitialSharedTrainingState(): SharedTrainingState {
+  return sharedTrainingCalendar.reduce((state, slot) => {
+    state[slot.id] = {
+      assignedCoachId: slot.assignedCoachId,
+      assignedCoachName: slot.assignedCoachName,
+      secondCoachId: slot.secondCoachId,
+      secondCoachName: slot.secondCoachName,
+      releasedBy: slot.releasedBy,
+      releaseReason: slot.releaseReason,
+      updatedAt: slot.updatedAt,
+    };
+    return state;
+  }, {} as SharedTrainingState);
+}
+
+function resolveSharedTrainingSlots(state: SharedTrainingState): SharedTrainingSlot[] {
+  return sharedTrainingCalendar.map((slot) => ({ ...slot, ...state[slot.id] }));
 }
 
 function payoutAmountForCoach(coach: AdminCoachSummary, coachAttendanceRecords: CoachAttendanceRecord[] = buildInitialCoachAttendanceRecords()) {
@@ -3307,9 +4594,12 @@ function buildCourseLocationStats(activityRows: ReturnType<typeof adminActivityR
   }
 
   return Array.from(uniqueActivities.entries()).map(([key, activity]) => {
-    const sessions = buildActivitySessions(activity);
-    const presentCounts = sessions.map((session) => session.present);
+    const monthGroups = buildActivitySessions(activity);
+    const sessions = monthGroups.flatMap((g) => g.sessions);
+    const presentCounts = sessions.map((s) => s.present);
     const averagePresent = Math.round(presentCounts.reduce((sum, value) => sum + value, 0) / Math.max(1, presentCounts.length));
+    const enrollment = courseEnrollments.find((e) => e.courseId === activity.id);
+    const enrolledCount = enrollment?.participants.length ?? activity.registered;
     return {
       key,
       activity,
@@ -3319,27 +4609,38 @@ function buildCourseLocationStats(activityRows: ReturnType<typeof adminActivityR
       averagePresent,
       maxPresent: Math.max(...presentCounts, 0),
       lastPresent: presentCounts[presentCounts.length - 1] ?? 0,
+      enrolledCount,
     };
   });
 }
 
 function buildActivitySessions(activity: ReturnType<typeof adminActivityRows>[number]) {
-  const shortDates = ['20. 3.', '27. 3.', '3. 4.', '10. 4.', '17. 4.', '24. 4.'];
+  const monthGroups = [
+    { month: 'leden 2026', shortDates: ['6. 1.', '13. 1.', '20. 1.', '27. 1.'] },
+    { month: 'únor 2026', shortDates: ['3. 2.', '10. 2.', '17. 2.', '24. 2.'] },
+    { month: 'březen 2026', shortDates: ['3. 3.', '10. 3.', '17. 3.', '24. 3.', '31. 3.'] },
+    { month: 'duben 2026', shortDates: ['7. 4.', '14. 4.', '21. 4.', '28. 4.'] },
+  ];
   const seed = normalizeText(`${activity.place} ${activity.title}`).split('').reduce((sum, character) => sum + character.charCodeAt(0), 0);
   const registered = Math.max(1, activity.registered);
   const basePresent = Math.max(1, Math.min(registered, Math.round(registered * 0.78)));
 
-  return shortDates.map((shortDate, index) => {
-    const offset = ((seed + index * 5) % 5) - 2;
-    const present = Math.max(1, Math.min(registered, basePresent + offset + Math.floor(index / 3)));
-    return {
-      date: `${shortDate} 2026`,
-      shortDate,
-      present,
-      absent: Math.max(0, registered - present),
-      capacityTotal: activity.capacityTotal,
-    };
-  });
+  let globalIdx = 0;
+  return monthGroups.map(({ month, shortDates }) => ({
+    month,
+    sessions: shortDates.map((shortDate) => {
+      const idx = globalIdx++;
+      const offset = ((seed + idx * 5) % 5) - 2;
+      const present = Math.max(1, Math.min(registered, basePresent + offset + Math.floor(idx / 4)));
+      return {
+        date: `${shortDate} 2026`,
+        shortDate,
+        present,
+        absent: Math.max(0, registered - present),
+        capacityTotal: activity.capacityTotal,
+      };
+    }),
+  }));
 }
 
 function participantsForActivity(activity: ReturnType<typeof adminActivityRows>[number]) {
@@ -3446,6 +4747,41 @@ function generatedParticipantForActivity(activity: ReturnType<typeof adminActivi
   };
 }
 
+function findParticipantByShortName(shortName: string): ParentParticipant | undefined {
+  const parts = shortName.trim().split(' ');
+  if (parts.length < 2) return undefined;
+  const firstName = normalizeText(parts[0]);
+  const lastInitial = normalizeText(parts[1].replace('.', ''));
+  return linkedParticipants.find((p) => normalizeText(p.firstName) === firstName && normalizeText(p.lastName).startsWith(lastInitial));
+}
+
+function workshopParticipantFromShortName(shortName: string, venue: string): ParentParticipant {
+  const real = findParticipantByShortName(shortName);
+  if (real) return real;
+  const parts = shortName.trim().split(' ');
+  const firstName = parts[0] ?? 'Účastník';
+  const lastInitial = (parts[1] ?? 'X').replace('.', '');
+  const seed = shortName.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
+  const BRACELETS = ['Béžová', 'Žlutá', 'Oranžová', 'Růžová', 'Modrá'];
+  const BRACELET_COLORS = ['#D8C2A3', '#FFD84A', '#FFB21A', '#F5A7C8', '#7EC8E3'];
+  return {
+    id: `ws-participant-${normalizeText(shortName)}`,
+    firstName,
+    lastName: `${lastInitial}.`,
+    birthNumberMasked: `******/${String(2200 + seed % 800).slice(-4)}`,
+    level: 2 + (seed % 7),
+    bracelet: BRACELETS[seed % BRACELETS.length],
+    braceletColor: BRACELET_COLORS[seed % BRACELET_COLORS.length],
+    xp: 150 + (seed % 900),
+    nextBraceletXp: 600 + (seed % 800),
+    attendanceDone: 1 + (seed % 8),
+    attendanceTotal: 10,
+    activeCourse: venue,
+    nextTraining: 'Příští workshop',
+    activePurchases: [{ type: 'Workshop', title: `Workshop · ${venue}`, status: 'Ticket' }],
+  };
+}
+
 function findParticipantByName(name: string) {
   const normalizedName = normalizeText(name);
   return linkedParticipants.find((participant) => normalizeText(`${participant.firstName} ${participant.lastName}`) === normalizedName);
@@ -3549,6 +4885,218 @@ function friendlyPayoutError(message: string) {
   return message;
 }
 
+function FinanceOverviewSection({ totals, invoices, paymentRows, coaches, coachAttendanceRecords, onNavigate }: {
+  totals: AdminTotals;
+  invoices: Invoice[];
+  paymentRows: AdminPaymentRow[];
+  coaches: AdminCoachSummary[];
+  coachAttendanceRecords: CoachAttendanceRecord[];
+  onNavigate: (section: SectionKey) => void;
+}) {
+  const today = new Date().toISOString().slice(0, 10);
+  const currentMonth = today.slice(0, 7);
+
+  // Příjmy
+  const revenueTotal = paymentRows.filter((r) => isPaidStatus(r.status)).reduce((s, r) => s + Number(r.amount || 0), 0);
+  const revenuePending = paymentRows.filter((r) => !isPaidStatus(r.status)).reduce((s, r) => s + Number(r.amount || 0), 0);
+  const revenueThisMonth = paymentRows.filter((r) => isPaidStatus(r.status) && (r.dueDate ?? '').startsWith(currentMonth)).reduce((s, r) => s + Number(r.amount || 0), 0);
+
+  // Výdaje (faktury)
+  const expensesTotal = invoices.reduce((s, inv) => s + inv.amount, 0);
+  const expensesPaid = invoices.filter((inv) => inv.paid).reduce((s, inv) => s + inv.amount, 0);
+  const expensesUnpaid = invoices.filter((inv) => !inv.paid).reduce((s, inv) => s + inv.amount, 0);
+  const expensesOverdue = invoices.filter((inv) => !inv.paid && inv.dueDate < today);
+
+  // Výplaty trenérů
+  const coachPayoutTotal = coaches.reduce((s, c) => s + payoutAmountForCoach(c, coachAttendanceRecords), 0);
+
+  // Cash flow estimate
+  const cashFlow = revenueTotal - expensesPaid - coachPayoutTotal;
+
+  // Top 5 nezaplacených od rodičů
+  const unpaidParents = paymentRows.filter((r) => !isPaidStatus(r.status)).slice(0, 5);
+
+  return (
+    <div className="space-y-5">
+      {/* Hlavní metriky */}
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {[
+          {
+            label: 'Příjmy celkem',
+            value: `${revenueTotal.toLocaleString('cs-CZ')} Kč`,
+            sub: `${revenueThisMonth.toLocaleString('cs-CZ')} Kč tento měsíc`,
+            color: 'text-emerald-600',
+            bg: 'bg-emerald-50',
+            border: 'border-emerald-200',
+            icon: <TrendingUp size={20} className="text-emerald-600" />,
+            onClick: () => onNavigate('payouts'),
+          },
+          {
+            label: 'Čekající platby',
+            value: `${revenuePending.toLocaleString('cs-CZ')} Kč`,
+            sub: `${paymentRows.filter((r) => !isPaidStatus(r.status)).length} nezaplacených`,
+            color: 'text-amber-600',
+            bg: 'bg-amber-50',
+            border: 'border-amber-200',
+            icon: <Banknote size={20} className="text-amber-600" />,
+            onClick: () => onNavigate('payouts'),
+          },
+          {
+            label: 'Výdaje (faktury)',
+            value: `${expensesTotal.toLocaleString('cs-CZ')} Kč`,
+            sub: `${expensesUnpaid.toLocaleString('cs-CZ')} Kč k úhradě`,
+            color: 'text-brand-pink',
+            bg: 'bg-brand-pink/5',
+            border: 'border-brand-pink/20',
+            icon: <TrendingDown size={20} className="text-brand-pink" />,
+            onClick: () => onNavigate('invoices'),
+          },
+          {
+            label: 'Odhadovaný zůstatek',
+            value: `${cashFlow.toLocaleString('cs-CZ')} Kč`,
+            sub: `po výdajích a výplatách`,
+            color: cashFlow >= 0 ? 'text-brand-purple-deep' : 'text-brand-pink',
+            bg: cashFlow >= 0 ? 'bg-brand-purple/5' : 'bg-brand-pink/5',
+            border: cashFlow >= 0 ? 'border-brand-purple/15' : 'border-brand-pink/20',
+            icon: <BarChart2 size={20} className={cashFlow >= 0 ? 'text-brand-purple' : 'text-brand-pink'} />,
+            onClick: undefined,
+          },
+        ].map((card) => (
+          <div key={card.label} role={card.onClick ? 'button' : undefined} tabIndex={card.onClick ? 0 : undefined} onClick={card.onClick} onKeyDown={card.onClick ? (e) => { if (e.key === 'Enter') card.onClick?.(); } : undefined} className={`cursor-default ${card.onClick ? 'cursor-pointer' : ''}`}>
+            <Panel className={`h-full p-5 transition ${card.onClick ? 'hover:shadow-md' : ''}`}>
+            <div className="flex items-center justify-between gap-3">
+              <div className={`flex h-10 w-10 items-center justify-center rounded-[12px] border ${card.border} ${card.bg}`}>
+                {card.icon}
+              </div>
+              <p className="text-right text-[11px] font-bold text-brand-ink-soft">{card.label}</p>
+            </div>
+            <p className={`mt-3 text-2xl font-black ${card.color}`}>{card.value}</p>
+            <p className="mt-0.5 text-xs font-bold text-brand-ink-soft">{card.sub}</p>
+          </Panel>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid gap-5 xl:grid-cols-3">
+        {/* Příjmy – rozpad */}
+        <Panel className="flex flex-col p-5 self-stretch">
+          <SectionTitle icon={<TrendingUp size={18} />} title="Příjmy" subtitle="platby od rodičů" />
+          <div className="mt-4 flex-1 space-y-2">
+            {[
+              { label: 'Zaplaceno', value: revenueTotal, color: 'bg-emerald-500' },
+              { label: 'Čekající', value: revenuePending, color: 'bg-amber-400' },
+            ].map((row) => {
+              const pct = revenueTotal + revenuePending > 0 ? (row.value / (revenueTotal + revenuePending)) * 100 : 0;
+              return (
+                <div key={row.label}>
+                  <div className="mb-1 flex justify-between text-xs font-bold text-brand-ink">
+                    <span>{row.label}</span>
+                    <span>{row.value.toLocaleString('cs-CZ')} Kč</span>
+                  </div>
+                  <div className="h-2 overflow-hidden rounded-full bg-brand-paper">
+                    <div className={`h-full rounded-full ${row.color} transition-all`} style={{ width: `${pct}%` }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <button type="button" onClick={() => onNavigate('payouts')} className="mt-4 w-full rounded-[14px] bg-brand-paper py-2 text-xs font-black text-brand-purple transition hover:bg-brand-purple hover:text-white">
+            Detail plateb →
+          </button>
+        </Panel>
+
+        {/* Výdaje – rozpad */}
+        <Panel className="flex flex-col p-5 self-stretch">
+          <SectionTitle icon={<Receipt size={18} />} title="Výdaje" subtitle="faktury a platby" />
+          <div className="mt-4 flex-1 space-y-2">
+            {[
+              { label: 'Tělocvičny', color: 'bg-brand-purple' },
+              { label: 'Vybavení', color: 'bg-brand-cyan' },
+              { label: 'Marketing', color: 'bg-brand-pink' },
+              { label: 'Ostatní', color: 'bg-brand-ink-soft' },
+            ].map((cat) => {
+              const total = invoices.filter((inv) => inv.category === cat.label).reduce((s, inv) => s + inv.amount, 0);
+              if (total === 0) return null;
+              const pct = expensesTotal > 0 ? (total / expensesTotal) * 100 : 0;
+              return (
+                <div key={cat.label}>
+                  <div className="mb-1 flex justify-between text-xs font-bold text-brand-ink">
+                    <span>{cat.label}</span>
+                    <span>{total.toLocaleString('cs-CZ')} Kč</span>
+                  </div>
+                  <div className="h-2 overflow-hidden rounded-full bg-brand-paper">
+                    <div className={`h-full rounded-full ${cat.color} transition-all`} style={{ width: `${pct}%` }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {expensesOverdue.length > 0 ? (
+            <div className="mt-4 rounded-[12px] border border-brand-pink/25 bg-brand-pink/5 px-3 py-2">
+              <p className="text-xs font-black text-brand-pink">{expensesOverdue.length}× faktura po splatnosti</p>
+              <p className="text-[11px] font-bold text-brand-ink-soft">{expensesOverdue.map((inv) => inv.supplier).join(', ')}</p>
+            </div>
+          ) : (
+            <div className="mt-4 rounded-[12px] border border-emerald-200 bg-emerald-50 px-3 py-2">
+              <p className="text-xs font-black text-emerald-600">Žádné faktury po splatnosti ✓</p>
+            </div>
+          )}
+          <button type="button" onClick={() => onNavigate('invoices')} className="mt-3 w-full rounded-[14px] bg-brand-paper py-2 text-xs font-black text-brand-purple transition hover:bg-brand-purple hover:text-white">
+            Detail faktur →
+          </button>
+        </Panel>
+
+        {/* Výplaty trenérů */}
+        <Panel className="flex flex-col p-5 self-stretch">
+          <SectionTitle icon={<Banknote size={18} />} title="Výplaty trenérů" subtitle="odhad za aktuální období" />
+          <div className="mt-4 flex-1 space-y-2">
+            {coaches.slice(0, 6).map((coach) => {
+              const amount = payoutAmountForCoach(coach, coachAttendanceRecords);
+              return (
+                <div key={coach.id} className="flex items-center justify-between rounded-[10px] bg-brand-paper px-3 py-2">
+                  <p className="text-sm font-bold text-brand-ink">{coach.name}</p>
+                  <p className="text-sm font-black text-brand-ink">{amount.toLocaleString('cs-CZ')} Kč</p>
+                </div>
+              );
+            })}
+          </div>
+          <div className="mt-3 flex items-center justify-between rounded-[12px] border border-brand-purple/15 bg-brand-purple/5 px-3 py-2.5">
+            <p className="text-sm font-black text-brand-ink">Celkem trenéři</p>
+            <p className="text-sm font-black text-brand-purple-deep">{coachPayoutTotal.toLocaleString('cs-CZ')} Kč</p>
+          </div>
+          <button type="button" onClick={() => onNavigate('payouts')} className="mt-3 w-full rounded-[14px] bg-brand-paper py-2 text-xs font-black text-brand-purple transition hover:bg-brand-purple hover:text-white">
+            Spravovat výplaty →
+          </button>
+        </Panel>
+      </div>
+
+      {/* Nezaplacení rodiče */}
+      {unpaidParents.length > 0 ? (
+        <Panel className="p-5">
+          <SectionTitle icon={<ListChecks size={18} />} title="Čekající platby rodičů" subtitle="nejbližší nezaplacené položky" />
+          <div className="mt-4 grid gap-2">
+            {unpaidParents.map((row) => (
+              <div key={row.id} className="flex flex-wrap items-center justify-between gap-2 rounded-[14px] border border-amber-200 bg-amber-50/60 px-4 py-3">
+                <div>
+                  <p className="text-sm font-black text-brand-ink">{row.participantName}</p>
+                  <p className="text-xs font-bold text-brand-ink-soft">{row.title}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm font-black text-amber-700">{Number(row.amount).toLocaleString('cs-CZ')} Kč</p>
+                  {row.dueDate ? <p className="text-[11px] font-bold text-brand-ink-soft">splatnost: {row.dueDate}</p> : null}
+                </div>
+              </div>
+            ))}
+          </div>
+          <button type="button" onClick={() => onNavigate('payouts')} className="mt-3 w-full rounded-[14px] bg-brand-paper py-2 text-xs font-black text-brand-purple transition hover:bg-brand-purple hover:text-white">
+            Zobrazit všechny platby →
+          </button>
+        </Panel>
+      ) : null}
+    </div>
+  );
+}
+
 function headlineForSection(section: SectionKey) {
   switch (section) {
     case 'attendance':
@@ -3561,8 +5109,8 @@ function headlineForSection(section: SectionKey) {
       return 'Trenéři, lokality a výkon';
     case 'payouts':
       return 'Výplaty za měsíc přes Stripe sandbox';
-    case 'documents':
-      return 'Stav dokumentů podle produktů';
+    case 'finance':
+      return 'Cash flow, příjmy, výdaje a výplaty na jednom místě';
     default:
       return 'Provozní přehled bez zbytečností';
   }
