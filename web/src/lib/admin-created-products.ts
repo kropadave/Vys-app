@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 
+import { deleteAdminProduct, loadAdminProducts, saveAdminProduct, type AdminProductRow } from '@/lib/api-client';
 import type { ActivityType, ParentProduct } from '@/lib/portal-content';
 
 const STORAGE_KEY = 'teamvys-admin-created-products-v1';
@@ -32,31 +33,108 @@ export type AdminProductInput = {
   workshopTrick2VideoFile?: string;
 };
 
+function activityTypeToDb(type: ActivityType): string {
+  if (type === 'Krouzek') return 'Kroužek';
+  if (type === 'Tabor') return 'Tábor';
+  return 'Workshop';
+}
+
+function activityTypeFromDb(dbType: string): ActivityType {
+  const normalized = dbType.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  if (normalized === 'krouzek') return 'Krouzek';
+  if (normalized === 'tabor') return 'Tabor';
+  return 'Workshop';
+}
+
+function productToRow(product: ParentProduct): AdminProductRow {
+  return {
+    id: product.id,
+    type: activityTypeToDb(product.type),
+    title: product.title,
+    city: product.city,
+    place: product.place,
+    venue: product.venue,
+    price: product.price,
+    price_label: product.priceLabel,
+    entries_total: product.entriesTotal,
+    primary_meta: product.primaryMeta,
+    secondary_meta: product.secondaryMeta,
+    description: product.description,
+    important_info: product.importantInfo,
+    badge: product.badge,
+    event_date: undefined,
+    expires_at: undefined,
+    capacity_total: product.capacityTotal,
+    capacity_current: product.capacityCurrent,
+    hero_image: product.heroImage,
+    gallery: product.gallery,
+    coach_ids: product.coachIds ?? [],
+    training_focus: product.trainingFocus,
+    is_published: true,
+  };
+}
+
+function rowToProduct(row: AdminProductRow): ParentProduct {
+  const type = activityTypeFromDb(row.type);
+  return {
+    id: row.id,
+    type,
+    title: row.title,
+    city: row.city,
+    place: row.place,
+    venue: row.venue,
+    price: row.price,
+    priceLabel: row.price_label,
+    entriesTotal: row.entries_total,
+    primaryMeta: row.primary_meta,
+    secondaryMeta: row.secondary_meta,
+    description: row.description,
+    badge: row.badge,
+    heroImage: row.hero_image ?? defaultHeroImage(type),
+    gallery: Array.isArray(row.gallery) && row.gallery.length > 0 ? row.gallery : [row.hero_image ?? defaultHeroImage(type)],
+    coachIds: row.coach_ids ?? [],
+    importantInfo: Array.isArray(row.important_info) && row.important_info.length > 0
+      ? row.important_info
+      : importantInfoFor(type, row.primary_meta, row.capacity_current, row.capacity_total ?? 0),
+    trainingFocus: row.training_focus.length > 0 ? row.training_focus : defaultFocus(type),
+    capacityTotal: row.capacity_total ?? 0,
+    capacityCurrent: row.capacity_current,
+  };
+}
+
 export function useAdminCreatedProducts() {
-  const [products, setProducts] = useState<ParentProduct[]>([]);
+  const [products, setProducts] = useState<ParentProduct[]>(() => readAdminCreatedProducts());
 
   useEffect(() => {
-    function syncProducts() {
-      setProducts(readAdminCreatedProducts());
-    }
-
-    syncProducts();
-    window.addEventListener('storage', syncProducts);
-    window.addEventListener(CHANGE_EVENT, syncProducts);
-    return () => {
-      window.removeEventListener('storage', syncProducts);
-      window.removeEventListener(CHANGE_EVENT, syncProducts);
-    };
+    // Load from server, update localStorage as cache
+    loadAdminProducts()
+      .then((rows) => {
+        const serverProducts = rows.map(rowToProduct);
+        writeAdminCreatedProducts(serverProducts);
+        setProducts(serverProducts);
+      })
+      .catch(() => {
+        // Server not available — keep localStorage data
+        setProducts(readAdminCreatedProducts());
+      });
   }, []);
 
   const addProduct = useCallback((input: AdminProductInput) => {
     const product = createAdminCreatedProduct(input);
-    writeAdminCreatedProducts([product, ...readAdminCreatedProducts()]);
+    const next = [product, ...readAdminCreatedProducts()];
+    writeAdminCreatedProducts(next);
+    setProducts(next);
+    // Persist to Supabase in background
+    saveAdminProduct(productToRow(product)).catch(() => undefined);
     return product;
   }, []);
 
   const removeProduct = useCallback((productId: string) => {
-    writeAdminCreatedProducts(readAdminCreatedProducts().filter((product) => product.id !== productId));
+    const next = readAdminCreatedProducts().filter((product) => product.id !== productId);
+    writeAdminCreatedProducts(next);
+    setProducts(next);
+    // Delete from Supabase in background
+    deleteAdminProduct(productId).catch(() => undefined);
   }, []);
 
   return { products, addProduct, removeProduct };
