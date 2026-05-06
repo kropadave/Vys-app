@@ -1,9 +1,10 @@
 'use client';
 
-import { motion } from 'framer-motion';
+import { motion, useScroll, useSpring, useTransform } from 'framer-motion';
 import { Apple, Bell, Check, ExternalLink, Fingerprint, QrCode, RefreshCw, ShieldCheck, Smartphone, Sparkles, Trophy, Wifi } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
+import { useEffect, useState } from 'react';
 
 import { AppInstallButton } from '@/components/app-install-button';
 
@@ -39,6 +40,23 @@ const audiences = [
 ] as const;
 
 export default function AplikacePage() {
+  const [followPhone, setFollowPhone] = useState(false);
+  const { scrollYProgress } = useScroll();
+  const phoneY = useSpring(useTransform(scrollYProgress, [0, 0.22, 0.46], [0, 150, 330]), {
+    stiffness: 82,
+    damping: 24,
+    mass: 0.45,
+  });
+  const phoneRotate = useTransform(scrollYProgress, [0, 0.3, 0.6], [0, -1.2, 1.4]);
+
+  useEffect(() => {
+    const query = window.matchMedia('(min-width: 1024px)');
+    const update = () => setFollowPhone(query.matches);
+    update();
+    query.addEventListener('change', update);
+    return () => query.removeEventListener('change', update);
+  }, []);
+
   return (
     <div className="relative">
       <section className="section-shell pt-10 pb-16 md:pt-16 md:pb-24">
@@ -111,7 +129,8 @@ export default function AplikacePage() {
             initial={{ opacity: 0, y: 48, scale: 0.88 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             transition={{ duration: 1.0, ease: easeBrand, delay: 0.15 }}
-            className="relative mx-auto w-full max-w-[380px] lg:max-w-[460px]"
+            style={followPhone ? { y: phoneY, rotate: phoneRotate } : undefined}
+            className="pointer-events-none relative mx-auto w-full max-w-[380px] will-change-transform lg:sticky lg:top-24 lg:max-w-[460px]"
           >
             <motion.div
               animate={{ y: [0, -10, 0] }}
