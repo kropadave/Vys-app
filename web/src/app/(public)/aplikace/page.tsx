@@ -6,8 +6,6 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 
-import { AppInstallButton } from '@/components/app-install-button';
-
 const easeBrand = [0.22, 1, 0.36, 1] as const;
 
 const featurePills = [
@@ -80,13 +78,19 @@ export default function AplikacePage() {
 
             <div className="flex flex-wrap gap-3">
               <Link
-                href="/sign-in?app=1"
+                href="/app/sign-in"
                 className="inline-flex items-center gap-2 rounded-brand bg-gradient-brand px-5 py-3.5 text-sm font-black text-white shadow-brand-soft transition-transform hover:-translate-y-px"
               >
                 <ExternalLink size={18} />
                 Spustit aplikaci
               </Link>
-              <AppInstallButton />
+              <Link
+                href="/app/sign-in"
+                className="inline-flex items-center gap-2 rounded-brand border border-brand-purple/15 bg-white px-5 py-3.5 text-sm font-black text-brand-ink shadow-brand-soft transition-transform hover:-translate-y-px"
+              >
+                <Smartphone size={18} />
+                Otevřít appku pro instalaci
+              </Link>
               <button
                 type="button"
                 disabled
@@ -108,8 +112,8 @@ export default function AplikacePage() {
             </div>
 
             <p className="text-xs font-bold text-brand-ink-soft">
-              Na Androidu použij instalační tlačítko nebo nabídku prohlížeče. Na iPhonu použij Sdílet → Přidat na plochu.
-              Webové profily pro rodiče a adminy se používají dál přes běžný web TeamVYS.
+              Instalovatelná část běží pod /app, takže ikona na ploše otevírá jen účastnickou a trenérskou appku. Webové profily
+              pro rodiče a adminy se používají dál přes běžný web TeamVYS.
             </p>
 
             <div className="flex flex-wrap gap-2 pt-2">
@@ -201,7 +205,7 @@ export default function AplikacePage() {
             </div>
             <div className="space-y-3">
               <Link
-                href="/sign-in?app=1"
+                href="/app/sign-in"
                 className="flex items-center justify-between gap-4 rounded-brand bg-brand-ink px-5 py-4 text-white shadow-brand-soft transition-transform hover:-translate-y-px"
               >
                 <span>

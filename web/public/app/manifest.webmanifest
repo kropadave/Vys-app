@@ -1,13 +1,13 @@
 {
-  "name": "TeamVYS web",
+  "name": "TeamVYS appka",
   "short_name": "TeamVYS",
-  "description": "Veřejný web TeamVYS. Instalovatelná appka pro účastníky a trenéry je pod /app.",
-  "start_url": "/",
-  "scope": "/",
-  "display": "browser",
+  "description": "Instalovatelná TeamVYS appka jen pro účastníky a trenéry.",
+  "start_url": "/app/sign-in?source=pwa",
+  "scope": "/app/",
+  "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#FBFAFE",
-  "theme_color": "#8B1DFF",
+  "background_color": "#140E26",
+  "theme_color": "#140E26",
   "icons": [
     {
       "src": "/vys-logo-mark.png",

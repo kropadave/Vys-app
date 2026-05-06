@@ -1,7 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 
-import { PwaRegister } from '@/components/pwa-register';
 import './globals.css';
 
 const inter = Inter({
@@ -29,7 +28,6 @@ export const metadata: Metadata = {
     icon: '/vys-logo-mark.png',
     apple: '/vys-logo-mark.png',
   },
-  manifest: '/manifest.webmanifest',
 };
 
 export const viewport: Viewport = {
@@ -42,7 +40,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="cs" className={inter.variable}>
       <body>
-        <PwaRegister />
         {children}
       </body>
     </html>

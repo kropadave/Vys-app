@@ -3,12 +3,14 @@
 import { Download, Smartphone } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
+import { cn } from '@/lib/utils';
+
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>;
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
 };
 
-export function AppInstallButton() {
+export function AppInstallButton({ label = 'Nainstalovat do telefonu', compact = false }: { label?: string; compact?: boolean }) {
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [installed, setInstalled] = useState(false);
 
@@ -56,11 +58,14 @@ export function AppInstallButton() {
       type="button"
       onClick={install}
       disabled={!installPrompt}
-      className="inline-flex items-center gap-2 rounded-brand border border-brand-purple/15 bg-white px-5 py-3.5 text-sm font-black text-brand-ink shadow-brand-soft transition hover:-translate-y-px disabled:cursor-not-allowed disabled:text-brand-ink-soft disabled:opacity-70 disabled:hover:translate-y-0"
-      title={installPrompt ? 'Nainstalovat online aplikaci' : 'V prohlížeči použij Přidat na plochu / Add to Home Screen'}
+      className={cn(
+        'inline-flex items-center gap-2 rounded-brand border border-brand-purple/15 bg-white text-sm font-black text-brand-ink shadow-brand-soft transition hover:-translate-y-px disabled:cursor-not-allowed disabled:text-brand-ink-soft disabled:opacity-70 disabled:hover:translate-y-0',
+        compact ? 'px-4 py-2.5' : 'px-5 py-3.5'
+      )}
+      title={installPrompt ? 'Nainstalovat TeamVYS appku' : 'V prohlížeči použij Přidat na plochu / Add to Home Screen'}
     >
       <Download size={18} />
-      Nainstalovat do telefonu
+      {label}
     </button>
   );
 }
