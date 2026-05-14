@@ -739,7 +739,7 @@ export function AdminDashboard({ finance, financeError, showSignOut, devMode, in
           >
             {activeSection === 'overview' ? <OverviewSection totals={totals} coaches={coaches} coachAttendanceRecords={coachAttendanceRecords} dppDocuments={coachDppDocuments} keyRequests={keyRequests} approvalMessage={approvalMessage} approvingRequestId={approvingRequestId} onApproveKeyRequest={(request) => handleCoachRequestDecision(request, 'approve')} onRejectKeyRequest={(request) => handleCoachRequestDecision(request, 'reject')} onNavigate={setActiveSection} /> : null}
             {activeSection === 'attendance' ? <AttendanceSection query={attendanceQuery} onQueryChange={setAttendanceQuery} activityRows={activityRows} campTurnusy={campTurnusyState} workshopSlots={workshopSlots} workshopAttendanceRecords={workshopAttendanceRecords} coaches={coaches} coachAttendanceRecords={coachAttendanceRecords} onAddCoachAttendance={handleAddCoachAttendance} onOpenActivityDetail={setSelectedActivityDetail} onOpenParticipantDetail={openParticipantDetail} participants={liveParticipants} products={allProducts} /> : null}
-            {activeSection === 'participants' ? <ParticipantsSection products={allProducts} participants={liveParticipants} workshopSlots={workshopSlots} workshopAttendanceRecords={workshopAttendanceRecords} onOpenParticipantDetail={openParticipantDetail} /> : null}
+            {activeSection === 'participants' ? <ParticipantsSection products={allProducts} participants={liveParticipants} campTurnusy={campTurnusyState} workshopSlots={workshopSlots} workshopAttendanceRecords={workshopAttendanceRecords} onOpenParticipantDetail={openParticipantDetail} /> : null}
             {activeSection === 'products' ? <ProductsSection products={allProducts} coaches={coaches} onAddProduct={addAdminCreatedProduct} onRemoveProduct={removeAdminCreatedProduct} onUpdateProduct={updateAdminProduct} onProductCoachIdsChange={handleProductCoachIdsChange} /> : null}
             {activeSection === 'coaches' ? <CoachesSection products={allProducts} coaches={coaches} coachAttendanceRecords={coachAttendanceRecords} dppDocuments={coachDppDocuments} sharedTrainingSlots={sharedTrainingSlots} workshopSlots={workshopSlots} campTurnusy={campTurnusyState} onAddCoachAttendance={handleAddCoachAttendance} onCreateCoachDpp={handleCreateCoachDpp} onMarkCoachDppSigned={handleMarkCoachDppSigned} onCoachLocationSaved={handleCoachLocationSaved} onReleaseSharedTraining={(slot, pos) => handleReleaseSharedTraining(slot, pos)} onAssignSharedTraining={handleAssignSharedTraining} onAddWorkshopCoach={handleAddWorkshopCoach} onRemoveWorkshopCoach={handleRemoveWorkshopCoach} onAddWorkshopSlot={handleAddWorkshopSlot} onAddCampCoach={handleAddCampCoach} onRemoveCampCoach={handleRemoveCampCoach} /> : null}
             {activeSection === 'payouts' ? (
@@ -1387,10 +1387,11 @@ function WorkshopCalendarAttendancePanel({ slots, activities, attendanceRecords 
   );
 }
 
-function ParticipantsSection({ products, participants, workshopSlots, workshopAttendanceRecords, onOpenParticipantDetail }: { products: ParentProduct[]; participants: ParentParticipant[]; workshopSlots: WorkshopSlot[]; workshopAttendanceRecords: WorkshopAttendanceRecord[]; onOpenParticipantDetail: (participant: ParentParticipant, activityType: ActivityType, place: string) => void }) {
+function ParticipantsSection({ products, participants, campTurnusy, workshopSlots, workshopAttendanceRecords, onOpenParticipantDetail }: { products: ParentProduct[]; participants: ParentParticipant[]; campTurnusy: CampTurnus[]; workshopSlots: WorkshopSlot[]; workshopAttendanceRecords: WorkshopAttendanceRecord[]; onOpenParticipantDetail: (participant: ParentParticipant, activityType: ActivityType, place: string) => void }) {
   const [query, setQuery] = useState('');
   const [activeParticipantType, setActiveParticipantType] = useState<ActivityType>('Krouzek');
   const participantGroups = useMemo(() => buildParticipantGroups(query, products, participants), [query, products, participants]);
+  const taborGroups = useMemo(() => buildTaborGroupsFromTurnusy(campTurnusy, participants, query), [campTurnusy, participants, query]);
   const todayKey = new Date().toISOString().slice(0, 10);
   const upcomingWsSlots = useMemo(() => workshopSlots.filter((s) => s.date >= todayKey).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 24), [workshopSlots, todayKey]);
   const participantSubtitle = activeParticipantType === 'Tabor'
@@ -1400,7 +1401,7 @@ function ParticipantsSection({ products, participants, workshopSlots, workshopAt
     : 'přepni typ aktivity nahoře, města zůstávají jako hlavní rozbalení';
   const groupsByType = {
     Krouzek: participantGroups.filter((group) => group.type === 'Krouzek'),
-    Tabor: participantGroups.filter((group) => group.type === 'Tabor' && parseProductDateRange(group.product.primaryMeta).dateTo >= todayKey),
+    Tabor: taborGroups,
     Workshop: participantGroups.filter((group) => group.type === 'Workshop'),
   };
   const activeGroups = groupsByType[activeParticipantType];
@@ -5933,6 +5934,80 @@ function isParticipantPassActive(participant: ParentParticipant, todayKey: strin
   // Check date-based expiry (null = no expiry)
   if (admin.courseExpiresAt !== undefined && admin.courseExpiresAt !== null && admin.courseExpiresAt < todayKey) return false;
   return true;
+}
+
+function formatTurnusDates(dateFrom: string, dateTo: string): string {
+  const from = new Date(dateFrom);
+  const to = new Date(dateTo);
+  return `${from.getDate()}.\u2013${to.getDate()}. ${to.getMonth() + 1}. ${to.getFullYear()}`;
+}
+
+function buildTaborGroupsFromTurnusy(campTurnusy: CampTurnus[], participants: ParentParticipant[], query: string): ParticipantGroup[] {
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const campTurnusMap = new Map<string, CampTurnus[]>();
+  for (const t of campTurnusy) {
+    const arr = campTurnusMap.get(t.campId) ?? [];
+    arr.push(t);
+    campTurnusMap.set(t.campId, arr);
+  }
+
+  return campTurnusy
+    .filter((t) => t.dateTo >= todayKey)
+    .map((turnus) => {
+      const siblings = (campTurnusMap.get(turnus.campId) ?? [turnus]).sort((a, b) => a.dateFrom.localeCompare(b.dateFrom));
+      const turnusNumber = siblings.findIndex((t) => t.id === turnus.id) + 1;
+      const primaryMeta = `${turnusNumber}. turnus \u00b7 ${formatTurnusDates(turnus.dateFrom, turnus.dateTo)}`;
+      const place = `${turnus.city} \u00b7 ${turnus.venue}`;
+
+      const syntheticProduct: ParentProduct = {
+        id: turnus.id,
+        type: 'Tabor',
+        title: turnus.campTitle,
+        city: turnus.city,
+        place,
+        venue: turnus.venue,
+        price: 0,
+        priceLabel: '',
+        capacityTotal: 30,
+        capacityCurrent: 0,
+        primaryMeta,
+        secondaryMeta: '',
+        description: '',
+        badge: '',
+        heroImage: '',
+        gallery: [],
+        importantInfo: [],
+        trainingFocus: [],
+      };
+
+      const groupParticipants = participants.filter((participant) => {
+        const purchases = participant.activePurchases ?? [];
+        const campMatch = purchases.some((purchase) => {
+          const pt = normalizeText(purchase.title);
+          return pt.includes(normalizeText(turnus.campTitle)) || pt.includes(normalizeText(turnus.city));
+        });
+        if (!campMatch) return false;
+        const hasTurnusNumber = purchases.some((purchase) => {
+          const pt = normalizeText(purchase.title);
+          return pt.includes('1 turnus') || pt.includes('2 turnus') || pt.includes('turnus 1') || pt.includes('turnus 2');
+        });
+        if (!hasTurnusNumber) return true;
+        return purchases.some((purchase) => {
+          const pt = normalizeText(purchase.title);
+          return pt.includes(`${turnusNumber} turnus`) || pt.includes(`turnus ${turnusNumber}`);
+        });
+      });
+
+      return {
+        key: `Tabor-${turnus.id}`,
+        type: 'Tabor' as ActivityType,
+        title: turnus.campTitle,
+        place,
+        product: syntheticProduct,
+        participants: groupParticipants,
+      };
+    })
+    .filter((group) => !query || matchesQuery(`${group.title} ${group.place} ${group.product.primaryMeta}`, query) || group.participants.length > 0);
 }
 
 function buildParticipantGroups(query: string, products: ParentProduct[], participants: ParentParticipant[]): ParticipantGroup[] {
