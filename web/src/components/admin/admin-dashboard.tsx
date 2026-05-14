@@ -1,7 +1,7 @@
 'use client';
 
-import { AnimatePresence, motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
+import { AnimatePresence, motion } from 'framer-motion';
 import {
     Banknote,
     BarChart2,
@@ -30,7 +30,6 @@ import {
     Search,
     Send,
     ShieldCheck,
-    SlidersHorizontal,
     Trash2,
     TrendingDown,
     TrendingUp,
@@ -45,7 +44,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { SignOutButton } from '@/components/auth/sign-out-button';
 import { TeamVysLogo } from '@/components/brand/team-vys-logo';
 import { useAdminCreatedProducts, type AdminProductInput } from '@/lib/admin-created-products';
-import { createCoachStripeOnboarding, saveCoachAttendance, sendTrainerPayout, type TrainerPayoutTransfer } from '@/lib/api-client';
+import { createAdminInvoice, createCoachStripeOnboarding, deleteAdminInvoice, loadAdminInvoices, saveCoachAttendance, sendTrainerPayout, updateAdminInvoicePayment, type AdminInvoiceInput, type AdminInvoiceRow, type TrainerPayoutTransfer } from '@/lib/api-client';
 import {
     CAMP_DAILY_RATE,
     CAMP_MAX_COACHES,
@@ -53,29 +52,12 @@ import {
     WORKSHOP_MAX_COACHES,
     activityLabel,
     adminActivityRows,
-    adminAttendanceAdjustments,
-    adminCoachAccessRequests,
-    adminCoachAttendance,
-    adminCoachDppDocuments,
-    adminCoachSummaries,
-    adminPaymentRows,
-    campTurnusy,
     coachDppTemplateClauses,
-    courseEnrollments,
     currency,
     documentStatusLabel,
-    linkedParticipants,
-    parentAttendanceHistory,
-    parentDocuments,
-    parentPayments,
-    parentProducts,
-    parentProfile,
     requiredDocumentsForProduct,
-    sharedTrainingCalendar,
-    trainersForProduct,
-    workshopAttendanceRecords,
-    workshopCalendar,
     type ActivityType,
+    type AdminCoachAccessRequest,
     type AdminCoachDppDocument,
     type AdminCoachSummary,
     type CampTurnus,
@@ -89,6 +71,7 @@ import {
     type WorkshopCity,
     type WorkshopSlot
 } from '@/lib/portal-content';
+import { createBrowserSupabaseClient, hasSupabaseBrowserConfig } from '@/lib/supabase/browser';
 
 export type AdminFinanceResponse = {
   purchases?: Array<{ id: string; title: string; participant_name: string; amount: number; status: string; paid_at: string }>;
@@ -107,11 +90,84 @@ type AdminFinanceTransfer = {
   stripe_transfer_id?: string | null;
 };
 
+type AdminParticipantRow = {
+  id: string;
+  parent_profile_id: string | null;
+  first_name: string | null;
+  last_name: string | null;
+  birth_number_masked: string | null;
+  level: number | null;
+  xp: number | null;
+  next_bracelet_xp: number | null;
+  attendance_done: number | null;
+  attendance_total: number | null;
+  active_course: string | null;
+  next_training: string | null;
+  active_purchases: Array<{ type?: ActivityType | string; title?: string; status?: string }> | null;
+  bracelet: string | null;
+  bracelet_color: string | null;
+  paid_status: string | null;
+};
+
+type AdminPurchaseRow = {
+  id: string;
+  parent_profile_id?: string | null;
+  product_id: string;
+  participant_id: string;
+  participant_name: string;
+  type: string;
+  title: string;
+  amount?: number;
+  status: string;
+  expires_at?: string | null;
+};
+
+type AdminParentProfileRow = {
+  id: string;
+  name: string | null;
+  email: string | null;
+  phone: string | null;
+};
+
+type AdminParticipant = ParentParticipant & {
+  parentProfileId?: string;
+  parentName?: string;
+  parentEmail?: string;
+  parentPhone?: string;
+  passRemainingEntries?: number;
+  courseExpiresAt?: string | null;
+};
+
+type AdminDocument = ParentDocument & {
+  participantId: string;
+  productId: string;
+  purchaseId: string;
+  kind: string;
+  coursePlace: string;
+};
+
+type AdminDocumentRow = {
+  id: string;
+  participant_id: string;
+  participant_name: string | null;
+  purchase_id: string | null;
+  product_id: string | null;
+  activity_type: string | null;
+  kind: string | null;
+  title: string | null;
+  status: string | null;
+  course_place: string | null;
+  updated_at_text: string | null;
+  updated_at: string | null;
+};
+
 type AdminDashboardProps = {
   finance: AdminFinanceResponse | null;
   financeError: string | null;
   showSignOut: boolean;
   devMode: boolean;
+  initialCoachSummaries?: AdminCoachSummary[] | null;
+  initialCoachAccessRequests?: AdminCoachAccessRequest[] | null;
 };
 
 type SectionKey = 'overview' | 'attendance' | 'participants' | 'products' | 'coaches' | 'payouts' | 'invoices' | 'finance';
@@ -128,13 +184,6 @@ type Invoice = {
   category: 'Tělocvična' | 'Vybavení' | 'Marketing' | 'Ostatní';
 };
 
-const demoInvoices: Invoice[] = [
-  { id: 'inv-001', supplier: 'ZŠ Nádražní Vyškov', description: 'Pronájem tělocvičny – duben 2026', amount: 3200, issuedDate: '2026-04-30', dueDate: '2026-05-14', paid: false, category: 'Tělocvična' },
-  { id: 'inv-002', supplier: 'ZŠ Nádražní Vyškov', description: 'Pronájem tělocvičny – březen 2026', amount: 3200, issuedDate: '2026-03-31', dueDate: '2026-04-14', paid: true, paidDate: '2026-04-10', category: 'Tělocvična' },
-  { id: 'inv-003', supplier: 'Orel jednota Vyškov', description: 'Pronájem haly – tábor léto 2026', amount: 8500, issuedDate: '2026-04-15', dueDate: '2026-05-01', paid: false, category: 'Tělocvična' },
-  { id: 'inv-004', supplier: 'Sportovní sklad Praha', description: 'Nákup matrací a překážek', amount: 14200, issuedDate: '2026-04-01', dueDate: '2026-04-15', paid: true, paidDate: '2026-04-14', category: 'Vybavení' },
-  { id: 'inv-005', supplier: 'ZŠ Prostějov', description: 'Pronájem tělocvičny – duben 2026', amount: 2800, issuedDate: '2026-04-30', dueDate: '2026-05-14', paid: false, category: 'Tělocvična' },
-];
 type AdminPaymentRow = {
   id: string;
   title: string;
@@ -200,6 +249,7 @@ type ParticipantDetailState = {
 };
 
 type ParticipantDetailTab = 'documents' | 'attendance' | 'skills' | 'contacts' | 'products';
+type CoachDetailTab = 'overview' | 'finance' | 'assignment' | 'attendance';
 
 type ActivityParticipantRecord = {
   id: string;
@@ -212,6 +262,13 @@ type ActivityParticipantRecord = {
   participant?: ParentParticipant;
 };
 
+type ActivityCoachPresence = {
+  id: string;
+  name: string;
+  detail: string;
+  source: 'attendance' | 'assigned';
+};
+
 type CoachPlacementGroup = {
   key: string;
   type: ActivityType;
@@ -221,15 +278,13 @@ type CoachPlacementGroup = {
   coaches: AdminCoachSummary[];
 };
 
-type SharedTrainingState = Record<string, Pick<SharedTrainingSlot, 'assignedCoachId' | 'assignedCoachName' | 'secondCoachId' | 'secondCoachName' | 'releasedBy' | 'releaseReason' | 'updatedAt'>>;
-
 const sections: Array<{ key: SectionKey; label: string; description: string; icon: ReactNode }> = [
   { key: 'overview', label: 'Přehled', description: 'co hoří', icon: <LayoutDashboard size={18} /> },
   { key: 'attendance', label: 'Docházka', description: 'kroužky a děti', icon: <ClipboardList size={18} /> },
   { key: 'participants', label: 'Účastníci', description: 'celý seznam', icon: <Users size={18} /> },
   { key: 'products', label: 'Produkty', description: 'nabídka webu', icon: <PackagePlus size={18} /> },
   { key: 'coaches', label: 'Trenéři', description: 'data a výkon', icon: <UserCheck size={18} /> },
-  { key: 'payouts', label: 'Výplaty', description: 'Stripe sandbox', icon: <Banknote size={18} /> },
+  { key: 'payouts', label: 'Výplaty', description: 'Stripe výplaty', icon: <Banknote size={18} /> },
   { key: 'invoices', label: 'Faktury', description: 'výdaje a platby', icon: <Receipt size={18} /> },
   { key: 'finance', label: 'Finance', description: 'cash flow přehled', icon: <TrendingUp size={18} /> },
 ];
@@ -241,7 +296,7 @@ const payoutPeriod = {
   periodEnd: '2026-04-30',
 };
 
-export function AdminDashboard({ finance, financeError, showSignOut, devMode }: AdminDashboardProps) {
+export function AdminDashboard({ finance, financeError, showSignOut, devMode, initialCoachSummaries, initialCoachAccessRequests }: AdminDashboardProps) {
   const [activeSection, setActiveSection] = useState<SectionKey>('overview');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [attendanceQuery, setAttendanceQuery] = useState('');
@@ -251,23 +306,60 @@ export function AdminDashboard({ finance, financeError, showSignOut, devMode }: 
   const [onboardingLinks, setOnboardingLinks] = useState<Record<string, string>>({});
   const [generatingOnboarding, setGeneratingOnboarding] = useState<string | null>(null);
   const [coachAttendanceRecords, setCoachAttendanceRecords] = useState<CoachAttendanceRecord[]>(() => buildInitialCoachAttendanceRecords());
-  const [coachDppDocuments, setCoachDppDocuments] = useState<AdminCoachDppDocument[]>(() => adminCoachDppDocuments);
-  const [sharedTrainingState, setSharedTrainingState] = useState<SharedTrainingState>(() => buildInitialSharedTrainingState());
-  const [workshopSlots, setWorkshopSlots] = useState<WorkshopSlot[]>(workshopCalendar);
-  const [campTurnusyState, setCampTurnusyState] = useState<CampTurnus[]>(campTurnusy);
-  const [keyRequests, setKeyRequests] = useState(() => adminCoachAccessRequests);
+  const [coachDppDocuments, setCoachDppDocuments] = useState<AdminCoachDppDocument[]>([]);
+  const [keyRequests, setKeyRequests] = useState<AdminCoachAccessRequest[]>(() => initialCoachAccessRequests ?? []);
+  const [liveCoachSummaries, setLiveCoachSummaries] = useState<AdminCoachSummary[] | null>(() => initialCoachSummaries ?? []);
+  const [approvalMessage, setApprovalMessage] = useState<string | null>(null);
+  const [approvingRequestId, setApprovingRequestId] = useState<string | null>(null);
   const [selectedActivityDetail, setSelectedActivityDetail] = useState<ReturnType<typeof adminActivityRows>[number] | null>(null);
   const [selectedParticipantDetail, setSelectedParticipantDetail] = useState<ParticipantDetailState | null>(null);
-  const { products: adminCreatedProducts, addProduct: addAdminCreatedProduct, removeProduct: removeAdminCreatedProduct } = useAdminCreatedProducts();
-  const [invoices, setInvoices] = useState<Invoice[]>(demoInvoices);
+  const { products: adminCreatedProducts, loading: productsLoading, error: productsError, addProduct: addAdminCreatedProduct, removeProduct: removeAdminCreatedProduct, updateProduct: updateAdminProduct } = useAdminCreatedProducts();
+  const [liveParticipants, setLiveParticipants] = useState<AdminParticipant[]>([]);
+  const [liveDocuments, setLiveDocuments] = useState<AdminDocument[]>([]);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [invoiceMessage, setInvoiceMessage] = useState<string | null>(null);
 
-  const allProducts = useMemo(() => [...parentProducts, ...adminCreatedProducts], [adminCreatedProducts]);
+  const allProducts = useMemo(() => adminCreatedProducts, [adminCreatedProducts]);
   const paymentRows = useMemo(() => buildPaymentRows(finance), [finance]);
-  const activityRows = useMemo(() => adminActivityRows(allProducts), [allProducts]);
-  const coaches = useMemo(() => mergeCoachData(finance), [finance]);
-  const sharedTrainingSlots = useMemo(() => resolveSharedTrainingSlots(sharedTrainingState), [sharedTrainingState]);
-  const totals = useMemo(() => buildTotals(paymentRows, activityRows, coaches, transfers, coachAttendanceRecords), [paymentRows, activityRows, coaches, transfers, coachAttendanceRecords]);
+  const activityRows = useMemo(() => buildLiveActivityRows(allProducts, liveParticipants, paymentRows), [allProducts, liveParticipants, paymentRows]);
+  const coaches = useMemo(() => mergeCoachData(finance, liveCoachSummaries), [finance, liveCoachSummaries]);
+  const sharedTrainingSlots = useMemo(() => buildSharedTrainingSlots(allProducts, coaches), [allProducts, coaches]);
+  const workshopSlots = useMemo(() => buildWorkshopSlots(allProducts, coaches), [allProducts, coaches]);
+  const campTurnusyState = useMemo(() => buildCampTurnusy(allProducts, coaches), [allProducts, coaches]);
+  const workshopAttendanceRecords = useMemo(() => buildWorkshopAttendanceRecords(workshopSlots, allProducts, liveParticipants), [workshopSlots, allProducts, liveParticipants]);
+  const totals = useMemo(() => buildTotals(paymentRows, activityRows, coaches, transfers, coachAttendanceRecords, liveParticipants, liveDocuments), [paymentRows, activityRows, coaches, transfers, coachAttendanceRecords, liveParticipants, liveDocuments]);
   const currentSection = sections.find((section) => section.key === activeSection) ?? sections[0];
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadAdminParticipants(allProducts).then((participants) => {
+      if (!cancelled) setLiveParticipants(participants);
+    });
+    return () => { cancelled = true; };
+  }, [allProducts]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadAdminParticipantDocuments().then((documents) => {
+      if (!cancelled) setLiveDocuments(documents);
+    }).catch(() => {
+      if (!cancelled) setLiveDocuments([]);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadAdminInvoices().then((rows) => {
+      if (!cancelled) setInvoices(rows.map(mapAdminInvoiceRow));
+    }).catch((error) => {
+      if (!cancelled) {
+        setInvoices([]);
+        setInvoiceMessage(error instanceof Error ? error.message : 'Faktury se nepodařilo načíst.');
+      }
+    });
+    return () => { cancelled = true; };
+  }, []);
 
   function selectSection(section: SectionKey) {
     setActiveSection(section);
@@ -292,6 +384,13 @@ export function AdminDashboard({ finance, financeError, showSignOut, devMode }: 
     return record;
   }
 
+  function handleCoachLocationSaved(coachId: string, location: string) {
+    setLiveCoachSummaries((current) => (current ?? []).map((coach) => {
+      if (coach.id !== coachId) return coach;
+      return { ...coach, locations: Array.from(new Set([location, ...coach.locations.filter((item) => item !== 'Čeká na přiřazení')])) };
+    }));
+  }
+
   function handleCreateCoachDpp(coach: AdminCoachSummary) {
     const existing = coachDppDocuments.find((document) => document.coachId === coach.id);
     const document = existing ? { ...existing, status: 'sent' as const, updatedAt: '1. 5. 2026', digitalEnvelopeId: existing.digitalEnvelopeId ?? `DPP-VYS-2026-${coach.id.toUpperCase()}` } : buildCoachDppDocument(coach, 'sent');
@@ -304,74 +403,75 @@ export function AdminDashboard({ finance, financeError, showSignOut, devMode }: 
     setCoachDppDocuments((current) => current.map((document) => document.coachId === coachId ? { ...document, status: 'signed', signedAt: '1. 5. 2026 · digitálně', updatedAt: '1. 5. 2026' } : document));
   }
 
-  function handleReleaseSharedTraining(slot: SharedTrainingSlot, position: 'first' | 'second' = 'first') {
-    const coachName = position === 'first' ? (slot.assignedCoachName ?? slot.regularCoachName) : (slot.secondCoachName ?? '');
-    setSharedTrainingState((current) => ({
-      ...current,
-      [slot.id]: {
-        ...current[slot.id],
-        ...(position === 'first'
-          ? { assignedCoachId: undefined, assignedCoachName: undefined }
-          : { secondCoachId: undefined, secondCoachName: undefined }),
-        releasedBy: coachName,
-        releaseReason: `${coachName} nemůže dorazit. Slot čeká na náhradního trenéra.`,
-        updatedAt: `dnes ${new Date().toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' })}`,
-      },
-    }));
+  async function handleReleaseSharedTraining(slot: SharedTrainingSlot, position: 'first' | 'second' = 'first') {
+    const product = allProducts.find((item) => item.id === slot.id);
+    const coachId = position === 'second' ? slot.secondCoachId : (slot.assignedCoachId ?? slot.regularCoachId);
+    if (!product || !coachId) return;
+    await handleProductCoachIdsChange(product, (product.coachIds ?? []).filter((id) => id !== coachId));
   }
 
-  function handleAssignSharedTraining(slot: SharedTrainingSlot, coach: AdminCoachSummary) {
-    const hasFirst = Boolean(slot.assignedCoachId);
-    setSharedTrainingState((current) => ({
-      ...current,
-      [slot.id]: {
-        ...current[slot.id],
-        ...(hasFirst
-          ? { secondCoachId: coach.id, secondCoachName: coach.name }
-          : { assignedCoachId: coach.id, assignedCoachName: coach.name }),
-        releasedBy: undefined,
-        releaseReason: undefined,
-        updatedAt: `přiřazeno dnes ${new Date().toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' })}`,
-      },
-    }));
+  async function handleAssignSharedTraining(slot: SharedTrainingSlot, coach: AdminCoachSummary) {
+    const product = allProducts.find((item) => item.id === slot.id);
+    if (!product || (product.coachIds ?? []).includes(coach.id)) return;
+    await handleProductCoachIdsChange(product, [...(product.coachIds ?? []), coach.id]);
   }
 
-  function handleAddWorkshopCoach(slot: WorkshopSlot, coach: AdminCoachSummary) {
+  async function handleAddWorkshopCoach(slot: WorkshopSlot, coach: AdminCoachSummary) {
     if (slot.coaches.length >= slot.maxCoaches) return;
     if (slot.coaches.some((c) => c.coachId === coach.id)) return;
-    setWorkshopSlots((prev) => prev.map((s) => s.id !== slot.id ? s : {
-      ...s,
-      coaches: [...s.coaches, { coachId: coach.id, coachName: coach.name }],
-      updatedAt: new Date().toLocaleDateString('cs-CZ'),
-    }));
+    const product = allProducts.find((item) => item.id === slot.id);
+    if (!product) return;
+    await handleProductCoachIdsChange(product, [...(product.coachIds ?? []), coach.id]);
   }
-  function handleRemoveWorkshopCoach(slot: WorkshopSlot, coachId: string) {
-    setWorkshopSlots((prev) => prev.map((s) => s.id !== slot.id ? s : {
-      ...s,
-      coaches: s.coaches.filter((c) => c.coachId !== coachId),
-      updatedAt: new Date().toLocaleDateString('cs-CZ'),
-    }));
+  async function handleRemoveWorkshopCoach(slot: WorkshopSlot, coachId: string) {
+    const product = allProducts.find((item) => item.id === slot.id);
+    if (!product) return;
+    await handleProductCoachIdsChange(product, (product.coachIds ?? []).filter((id) => id !== coachId));
   }
-  function handleAddWorkshopSlot(date: string, city: WorkshopCity) {
-    const id = `ws-${city.toLowerCase()}-${date}-${Date.now()}`;
-    const d = new Date(date); d.setDate(d.getDate() + 1);
-    const dateTo = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    setWorkshopSlots((prev) => [...prev, { id, date, dateTo, time: '10:00 - 17:00', city, venue: `TBD – ${city} centrum`, coaches: [], maxCoaches: WORKSHOP_MAX_COACHES, updatedAt: new Date().toLocaleDateString('cs-CZ') }]);
+  async function handleAddWorkshopSlot(date: string, city: WorkshopCity) {
+    await addAdminCreatedProduct({
+      type: 'Workshop',
+      title: `Workshop ${city} ${formatIsoDateForDisplay(date)}`,
+      city,
+      venue: `${city} centrum`,
+      primaryMeta: `${formatIsoDateForDisplay(date)} · 10:00 - 17:00`,
+      price: 890,
+      capacityTotal: 40,
+      capacityCurrent: 0,
+      description: `Workshop v lokalitě ${city}.`,
+      trainingFocus: 'workshop, technika, QR ticket',
+    });
   }
 
-  function handleAddCampCoach(turnus: CampTurnus, coach: AdminCoachSummary) {
+  async function handleAddCampCoach(turnus: CampTurnus, coach: AdminCoachSummary) {
     if (turnus.coaches.length >= turnus.maxCoaches) return;
     if (turnus.coaches.some((c) => c.coachId === coach.id)) return;
-    setCampTurnusyState((prev) => prev.map((t) => t.id !== turnus.id ? t : {
-      ...t,
-      coaches: [...t.coaches, { coachId: coach.id, coachName: coach.name }],
-    }));
+    const product = allProducts.find((item) => item.id === turnus.id);
+    if (!product) return;
+    await handleProductCoachIdsChange(product, [...(product.coachIds ?? []), coach.id]);
   }
-  function handleRemoveCampCoach(turnus: CampTurnus, coachId: string) {
-    setCampTurnusyState((prev) => prev.map((t) => t.id !== turnus.id ? t : {
-      ...t,
-      coaches: t.coaches.filter((c) => c.coachId !== coachId),
-    }));
+  async function handleRemoveCampCoach(turnus: CampTurnus, coachId: string) {
+    const product = allProducts.find((item) => item.id === turnus.id);
+    if (!product) return;
+    await handleProductCoachIdsChange(product, (product.coachIds ?? []).filter((id) => id !== coachId));
+  }
+
+  async function handleProductCoachIdsChange(product: ParentProduct, coachIds: string[]) {
+    const nextCoachIds = Array.from(new Set(coachIds));
+    const nextProduct = { ...product, coachIds: nextCoachIds };
+    await updateAdminProduct(nextProduct);
+
+    if (product.type === 'Krouzek') {
+      await persistCourseCoachAssignments(product, product.coachIds ?? [], nextCoachIds);
+    }
+
+    setLiveCoachSummaries((current) => current ? current.map((coach) => {
+      if (!nextCoachIds.includes(coach.id) && !(product.coachIds ?? []).includes(coach.id)) return coach;
+      const withoutPlace = coach.locations.filter((location) => location !== product.place && location !== 'Čeká na přiřazení');
+      return nextCoachIds.includes(coach.id)
+        ? { ...coach, locations: Array.from(new Set([product.place, ...withoutPlace])) }
+        : { ...coach, locations: withoutPlace.length > 0 ? withoutPlace : ['Čeká na přiřazení'] };
+    }) : current);
   }
 
   function openParticipantDetail(participant: ParentParticipant, activityType: ActivityType = 'Krouzek', place = participant.activeCourse) {
@@ -438,6 +538,82 @@ export function AdminDashboard({ finance, financeError, showSignOut, devMode }: 
       setPayoutMessage(error instanceof Error ? error.message : 'Nepodařilo se vygenerovat onboarding odkaz.');
     } finally {
       setGeneratingOnboarding(null);
+    }
+  }
+
+  async function handleCoachRequestDecision(request: AdminCoachAccessRequest, action: 'approve' | 'reject') {
+    const coachId = request.coachId ?? request.id;
+    setApprovalMessage(null);
+
+    if (!request.coachId) {
+      setKeyRequests((current) => current.filter((item) => item.id !== request.id));
+      setApprovalMessage(action === 'approve' ? `${request.name} je označený jako schválený.` : `${request.name} je zamítnutý.`);
+      return;
+    }
+
+    setApprovingRequestId(`${action}:${request.id}`);
+
+    try {
+      await updateCoachApproval(coachId, action);
+
+      setKeyRequests((current) => current.filter((item) => item.id !== request.id));
+      setLiveCoachSummaries((current) => current ? current.map((coach) => coach.id === coachId ? { ...coach, approvalStatus: action === 'approve' ? 'approved' : 'rejected', status: action === 'approve' ? 'Aktivni' : 'Pozastaveny' } : coach) : current);
+      setApprovalMessage(action === 'approve' ? `${request.name} má schválený trenérský přístup.` : `${request.name} je zamítnutý.`);
+    } catch (error) {
+      setApprovalMessage(error instanceof Error ? error.message : 'Žádost se nepodařilo zpracovat.');
+    } finally {
+      setApprovingRequestId(null);
+    }
+  }
+
+  async function handleToggleInvoicePaid(id: string) {
+    const invoice = invoices.find((item) => item.id === id);
+    if (!invoice) return;
+
+    setInvoiceMessage(null);
+    const previousInvoices = invoices;
+    const nextPaid = !invoice.paid;
+    setInvoices((current) => current.map((item) => item.id === id ? { ...item, paid: nextPaid, paidDate: nextPaid ? new Date().toISOString().slice(0, 10) : undefined } : item));
+
+    try {
+      const row = await updateAdminInvoicePayment(id, nextPaid);
+      setInvoices((current) => current.map((item) => item.id === id ? mapAdminInvoiceRow(row) : item));
+    } catch (error) {
+      setInvoices(previousInvoices);
+      setInvoiceMessage(error instanceof Error ? error.message : 'Fakturu se nepodařilo upravit.');
+    }
+  }
+
+  async function handleAddInvoice(invoice: Invoice) {
+    const payload: AdminInvoiceInput = {
+      supplier: invoice.supplier,
+      description: invoice.description,
+      amount: invoice.amount,
+      issuedDate: invoice.issuedDate,
+      dueDate: invoice.dueDate,
+      paid: invoice.paid,
+      paidDate: invoice.paidDate,
+    };
+
+    setInvoiceMessage(null);
+    try {
+      const row = await createAdminInvoice(payload);
+      setInvoices((current) => [mapAdminInvoiceRow(row), ...current]);
+    } catch (error) {
+      setInvoiceMessage(error instanceof Error ? error.message : 'Fakturu se nepodařilo uložit.');
+    }
+  }
+
+  async function handleDeleteInvoice(id: string) {
+    const previousInvoices = invoices;
+    setInvoiceMessage(null);
+    setInvoices((current) => current.filter((invoice) => invoice.id !== id));
+
+    try {
+      await deleteAdminInvoice(id);
+    } catch (error) {
+      setInvoices(previousInvoices);
+      setInvoiceMessage(error instanceof Error ? error.message : 'Fakturu se nepodařilo smazat.');
     }
   }
 
@@ -549,7 +725,9 @@ export function AdminDashboard({ finance, financeError, showSignOut, devMode }: 
       <main className="min-w-0 space-y-5 pb-8 lg:pb-0">
         <AdminHeader activeSection={currentSection} devMode={devMode} showSignOut={showSignOut} totals={totals} />
 
-        {financeError ? <BackendNotice error={financeError} /> : null}
+        {financeError ? <BackendNotice title="Backend finance teď neodpověděl" error={financeError} /> : null}
+        {productsError ? <BackendNotice title="Produkty se nenačetly" error={productsError} /> : null}
+        {productsLoading && allProducts.length === 0 ? <Panel className="p-4"><p className="text-sm font-black text-brand-ink-soft">Načítám produkty z databáze...</p></Panel> : null}
 
         <AnimatePresence mode="wait">
           <motion.div
@@ -559,11 +737,11 @@ export function AdminDashboard({ finance, financeError, showSignOut, devMode }: 
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
           >
-            {activeSection === 'overview' ? <OverviewSection totals={totals} coaches={coaches} coachAttendanceRecords={coachAttendanceRecords} dppDocuments={coachDppDocuments} keyRequests={keyRequests} onApproveKeyRequest={(id) => setKeyRequests((current) => current.filter((r) => r.id !== id))} onNavigate={setActiveSection} /> : null}
-            {activeSection === 'attendance' ? <AttendanceSection query={attendanceQuery} onQueryChange={setAttendanceQuery} activityRows={activityRows} workshopSlots={workshopSlots} workshopAttendanceRecords={workshopAttendanceRecords} coaches={coaches} coachAttendanceRecords={coachAttendanceRecords} onAddCoachAttendance={handleAddCoachAttendance} onOpenActivityDetail={setSelectedActivityDetail} onOpenParticipantDetail={openParticipantDetail} /> : null}
-            {activeSection === 'participants' ? <ParticipantsSection products={allProducts} workshopSlots={workshopSlots} workshopAttendanceRecords={workshopAttendanceRecords} onOpenParticipantDetail={openParticipantDetail} /> : null}
-            {activeSection === 'products' ? <ProductsSection products={allProducts} createdProducts={adminCreatedProducts} coaches={coaches} onAddProduct={addAdminCreatedProduct} onRemoveProduct={removeAdminCreatedProduct} /> : null}
-            {activeSection === 'coaches' ? <CoachesSection coaches={coaches} coachAttendanceRecords={coachAttendanceRecords} dppDocuments={coachDppDocuments} sharedTrainingSlots={sharedTrainingSlots} workshopSlots={workshopSlots} campTurnusy={campTurnusyState} onAddCoachAttendance={handleAddCoachAttendance} onCreateCoachDpp={handleCreateCoachDpp} onMarkCoachDppSigned={handleMarkCoachDppSigned} onReleaseSharedTraining={(slot, pos) => handleReleaseSharedTraining(slot, pos)} onAssignSharedTraining={handleAssignSharedTraining} onAddWorkshopCoach={handleAddWorkshopCoach} onRemoveWorkshopCoach={handleRemoveWorkshopCoach} onAddWorkshopSlot={handleAddWorkshopSlot} onAddCampCoach={handleAddCampCoach} onRemoveCampCoach={handleRemoveCampCoach} /> : null}
+            {activeSection === 'overview' ? <OverviewSection totals={totals} coaches={coaches} coachAttendanceRecords={coachAttendanceRecords} dppDocuments={coachDppDocuments} keyRequests={keyRequests} approvalMessage={approvalMessage} approvingRequestId={approvingRequestId} onApproveKeyRequest={(request) => handleCoachRequestDecision(request, 'approve')} onRejectKeyRequest={(request) => handleCoachRequestDecision(request, 'reject')} onNavigate={setActiveSection} /> : null}
+            {activeSection === 'attendance' ? <AttendanceSection query={attendanceQuery} onQueryChange={setAttendanceQuery} activityRows={activityRows} campTurnusy={campTurnusyState} workshopSlots={workshopSlots} workshopAttendanceRecords={workshopAttendanceRecords} coaches={coaches} coachAttendanceRecords={coachAttendanceRecords} onAddCoachAttendance={handleAddCoachAttendance} onOpenActivityDetail={setSelectedActivityDetail} onOpenParticipantDetail={openParticipantDetail} participants={liveParticipants} products={allProducts} /> : null}
+            {activeSection === 'participants' ? <ParticipantsSection products={allProducts} participants={liveParticipants} workshopSlots={workshopSlots} workshopAttendanceRecords={workshopAttendanceRecords} onOpenParticipantDetail={openParticipantDetail} /> : null}
+            {activeSection === 'products' ? <ProductsSection products={allProducts} coaches={coaches} onAddProduct={addAdminCreatedProduct} onRemoveProduct={removeAdminCreatedProduct} onUpdateProduct={updateAdminProduct} onProductCoachIdsChange={handleProductCoachIdsChange} /> : null}
+            {activeSection === 'coaches' ? <CoachesSection products={allProducts} coaches={coaches} coachAttendanceRecords={coachAttendanceRecords} dppDocuments={coachDppDocuments} sharedTrainingSlots={sharedTrainingSlots} workshopSlots={workshopSlots} campTurnusy={campTurnusyState} onAddCoachAttendance={handleAddCoachAttendance} onCreateCoachDpp={handleCreateCoachDpp} onMarkCoachDppSigned={handleMarkCoachDppSigned} onCoachLocationSaved={handleCoachLocationSaved} onReleaseSharedTraining={(slot, pos) => handleReleaseSharedTraining(slot, pos)} onAssignSharedTraining={handleAssignSharedTraining} onAddWorkshopCoach={handleAddWorkshopCoach} onRemoveWorkshopCoach={handleRemoveWorkshopCoach} onAddWorkshopSlot={handleAddWorkshopSlot} onAddCampCoach={handleAddCampCoach} onRemoveCampCoach={handleRemoveCampCoach} /> : null}
             {activeSection === 'payouts' ? (
               <PayoutsSection
                 coaches={coaches}
@@ -577,7 +755,7 @@ export function AdminDashboard({ finance, financeError, showSignOut, devMode }: 
                 onPayout={handlePayout}
               />
             ) : null}
-            {activeSection === 'invoices' ? <InvoicesSection invoices={invoices} onTogglePaid={(id) => setInvoices((prev) => prev.map((inv) => inv.id === id ? { ...inv, paid: !inv.paid, paidDate: !inv.paid ? new Date().toISOString().slice(0, 10) : undefined } : inv))} onAddInvoice={(inv) => setInvoices((prev) => [inv, ...prev])} onDeleteInvoice={(id) => setInvoices((prev) => prev.filter((inv) => inv.id !== id))} /> : null}
+            {activeSection === 'invoices' ? <InvoicesSection invoices={invoices} message={invoiceMessage} onTogglePaid={handleToggleInvoicePaid} onAddInvoice={handleAddInvoice} onDeleteInvoice={handleDeleteInvoice} /> : null}
             {activeSection === 'finance' ? <FinanceOverviewSection totals={totals} invoices={invoices} paymentRows={paymentRows} coaches={coaches} coachAttendanceRecords={coachAttendanceRecords} onNavigate={setActiveSection} /> : null}
           </motion.div>
         </AnimatePresence>
@@ -585,12 +763,17 @@ export function AdminDashboard({ finance, financeError, showSignOut, devMode }: 
       {selectedActivityDetail ? (
         <ActivityDetailModal
           activity={selectedActivityDetail}
+          products={allProducts}
+          participants={liveParticipants}
+          documents={liveDocuments}
+          coaches={coaches}
+          coachAttendanceRecords={coachAttendanceRecords}
           onClose={() => setSelectedActivityDetail(null)}
           onOpenParticipant={(participant) => openParticipantDetail(participant, selectedActivityDetail.type, selectedActivityDetail.place)}
         />
       ) : null}
       {selectedParticipantDetail ? (
-        <ParticipantDetailModal detail={selectedParticipantDetail} onClose={() => setSelectedParticipantDetail(null)} />
+        <ParticipantDetailModal detail={selectedParticipantDetail} documents={liveDocuments} onClose={() => setSelectedParticipantDetail(null)} />
       ) : null}
     </div>
   );
@@ -617,8 +800,8 @@ function AdminHeader({ activeSection, devMode, showSignOut, totals }: { activeSe
         </div>
       </div>
       <div className="mt-4 grid grid-cols-2 gap-2 text-center sm:grid-cols-4">
-        <AdminSignal value={`${linkedParticipants.length}`} label="účastníci" tone="cyan" />
-        <AdminSignal value={`${adminCoachSummaries.length}`} label="trenéři" tone="purple" />
+        <AdminSignal value={`${totals.participantCount}`} label="účastníci" tone="cyan" />
+        <AdminSignal value={`${totals.coachCount}`} label="trenéři" tone="purple" />
         <AdminSignal value={currency(totals.payoutTotal)} label="k výplatě" tone="orange" />
         <AdminSignal value={currency(totals.paidTotal)} label="zaplaceno" tone="mint" />
       </div>
@@ -626,124 +809,140 @@ function AdminHeader({ activeSection, devMode, showSignOut, totals }: { activeSe
   );
 }
 
-function BackendNotice({ error }: { error: string }) {
+function BackendNotice({ title, error }: { title: string; error: string }) {
   return (
     <Panel className="border-brand-orange/30 bg-brand-orange/10 p-4">
       <div className="flex items-start gap-3">
         <Bell className="mt-1 shrink-0 text-brand-orange-deep" size={20} />
         <div>
-          <p className="font-black text-brand-ink">Backend finance teď neodpověděl</p>
-          <p className="mt-1 text-sm font-bold leading-6 text-brand-ink-soft">{error}. Admin zobrazuje provozní demo data, aby šel dál kontrolovat vzhled a flow.</p>
+          <p className="font-black text-brand-ink">{title}</p>
+          <p className="mt-1 text-sm font-bold leading-6 text-brand-ink-soft">{error}. Zkontroluj API/Supabase připojení; admin teď nezobrazuje lokální náhradní data.</p>
         </div>
       </div>
     </Panel>
   );
 }
 
-function OverviewSection({ totals, coaches, coachAttendanceRecords, dppDocuments, keyRequests, onApproveKeyRequest, onNavigate }: { totals: AdminTotals; coaches: AdminCoachSummary[]; coachAttendanceRecords: CoachAttendanceRecord[]; dppDocuments: AdminCoachDppDocument[]; keyRequests: typeof adminCoachAccessRequests; onApproveKeyRequest: (id: string) => void; onNavigate: (section: SectionKey) => void }) {
+function OverviewSection({ totals, coaches, coachAttendanceRecords, dppDocuments, keyRequests, approvalMessage, approvingRequestId, onApproveKeyRequest, onRejectKeyRequest, onNavigate }: { totals: AdminTotals; coaches: AdminCoachSummary[]; coachAttendanceRecords: CoachAttendanceRecord[]; dppDocuments: AdminCoachDppDocument[]; keyRequests: AdminCoachAccessRequest[]; approvalMessage: string | null; approvingRequestId: string | null; onApproveKeyRequest: (request: AdminCoachAccessRequest) => void; onRejectKeyRequest: (request: AdminCoachAccessRequest) => void; onNavigate: (section: SectionKey) => void }) {
   const [expandedRequestId, setExpandedRequestId] = useState<string | null>(null);
   const unsignedDpp = coaches.filter((coach) => dppStatusForCoach(coach.id, dppDocuments) !== 'signed');
+  const adminAttendanceCount = coachAttendanceRecords.filter((record) => record.source === 'admin').length;
+  const paidShare = totals.paidTotal + totals.pendingTotal > 0 ? Math.round((totals.paidTotal / (totals.paidTotal + totals.pendingTotal)) * 100) : 100;
+  const readyForPayoutCount = coaches.filter((coach) => payoutAmountForCoach(coach, coachAttendanceRecords) > 0).length;
 
   return (
-    <div className="grid items-start gap-5 xl:grid-cols-[1.1fr_0.9fr]">
-      <div className="space-y-5">
-        <Panel className="border-brand-purple/20 bg-[#2B1247] p-4 shadow-brand sm:p-5">
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            <ActionTile icon={<ClipboardList size={18} />} label="Docházka" value={`${totals.courseCount} aktivit`} onClick={() => onNavigate('attendance')} />
-            <ActionTile icon={<Users size={18} />} label="Účastníci" value={`${linkedParticipants.length} profily`} onClick={() => onNavigate('participants')} />
-            <ActionTile icon={<PackagePlus size={18} />} label="Produkty" value="kroužky, tábory, workshopy" onClick={() => onNavigate('products')} />
-            <ActionTile icon={<Banknote size={18} />} label="Výplaty" value={currency(totals.payoutTotal)} onClick={() => onNavigate('payouts')} />
-          </div>
-        </Panel>
-
-        <Panel className="p-5">
-          <SectionTitle icon={<Gauge size={18} />} title="Prioritní fronta" subtitle="věci, které mají přímý dopad na rodiče, trenéry nebo provoz" />
-          <div className="mt-4 grid gap-3">
-            <PriorityRow title="Nepodepsané DPP trenérů" value={`${unsignedDpp.length}`} detail={unsignedDpp.length ? unsignedDpp.map((coach) => coach.name).join(', ') : 'Všichni trenéři mají DPP podepsané.'} tone={unsignedDpp.length ? 'orange' : 'mint'} />
-            <div className="space-y-2">
-              <div className="rounded-[16px] border border-brand-purple/10 bg-brand-paper p-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="font-black text-brand-ink">Žádosti o trenérský klíč</p>
-                    <p className="mt-1 text-sm font-bold leading-6 text-brand-ink-soft">{keyRequests.length ? `${keyRequests.length} čeká na schválení — zkontroluj osobní údaje a vydej klíč` : 'Právě žádná nová žádost.'}</p>
-                  </div>
-                  <StatusPill label={`${keyRequests.length}`} tone={keyRequests.length ? 'pink' : 'mint'} />
-                </div>
-                {keyRequests.length > 0 ? (
-                  <div className="mt-3 grid gap-2">
-                    {keyRequests.map((request) => (
-                      <div key={request.id} className="rounded-[14px] border border-brand-purple/10 bg-white">
-                        <button type="button" className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left" onClick={() => setExpandedRequestId(expandedRequestId === request.id ? null : request.id)}>
-                          <div className="min-w-0">
-                            <p className="text-sm font-black text-brand-ink">{request.name}</p>
-                            <p className="mt-0.5 text-xs font-bold text-brand-ink-soft">{request.requestedLocation} · {request.requestedAt}</p>
-                          </div>
-                          <ChevronDown size={16} className={`shrink-0 text-brand-purple transition-transform ${expandedRequestId === request.id ? 'rotate-180' : ''}`} />
-                        </button>
-                        {expandedRequestId === request.id ? (
-                          <div className="border-t border-brand-purple/8 px-4 pb-4 pt-3">
-                            <div className="grid gap-2 sm:grid-cols-2">
-                              <InfoBlock label="Jméno" value={request.name} />
-                              <InfoBlock label="E-mail" value={request.email} />
-                              <InfoBlock label="Telefon" value={request.phone} />
-                              <InfoBlock label="Požadovaná lokalita" value={request.requestedLocation} />
-                              <InfoBlock label="Čas žádosti" value={request.requestedAt} />
-                            </div>
-                            {request.note ? <p className="mt-3 rounded-[12px] bg-brand-paper px-3 py-2 text-sm font-bold text-brand-ink-soft">{request.note}</p> : null}
-                            <button
-                              type="button"
-                              onClick={() => { onApproveKeyRequest(request.id); setExpandedRequestId(null); }}
-                              className="mt-3 inline-flex items-center gap-2 rounded-[14px] bg-brand-purple px-4 py-2.5 text-sm font-black text-white shadow-brand transition hover:bg-brand-purple-deep"
-                            >
-                              <CheckCircle2 size={16} /> Schválit a otevřít profil trenéra
-                            </button>
-                          </div>
-                        ) : null}
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            </div>
-            <PriorityRow title="Zpětné docházky" value={`${adminAttendanceAdjustments.length}`} detail="Doplněné záznamy se mají zkontrolovat před výplatami." tone="purple" />
-          </div>
-        </Panel>
-
-        <Panel className="p-5">
-          <SectionTitle icon={<SlidersHorizontal size={18} />} title="Další admin funkce" subtitle="praktické věci pro další iteraci" />
-          <div className="mt-4 grid gap-2 md:grid-cols-3">
-            <Suggestion title="CSV export" text="Docházka, účastníci, platby a dokumenty pro účetní nebo provoz." />
-            <Suggestion title="Role a oprávnění" text="Jasně oddělit admina, trenéra, rodiče a asistenta tábora." />
-            <Suggestion title="Kontrola kapacit" text="Varování při plné skupině, čekací listina a náhradníci." />
-          </div>
-        </Panel>
+    <div className="space-y-5">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <OverviewFocusCard icon={<Receipt size={18} />} label="Čekající platby" value={currency(totals.pendingTotal)} detail={totals.pendingTotal > 0 ? 'Rodičovské platby k dořešení.' : 'Všechny evidované platby jsou zaplacené.'} tone={totals.pendingTotal > 0 ? 'orange' : 'mint'} onClick={() => onNavigate('finance')} />
+        <OverviewFocusCard icon={<FileText size={18} />} label="Chybějící dokumenty" value={`${totals.missingDocuments}`} detail={totals.missingDocuments > 0 ? 'Souhlasy a dokumenty před akcemi.' : 'Dokumenty jsou v pořádku.'} tone={totals.missingDocuments > 0 ? 'pink' : 'mint'} onClick={() => onNavigate('participants')} />
+        <OverviewFocusCard icon={<FileCheck2 size={18} />} label="DPP trenérů" value={`${unsignedDpp.length}`} detail={unsignedDpp.length ? unsignedDpp.map((coach) => coach.name).join(', ') : 'Všichni trenéři mají podepsáno.'} tone={unsignedDpp.length ? 'orange' : 'mint'} onClick={() => onNavigate('coaches')} />
+        <OverviewFocusCard icon={<Banknote size={18} />} label="K výplatě" value={currency(totals.payoutTotal)} detail={readyForPayoutCount ? `${readyForPayoutCount} trenérů má částku k výplatě.` : 'Teď není co vyplácet.'} tone={totals.payoutTotal > 0 ? 'purple' : 'mint'} onClick={() => onNavigate('payouts')} />
       </div>
 
-      <Panel className="p-5">
-        <SectionTitle icon={<UserCheck size={18} />} title="Trenéři v měsíci" subtitle="výkon, docházka a připravenost na výplaty" />
-        <div className="mt-4 space-y-3">
-          {coaches.map((coach) => (
-            <CoachCompactRow key={coach.id} coach={coach} coachAttendanceRecords={coachAttendanceRecords} />
-          ))}
+      <div className="grid items-start gap-5 xl:grid-cols-[1.15fr_0.85fr]">
+        <Panel className="p-5">
+          <SectionTitle icon={<Gauge size={18} />} title="Dnes řešit" subtitle="jen věci s dopadem na rodiče, trenéry nebo peníze" />
+          <div className="mt-4 grid gap-3">
+            <PriorityRow title="Žádosti o trenérský klíč" value={`${keyRequests.length}`} detail={keyRequests.length ? `${keyRequests.length} čeká na schválení — zkontroluj osobní údaje a vydej klíč.` : 'Právě žádná nová žádost.'} tone={keyRequests.length ? 'pink' : 'mint'} />
+            {keyRequests.length > 0 ? (
+              <div className="grid gap-2">
+                {keyRequests.map((request) => (
+                  <div key={request.id} className="rounded-[14px] border border-brand-purple/10 bg-white">
+                    <button type="button" className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left" onClick={() => setExpandedRequestId(expandedRequestId === request.id ? null : request.id)}>
+                      <div className="min-w-0">
+                        <p className="text-sm font-black text-brand-ink">{request.name}</p>
+                        <p className="mt-0.5 text-xs font-bold text-brand-ink-soft">{request.requestedLocation} · {request.requestedAt}</p>
+                      </div>
+                      <ChevronDown size={16} className={`shrink-0 text-brand-purple transition-transform ${expandedRequestId === request.id ? 'rotate-180' : ''}`} />
+                    </button>
+                    {expandedRequestId === request.id ? (
+                      <div className="border-t border-brand-purple/8 px-4 pb-4 pt-3">
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <InfoBlock label="Jméno" value={request.name} />
+                          <InfoBlock label="E-mail" value={request.email} />
+                          <InfoBlock label="Telefon" value={request.phone} />
+                          <InfoBlock label="Požadovaná lokalita" value={request.requestedLocation} />
+                          <InfoBlock label="Čas žádosti" value={request.requestedAt} />
+                        </div>
+                        {request.note ? <p className="mt-3 rounded-[12px] bg-brand-paper px-3 py-2 text-sm font-bold text-brand-ink-soft">{request.note}</p> : null}
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            disabled={approvingRequestId === `approve:${request.id}`}
+                            onClick={() => { onApproveKeyRequest(request); setExpandedRequestId(null); }}
+                            className="inline-flex items-center gap-2 rounded-[14px] bg-brand-purple px-4 py-2.5 text-sm font-black text-white shadow-brand transition hover:bg-brand-purple-deep disabled:cursor-not-allowed disabled:opacity-55"
+                          >
+                            <CheckCircle2 size={16} /> {approvingRequestId === `approve:${request.id}` ? 'Schvaluji...' : 'Schválit trenéra'}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={approvingRequestId === `reject:${request.id}`}
+                            onClick={() => { onRejectKeyRequest(request); setExpandedRequestId(null); }}
+                            className="inline-flex items-center gap-2 rounded-[14px] border border-brand-purple/15 bg-white px-4 py-2.5 text-sm font-black text-brand-ink transition hover:bg-brand-paper disabled:cursor-not-allowed disabled:opacity-55"
+                          >
+                            <X size={16} /> {approvingRequestId === `reject:${request.id}` ? 'Zamítám...' : 'Zamítnout'}
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            {approvalMessage ? <p className="rounded-[12px] bg-brand-paper px-3 py-2 text-sm font-bold text-brand-ink-soft">{approvalMessage}</p> : null}
+            <PriorityRow title="Nepodepsané DPP" value={`${unsignedDpp.length}`} detail={unsignedDpp.length ? unsignedDpp.map((coach) => coach.name).join(', ') : 'Všichni trenéři mají DPP podepsané.'} tone={unsignedDpp.length ? 'orange' : 'mint'} />
+            <PriorityRow title="Chybějící dokumenty dětí" value={`${totals.missingDocuments}`} detail={totals.missingDocuments ? 'Doplň před další lekcí, táborem nebo workshopem.' : 'Nic neblokuje účast.'} tone={totals.missingDocuments ? 'pink' : 'mint'} />
+            <PriorityRow title="Zpětně doplněná docházka" value={`${adminAttendanceCount}`} detail={adminAttendanceCount ? 'Zkontroluj před výplatami, aby seděly hodiny.' : 'Bez ručních zásahů v docházce.'} tone={adminAttendanceCount ? 'purple' : 'mint'} />
+          </div>
+        </Panel>
+
+        <div className="space-y-5">
+          <Panel className="border-brand-purple/20 bg-[#2B1247] p-4 text-white shadow-brand sm:p-5">
+            <div className="flex items-start gap-3">
+              <span className="rounded-[16px] bg-white/10 p-2 text-brand-cyan ring-1 ring-white/10"><ShieldCheck size={18} /></span>
+              <div>
+                <h2 className="text-lg font-black text-white">Rychlé vstupy</h2>
+                <p className="mt-1 text-sm font-bold text-white/64">kam admin nejčastěji kliká</p>
+              </div>
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+              <ActionTile icon={<ClipboardList size={18} />} label="Docházka" value={`${totals.courseCount} aktivit`} onClick={() => onNavigate('attendance')} />
+              <ActionTile icon={<Users size={18} />} label="Účastníci" value={`${totals.participantCount} profilů`} onClick={() => onNavigate('participants')} />
+              <ActionTile icon={<PackagePlus size={18} />} label="Produkty" value="kroužky, tábory, workshopy" onClick={() => onNavigate('products')} />
+              <ActionTile icon={<TrendingUp size={18} />} label="Finance" value={`${paidShare}% plateb zaplaceno`} onClick={() => onNavigate('finance')} />
+            </div>
+          </Panel>
+
+          <Panel className="p-5">
+            <SectionTitle icon={<ListChecks size={18} />} title="Stav provozu" subtitle="rychlé potvrzení, že nic zásadního nechybí" />
+            <div className="mt-4 grid gap-2">
+              <HealthRow label="Platby" value={totals.pendingTotal > 0 ? currency(totals.pendingTotal) : 'OK'} tone={totals.pendingTotal > 0 ? 'orange' : 'mint'} />
+              <HealthRow label="Dokumenty" value={totals.missingDocuments > 0 ? `${totals.missingDocuments} chybí` : 'OK'} tone={totals.missingDocuments > 0 ? 'pink' : 'mint'} />
+              <HealthRow label="DPP" value={unsignedDpp.length > 0 ? `${unsignedDpp.length} nepodepsáno` : 'OK'} tone={unsignedDpp.length > 0 ? 'orange' : 'mint'} />
+              <HealthRow label="Výplaty" value={totals.payoutTotal > 0 ? currency(totals.payoutTotal) : 'OK'} tone={totals.payoutTotal > 0 ? 'purple' : 'mint'} />
+            </div>
+          </Panel>
         </div>
-      </Panel>
+      </div>
     </div>
   );
 }
 
-function AttendanceSection({ query, onQueryChange, activityRows, workshopSlots, workshopAttendanceRecords, coaches, coachAttendanceRecords, onAddCoachAttendance, onOpenActivityDetail, onOpenParticipantDetail }: { query: string; onQueryChange: (value: string) => void; activityRows: ReturnType<typeof adminActivityRows>; workshopSlots: WorkshopSlot[]; workshopAttendanceRecords: WorkshopAttendanceRecord[]; coaches: AdminCoachSummary[]; coachAttendanceRecords: CoachAttendanceRecord[]; onAddCoachAttendance: (input: ManualCoachAttendanceInput) => CoachAttendanceRecord; onOpenActivityDetail: (activity: ReturnType<typeof adminActivityRows>[number]) => void; onOpenParticipantDetail: (participant: ParentParticipant, activityType: ActivityType, place: string) => void }) {
+function AttendanceSection({ query, onQueryChange, activityRows, campTurnusy, workshopSlots, workshopAttendanceRecords, coaches, coachAttendanceRecords, onAddCoachAttendance, onOpenActivityDetail, onOpenParticipantDetail, participants, products }: { query: string; onQueryChange: (value: string) => void; activityRows: ReturnType<typeof adminActivityRows>; campTurnusy: CampTurnus[]; workshopSlots: WorkshopSlot[]; workshopAttendanceRecords: WorkshopAttendanceRecord[]; coaches: AdminCoachSummary[]; coachAttendanceRecords: CoachAttendanceRecord[]; onAddCoachAttendance: (input: ManualCoachAttendanceInput) => CoachAttendanceRecord; onOpenActivityDetail: (activity: ReturnType<typeof adminActivityRows>[number]) => void; onOpenParticipantDetail: (participant: ParentParticipant, activityType: ActivityType, place: string) => void; participants: ParentParticipant[]; products: ParentProduct[] }) {
   const visibleActivities = filterActivityRows(activityRows, query);
-  const childAttendance = parentAttendanceHistory.filter((record) => matchesQuery(`${record.participantName} ${record.location} ${record.date}`, query));
   const visibleCoaches = coaches.filter((coach) => matchesQuery(`${coach.name} ${coach.locations.join(' ')}`, query) || recordsForCoach(coach, coachAttendanceRecords).some((record) => matchesQuery(`${record.coachName} ${record.sessionTitle} ${record.date}`, query)));
   const courseStats = buildCourseLocationStats(visibleActivities);
+  const eventActivities = visibleActivities.filter((activity) => activity.type !== 'Krouzek');
+  const workshopActivities = eventActivities.filter((activity) => activity.type === 'Workshop');
   const todayKey = new Date().toISOString().slice(0, 10);
-  const upcomingWsSlots = workshopSlots.filter((s) => s.date >= todayKey).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 24);
+  const pastCampTurnusy = campTurnusy.filter((t) => t.dateTo < todayKey);
+  const pastWsSlots = workshopSlots.filter((s) => s.date < todayKey).sort((a, b) => b.date.localeCompare(a.date));
 
   return (
     <div className="space-y-5">
       <Panel className="p-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <SectionTitle icon={<ClipboardList size={18} />} title="Docházka všech kroužků" subtitle="filtruj podle místa, účastníka, trenéra nebo data" />
+          <SectionTitle icon={<ClipboardList size={18} />} title="Docházka aktivit" subtitle="proběhlé tábory a workshopy · kroužky · filtruj podle místa, trenéra nebo data" />
           <SearchField value={query} onChange={onQueryChange} placeholder="Hledat Vyškov, Alex, Filip..." />
         </div>
       </Panel>
@@ -756,35 +955,452 @@ function AttendanceSection({ query, onQueryChange, activityRows, workshopSlots, 
         {courseStats.length === 0 ? <EmptyState text="Pro zadaný filtr není žádný kroužek." /> : null}
       </Panel>
 
-      <Panel className="p-5">
-        <SectionTitle icon={<Banknote size={18} />} title="Trenérská docházka podle trenéra" subtitle="celý záznam trenéra včetně admin doplnění" />
-        <div className="mt-4 grid gap-3 lg:grid-cols-2">
+      <div className="grid gap-4 xl:grid-cols-2">
+        <CampTurnusModalPanel campTurnusy={pastCampTurnusy} activities={activityRows.filter((a) => a.type === 'Tabor')} onOpenActivityDetail={onOpenActivityDetail} participants={participants} products={products} />
+        <WorkshopCalendarAttendancePanel slots={pastWsSlots} activities={workshopActivities} attendanceRecords={workshopAttendanceRecords} />
+      </div>
+
+      <WorkshopStatsPanel allSlots={workshopSlots} attendanceRecords={workshopAttendanceRecords} />
+
+      <CollapsiblePanel icon={<Banknote size={18} />} title="Trenérská docházka podle trenéra" subtitle="celý záznam trenéra včetně admin doplnění" count={`${visibleCoaches.length} trenérů`} defaultOpen={false}>
+        <div className="grid gap-3 lg:grid-cols-2">
           {visibleCoaches.map((coach) => (
             <CoachAttendancePanel key={coach.id} coach={coach} records={coachAttendanceRecords} onAdd={onAddCoachAttendance} compact />
           ))}
           {visibleCoaches.length === 0 ? <EmptyState text="Pro zadaný filtr není žádná trenérská docházka." /> : null}
         </div>
-      </Panel>
+      </CollapsiblePanel>
 
       <ManualAttendancePanel coaches={coaches} onAdd={onAddCoachAttendance} />
     </div>
   );
 }
 
-function ParticipantsSection({ products, workshopSlots, workshopAttendanceRecords, onOpenParticipantDetail }: { products: ParentProduct[]; workshopSlots: WorkshopSlot[]; workshopAttendanceRecords: WorkshopAttendanceRecord[]; onOpenParticipantDetail: (participant: ParentParticipant, activityType: ActivityType, place: string) => void }) {
+function CampTurnusModalPanel({ campTurnusy, activities, onOpenActivityDetail, participants, products }: { campTurnusy: CampTurnus[]; activities: ReturnType<typeof adminActivityRows>; onOpenActivityDetail: (activity: ReturnType<typeof adminActivityRows>[number]) => void; participants: ParentParticipant[]; products: ParentProduct[] }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const closeModal = () => { setIsOpen(false); setSelectedId(null); };
+
+  const incompleteCount = campTurnusy.filter((t) => t.coaches.length < t.maxCoaches).length;
+
+  // Extract unique years and default to the latest
+  const years = useMemo(() => {
+    const set = new Set(campTurnusy.map((t) => t.dateFrom.slice(0, 4)));
+    return Array.from(set).sort();
+  }, [campTurnusy]);
+  const [selectedYear, setSelectedYear] = useState<string>(() => {
+    const all = Array.from(new Set(campTurnusy.map((t) => t.dateFrom.slice(0, 4)))).sort();
+    return all[all.length - 1] ?? new Date().getFullYear().toString();
+  });
+  const activeYear = years.includes(selectedYear) ? selectedYear : (years[years.length - 1] ?? selectedYear);
+  const yearIdx = years.indexOf(activeYear);
+
+  const turnusyForYear = useMemo(
+    () => campTurnusy.filter((t) => t.dateFrom.startsWith(activeYear)),
+    [campTurnusy, activeYear],
+  );
+
+  // Group turnusy by campId (within selected year)
+  const campGroups = useMemo(() => {
+    const map = new Map<string, { campTitle: string; city: string; turnusy: CampTurnus[] }>();
+    for (const t of turnusyForYear) {
+      const existing = map.get(t.campId);
+      if (existing) { existing.turnusy.push(t); } else { map.set(t.campId, { campTitle: t.campTitle, city: t.city, turnusy: [t] }); }
+    }
+    return Array.from(map.values());
+  }, [turnusyForYear]);
+
+  const selectedTurnus = selectedId ? campTurnusy.find((t) => t.id === selectedId) ?? null : null;
+  const selectedActivity = selectedTurnus ? activities.find((a) => a.id === selectedTurnus.campId) ?? null : null;
+
+  function fmtDate(iso: string) {
+    const [y, m, d] = iso.split('-').map(Number);
+    return `${d}. ${m}. ${y}`;
+  }
+
+  return (
+    <>
+      <button type="button" onClick={() => setIsOpen(true)} className="flex w-full flex-col items-center justify-center gap-3 rounded-[22px] border border-brand-purple/10 bg-white p-6 shadow-sm transition hover:border-brand-purple/25 hover:shadow-brand-soft">
+        <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-purple/10 text-brand-purple"><CalendarDays size={22} /></span>
+        <span className="text-base font-black text-brand-ink">Tábory</span>
+        <span className={`text-2xl font-black ${incompleteCount > 0 ? 'text-brand-pink' : 'text-[#1FB37A]'}`}>{incompleteCount > 0 ? incompleteCount : '✓'}</span>
+        <span className="text-xs font-bold text-brand-ink-soft">{incompleteCount > 0 ? 'neúplných' : 'vše obsazeno'}</span>
+      </button>
+
+      <AnimatePresence>
+        {isOpen && (
+          <>
+            <motion.div key="camp-backdrop" className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm"
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.22 }}
+              onClick={closeModal} />
+            <motion.div key="camp-modal"
+              className="fixed inset-x-4 top-[3vh] z-50 mx-auto flex max-w-3xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl" style={{ maxHeight: '94vh' }}
+              initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }}
+              transition={{ type: 'spring', damping: 28, stiffness: 320 }}>
+              {/* Modal header */}
+              <div className="flex flex-shrink-0 items-center justify-between border-b border-brand-purple/8 bg-white px-6 py-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-brand-purple/10 text-brand-purple"><CalendarDays size={16} /></span>
+                  <span className="text-base font-black text-brand-ink">Tábory</span>
+                  <StatusPill label={`${turnusyForYear.length} turnusů`} tone="purple" />
+                  <StatusPill label={incompleteCount > 0 ? `${incompleteCount} neúplných` : 'Vše obsazeno'} tone={incompleteCount > 0 ? 'pink' : 'mint'} />
+                  {years.length > 1 && (
+                    <div className="flex items-center gap-1 rounded-[11px] border border-brand-purple/20 bg-white px-1 py-0.5">
+                      <button type="button" disabled={yearIdx <= 0} onClick={() => { setSelectedYear(years[yearIdx - 1]); setSelectedId(null); }} className="flex h-6 w-6 items-center justify-center rounded-lg text-brand-purple transition hover:bg-brand-purple/8 disabled:opacity-25">
+                        <ChevronDown size={12} className="rotate-90" />
+                      </button>
+                      <span className="min-w-[36px] text-center text-xs font-black text-brand-purple">{activeYear}</span>
+                      <button type="button" disabled={yearIdx >= years.length - 1} onClick={() => { setSelectedYear(years[yearIdx + 1]); setSelectedId(null); }} className="flex h-6 w-6 items-center justify-center rounded-lg text-brand-purple transition hover:bg-brand-purple/8 disabled:opacity-25">
+                        <ChevronDown size={12} className="-rotate-90" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <button type="button" onClick={closeModal} className="ml-4 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-brand-paper text-brand-ink-soft transition hover:bg-brand-purple/10 hover:text-brand-purple">
+                  <ChevronDown size={16} className="rotate-180" />
+                </button>
+              </div>
+              {/* Scrollable content */}
+              <div className="flex-1 overflow-y-auto px-6 pb-8 pt-5">
+                <div className="space-y-4">
+                  {campGroups.map((group) => (
+                    <div key={group.campTitle}>
+                      <div className="mb-2 flex items-center gap-2">
+                        <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-brand-purple/10 text-brand-purple"><ShieldCheck size={13} /></span>
+                        <p className="text-sm font-black text-brand-ink">{group.campTitle}</p>
+                        <span className="text-xs font-bold text-brand-ink-soft">{group.city}</span>
+                      </div>
+                      <div className="grid gap-2">
+                        {group.turnusy.map((turnus, tIdx) => {
+                          const isFull = turnus.coaches.length >= turnus.maxCoaches;
+                          const hasNone = turnus.coaches.length === 0;
+                          const isSelected = selectedId === turnus.id;
+                          return (
+                            <button key={turnus.id} type="button"
+                              onClick={() => setSelectedId(isSelected ? null : turnus.id)}
+                              className={`w-full rounded-[16px] p-3 text-left transition ${isSelected ? 'border border-brand-purple/30 bg-brand-purple-light shadow-sm' : 'border border-brand-purple/10 bg-brand-paper hover:border-brand-purple/25 hover:bg-white'}`}>
+                              <div className="flex items-start justify-between gap-3">
+                                <div>
+                                  <p className="mb-0.5 text-[10px] font-black uppercase tracking-wide text-brand-purple">{tIdx + 1}. turnus</p>
+                                  <p className="text-xs font-black text-brand-ink">{fmtDate(turnus.dateFrom)} – {fmtDate(turnus.dateTo)}</p>
+                                  <p className="mt-0.5 text-[11px] font-bold text-brand-ink-soft">{turnus.venue} · {turnus.durationDays} dní</p>
+                                </div>
+                                <div className="text-right">
+                                  <div className="flex items-center gap-1">
+                                    {Array.from({ length: turnus.maxCoaches }).map((_, i) => (
+                                      <span key={i} className={`inline-block h-2 w-2 rounded-full ${i < turnus.coaches.length ? 'bg-[#1FB37A]' : hasNone ? 'bg-[#F0445B]/50' : 'bg-brand-ink/15'}`} />
+                                    ))}
+                                  </div>
+                                  <p className={`mt-1 text-[10px] font-black ${isFull ? 'text-[#1FB37A]' : hasNone ? 'text-[#F0445B]' : 'text-[#FFB21A]'}`}>
+                                    {isFull ? 'Obsazeno' : hasNone ? 'Bez trenérů' : `${turnus.coaches.length}/${turnus.maxCoaches}`}
+                                  </p>
+                                </div>
+                              </div>
+                              {turnus.coaches.length > 0 && (
+                                <div className="mt-2 flex flex-wrap gap-1">
+                                  {turnus.coaches.map((c) => (
+                                    <span key={c.coachId} className="rounded-[8px] bg-brand-ink px-2 py-0.5 text-[10px] font-black text-white">{c.coachName.split(' ')[0]}</span>
+                                  ))}
+                                </div>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                  {campGroups.length === 0 && <EmptyState text="Žádné tábory v databázi." />}
+                </div>
+
+                {/* Selected turnus detail */}
+                {selectedTurnus && (() => {
+                  const turnusProduct = products.find((p) => p.id === selectedTurnus.id);
+                  const turnusParticipants = turnusProduct ? participants.filter((participant) => participantBelongsToProduct(participant, turnusProduct)) : [];
+                  return (
+                  <div className="mt-5 rounded-2xl border border-brand-purple/12 bg-white p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p className="text-base font-black text-brand-ink">{selectedTurnus.campTitle}</p>
+                        <p className="mt-0.5 text-sm font-bold text-brand-purple-deep">{fmtDate(selectedTurnus.dateFrom)} – {fmtDate(selectedTurnus.dateTo)}</p>
+                        <p className="mt-0.5 text-xs font-bold text-brand-ink-soft">{selectedTurnus.venue} · {selectedTurnus.durationDays} dní</p>
+                      </div>
+                      <div className="flex gap-2">
+                        {selectedActivity && (
+                          <button type="button" onClick={() => { onOpenActivityDetail(selectedActivity); closeModal(); }}
+                            className="rounded-xl border border-brand-purple/20 bg-brand-paper px-3 py-1.5 text-xs font-black text-brand-purple hover:bg-brand-purple/5">
+                            Detail produktu
+                          </button>
+                        )}
+                        <button type="button" onClick={() => setSelectedId(null)}
+                          className="rounded-xl border border-brand-purple/15 bg-brand-paper px-3 py-1.5 text-xs font-black text-brand-purple-deep hover:bg-brand-purple/5">
+                          Zavřít
+                        </button>
+                      </div>
+                    </div>
+                    {/* Coaches */}
+                    <div className="mt-4">
+                      <p className="mb-2 text-[11px] font-black uppercase tracking-wide text-brand-ink-soft">Trenéři · {selectedTurnus.coaches.length}/{selectedTurnus.maxCoaches}</p>
+                      {selectedTurnus.coaches.length > 0 ? (
+                        <div className="flex flex-wrap gap-2">
+                          {selectedTurnus.coaches.map((c) => (
+                            <span key={c.coachId} className="inline-flex items-center gap-1.5 rounded-[10px] bg-brand-ink px-2.5 py-1.5 text-xs font-black text-white">{c.coachName}</span>
+                          ))}
+                          {Array.from({ length: selectedTurnus.maxCoaches - selectedTurnus.coaches.length }).map((_, i) => (
+                            <span key={i} className="inline-flex items-center gap-1.5 rounded-[10px] border border-dashed border-brand-purple/20 px-2.5 py-1.5 text-xs font-bold text-brand-ink-soft/40">Volné místo</span>
+                          ))}
+                        </div>
+                      ) : <p className="text-xs text-brand-ink-soft/50">Bez přiřazených trenérů.</p>}
+                    </div>
+                    {/* Participants */}
+                    <div className="mt-4">
+                      <p className="mb-2 text-[11px] font-black uppercase tracking-wide text-brand-ink-soft">
+                        Účastníci · {turnusParticipants.length}{selectedActivity ? `/${selectedActivity.capacityTotal}` : ''}
+                      </p>
+                      {turnusParticipants.length > 0 ? (
+                        <div className="flex flex-wrap gap-1.5">
+                          {turnusParticipants.map((p) => (
+                            <span key={p.id} className="rounded-[8px] bg-brand-purple/10 px-2 py-1 text-[11px] font-black text-brand-purple">
+                              {p.firstName} {p.lastName}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-brand-ink-soft/50">
+                          {turnusProduct ? 'Žádní přihlášení účastníci.' : 'Účastníci se načítají…'}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  );
+                })()}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+    </>
+  );
+}
+
+function CollapsibleEventAttendancePanel({ title, subtitle, countLabel, activities, emptyText, isOpen, onToggle, onOpenActivityDetail }: { title: string; subtitle: string; countLabel: string; activities: ReturnType<typeof adminActivityRows>; emptyText: string; isOpen: boolean; onToggle: () => void; onOpenActivityDetail: (activity: ReturnType<typeof adminActivityRows>[number]) => void }) {
+  return (
+    <Panel className="overflow-hidden p-5">
+      <button type="button" onClick={onToggle} aria-expanded={isOpen} className="flex w-full items-center justify-between gap-4 text-left">
+        <SectionTitle icon={<CalendarDays size={18} />} title={title} subtitle={`${subtitle} · ${activities.length} ${countLabel}`} />
+        <span className={`inline-flex flex-shrink-0 items-center gap-1.5 rounded-[13px] border border-brand-purple/20 bg-white px-3 py-2 text-xs font-black text-brand-purple transition ${isOpen ? 'bg-brand-purple/5' : 'hover:bg-brand-purple/5'}`}>
+          <ChevronDown size={14} className={`transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+          {isOpen ? 'Skrýt' : 'Zobrazit'}
+        </span>
+      </button>
+
+      <AnimatePresence initial={false}>
+        {isOpen ? (
+          <motion.div
+            key={`${title}-attendance-body`}
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
+            className="overflow-hidden"
+          >
+            <div className="mt-4 grid gap-3">
+              {activities.map((activity) => <ActivityAttendanceRow key={activity.id} activity={activity} onOpenDetail={() => onOpenActivityDetail(activity)} />)}
+              {activities.length === 0 ? <EmptyState text={emptyText} /> : null}
+            </div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+    </Panel>
+  );
+}
+
+function WorkshopCalendarAttendancePanel({ slots, activities, attendanceRecords }: { slots: WorkshopSlot[]; activities: ReturnType<typeof adminActivityRows>; attendanceRecords: WorkshopAttendanceRecord[] }) {
+  const now = new Date();
+  const [isOpen, setIsOpen] = useState(false);
+  const [calYear, setCalYear] = useState(now.getFullYear());
+  const [calMonth, setCalMonth] = useState(now.getMonth());
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  const grid = useMemo(() => getMonthGridWeb(calYear, calMonth), [calYear, calMonth]);
+  const ymVal = (y: number, m: number) => y * 12 + m;
+  const canGoPrev = ymVal(calYear, calMonth) > ymVal(SEASON_START_WEB.year, SEASON_START_WEB.month);
+  const canGoNext = ymVal(calYear, calMonth) < ymVal(SEASON_END_WEB.year, SEASON_END_WEB.month);
+  function goPrev() { if (!canGoPrev) return; setSelectedId(null); if (calMonth === 0) { setCalYear((y) => y - 1); setCalMonth(11); } else setCalMonth((m) => m - 1); }
+  function goNext() { if (!canGoNext) return; setSelectedId(null); if (calMonth === 11) { setCalYear((y) => y + 1); setCalMonth(0); } else setCalMonth((m) => m + 1); }
+
+  const CITY_CHIP: Record<WorkshopCity, string> = { Brno: 'bg-[#8B1DFF] text-white hover:bg-[#7a18e0]', Praha: 'bg-[#1FB37A] text-white hover:bg-[#1a9a6c]', Ostrava: 'bg-[#FFB21A] text-brand-ink hover:bg-[#e6a000]' };
+  const openCount = slots.filter((s) => s.coaches.length < s.maxCoaches).length;
+  const selectedSlot = selectedId ? slots.find((s) => s.id === selectedId) ?? null : null;
+  const closeModal = () => { setIsOpen(false); setSelectedId(null); };
+
+  return (
+    <>
+      <button type="button" onClick={() => setIsOpen(true)} className="flex w-full flex-col items-center justify-center gap-3 rounded-[22px] border border-brand-purple/10 bg-white p-6 shadow-sm transition hover:border-brand-purple/25 hover:shadow-brand-soft">
+        <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-purple/10 text-brand-purple"><CalendarDays size={22} /></span>
+        <span className="text-base font-black text-brand-ink">Workshopy</span>
+        <span className={`text-2xl font-black ${openCount > 0 ? 'text-brand-pink' : 'text-[#1FB37A]'}`}>{openCount > 0 ? openCount : '✓'}</span>
+        <span className="text-xs font-bold text-brand-ink-soft">{openCount > 0 ? 'neúplných' : 'vše obsazeno'}</span>
+      </button>
+
+      <AnimatePresence>
+        {isOpen && (
+          <>
+            <motion.div key="wsatt-backdrop" className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm"
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.22 }}
+              onClick={closeModal} />
+            <motion.div key="wsatt-modal"
+              className="fixed inset-x-4 top-[3vh] z-50 mx-auto flex max-w-3xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl" style={{ maxHeight: '94vh' }}
+              initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }}
+              transition={{ type: 'spring', damping: 28, stiffness: 320 }}>
+              {/* Modal header */}
+              <div className="flex flex-shrink-0 items-center justify-between border-b border-brand-purple/8 bg-white px-6 py-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-brand-purple/10 text-brand-purple"><CalendarDays size={16} /></span>
+                  <span className="text-base font-black text-brand-ink">Workshopy</span>
+                  <StatusPill label={`${slots.length} termínů`} tone="purple" />
+                  <StatusPill label={openCount > 0 ? `${openCount} neúplných` : 'Vše obsazeno'} tone={openCount > 0 ? 'pink' : 'mint'} />
+                </div>
+                <button type="button" onClick={closeModal} className="ml-4 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-brand-paper text-brand-ink-soft transition hover:bg-brand-purple/10 hover:text-brand-purple">
+                  <ChevronDown size={16} className="rotate-180" />
+                </button>
+              </div>
+              {/* Scrollable content */}
+              <div className="flex-1 overflow-y-auto px-6 pb-8 pt-5">
+                {/* Month nav */}
+                <div className="flex items-center justify-between">
+                  <button type="button" disabled={!canGoPrev} onClick={goPrev}
+                    className="flex h-8 w-8 items-center justify-center rounded-xl border border-brand-purple/20 bg-white text-brand-purple transition hover:bg-brand-purple/5 disabled:opacity-30">
+                    <ChevronDown size={14} className="rotate-90" />
+                  </button>
+                  <p className="text-sm font-black text-brand-purple-deep">{CZECH_MONTH_NAMES_WEB[calMonth]} {calYear}</p>
+                  <button type="button" disabled={!canGoNext} onClick={goNext}
+                    className="flex h-8 w-8 items-center justify-center rounded-xl border border-brand-purple/20 bg-white text-brand-purple transition hover:bg-brand-purple/5 disabled:opacity-30">
+                    <ChevronDown size={14} className="-rotate-90" />
+                  </button>
+                </div>
+
+                {/* Legend */}
+                <div className="mt-3 flex flex-wrap gap-4 text-xs font-bold text-brand-ink-soft">
+                  <span className="flex items-center gap-1.5"><span className="inline-block h-2.5 w-2.5 rounded-full bg-[#8B1DFF]" />Brno</span>
+                  <span className="flex items-center gap-1.5"><span className="inline-block h-2.5 w-2.5 rounded-full bg-[#1FB37A]" />Praha</span>
+                  <span className="flex items-center gap-1.5"><span className="inline-block h-2.5 w-2.5 rounded-full bg-[#FFB21A]" />Ostrava</span>
+                </div>
+
+                {/* Day headers */}
+                <div className="mt-4 grid grid-cols-7 gap-1">
+                  {WEEK_DAY_ABBR_WEB.map((abbr) => (
+                    <div key={abbr} className="pb-1 text-center text-[11px] font-black uppercase text-brand-purple-deep">{abbr}</div>
+                  ))}
+                </div>
+
+                {/* Calendar grid */}
+                <div className="grid grid-cols-7 gap-1">
+                  {grid.flat().map((date, idx) => {
+                    if (!date) return <div key={`wsatt-empty-${idx}`} className="min-h-[68px]" />;
+                    const dk = dateKeyWeb(date);
+                    const daySlots = slots.filter((s) => s.date === dk);
+                    const today = new Date(); today.setHours(0, 0, 0, 0);
+                    const isToday = date.getTime() === today.getTime();
+                    const isPast = date < today;
+                    return (
+                      <div key={dk} className={`min-h-[68px] rounded-xl p-1.5 ${daySlots.length > 0 ? 'border border-brand-purple/10 bg-white' : 'bg-brand-paper/40'}`}>
+                        <p className={`mb-1 text-right text-[11px] font-black ${isToday ? 'text-brand-purple' : isPast ? 'text-brand-ink-soft/35' : 'text-brand-ink-soft'}`}>{date.getDate()}</p>
+                        <div className="flex flex-col gap-0.5">
+                          {daySlots.map((slot) => {
+                            const activity = activities.find((a) => a.id === slot.id);
+                            const attendance = attendanceRecords.find((r) => r.slotId === slot.id);
+                            const isSelected = selectedId === slot.id;
+                            return (
+                              <button key={slot.id} type="button"
+                                onClick={() => setSelectedId(isSelected ? null : slot.id)}
+                                className={`w-full rounded-[5px] px-1 py-0.5 text-left transition ${isSelected ? 'ring-1 ring-offset-1 ring-brand-ink' : ''} ${CITY_CHIP[slot.city]}`}>
+                                <p className="truncate text-[9px] font-black leading-tight">{activity?.title ?? slot.city}</p>
+                                <p className="text-[8px] font-bold opacity-70">{attendance ? `${attendance.attendees} účast.` : slot.coaches.length > 0 ? `${slot.coaches.length} trenér` : '—'}</p>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Selected slot detail */}
+                {selectedSlot && (() => {
+                  const activity = activities.find((a) => a.id === selectedSlot.id);
+                  const attendance = attendanceRecords.find((r) => r.slotId === selectedSlot.id);
+                  return (
+                    <div className="mt-4 rounded-2xl border border-brand-purple/12 bg-white p-4">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          {activity && <p className="text-base font-black text-brand-ink">{activity.title}</p>}
+                          <p className="mt-0.5 text-sm font-bold text-brand-purple-deep">{selectedSlot.date} · {selectedSlot.time}</p>
+                          <p className="mt-0.5 text-xs font-bold text-brand-ink-soft">{selectedSlot.venue}</p>
+                        </div>
+                        <button type="button" onClick={() => setSelectedId(null)}
+                          className="rounded-xl border border-brand-purple/15 bg-brand-paper px-3 py-1.5 text-xs font-black text-brand-purple-deep hover:bg-brand-purple/5">
+                          Zavřít
+                        </button>
+                      </div>
+
+                      {/* Coaches */}
+                      <div className="mt-4">
+                        <p className="mb-2 text-[11px] font-black uppercase tracking-wide text-brand-ink-soft">Trenéři · {selectedSlot.coaches.length}/{selectedSlot.maxCoaches}</p>
+                        {selectedSlot.coaches.length > 0 ? (
+                          <div className="flex flex-wrap gap-2">
+                            {selectedSlot.coaches.map((c) => {
+                              const tricks = attendance?.coachTrickCounts.find((tc) => tc.coachId === c.coachId)?.count;
+                              return (
+                                <span key={c.coachId} className="inline-flex items-center gap-1.5 rounded-[10px] bg-brand-ink px-2.5 py-1.5 text-xs font-black text-white">
+                                  {c.coachName}
+                                  {tricks != null && <span className="rounded-full bg-white/15 px-1.5 py-0.5 text-[9px]">{tricks} triků</span>}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        ) : <p className="text-xs text-brand-ink-soft/50">Bez přiřazených trenérů.</p>}
+                      </div>
+
+                      {/* Participants */}
+                      <div className="mt-4">
+                        <p className="mb-2 text-[11px] font-black uppercase tracking-wide text-brand-ink-soft">
+                          Účastníci · {attendance ? attendance.attendees : (activity?.registered ?? 0)}
+                          {activity && <span className="ml-1 font-bold text-brand-ink-soft/50">/ {activity.capacityTotal}</span>}
+                        </p>
+                        {attendance?.participants && attendance.participants.length > 0 ? (
+                          <div className="flex flex-wrap gap-1.5">
+                            {attendance.participants.map((name) => (
+                              <span key={name} className="rounded-[999px] bg-brand-purple/10 px-2.5 py-1 text-xs font-bold text-brand-purple-deep">{name}</span>
+                            ))}
+                          </div>
+                        ) : <p className="text-xs text-brand-ink-soft/50">Žádná evidovaná docházka účastníků.</p>}
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+    </>
+  );
+}
+
+function ParticipantsSection({ products, participants, workshopSlots, workshopAttendanceRecords, onOpenParticipantDetail }: { products: ParentProduct[]; participants: ParentParticipant[]; workshopSlots: WorkshopSlot[]; workshopAttendanceRecords: WorkshopAttendanceRecord[]; onOpenParticipantDetail: (participant: ParentParticipant, activityType: ActivityType, place: string) => void }) {
   const [query, setQuery] = useState('');
   const [activeParticipantType, setActiveParticipantType] = useState<ActivityType>('Krouzek');
-  const participantGroups = useMemo(() => buildParticipantGroups(query, products), [query, products]);
+  const participantGroups = useMemo(() => buildParticipantGroups(query, products, participants), [query, products, participants]);
   const todayKey = new Date().toISOString().slice(0, 10);
   const upcomingWsSlots = useMemo(() => workshopSlots.filter((s) => s.date >= todayKey).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 24), [workshopSlots, todayKey]);
   const participantSubtitle = activeParticipantType === 'Tabor'
-    ? 'tábory jsou rozdělené podle termínu, potom podle města a lokality'
+    ? 'nadcházející tábory · přihlášení na daný turnus'
     : activeParticipantType === 'Workshop'
     ? 'nadcházející termíny · přihlášení podle data'
     : 'přepni typ aktivity nahoře, města zůstávají jako hlavní rozbalení';
   const groupsByType = {
     Krouzek: participantGroups.filter((group) => group.type === 'Krouzek'),
-    Tabor: participantGroups.filter((group) => group.type === 'Tabor'),
+    Tabor: participantGroups.filter((group) => group.type === 'Tabor' && parseProductDateRange(group.product.primaryMeta).dateTo >= todayKey),
     Workshop: participantGroups.filter((group) => group.type === 'Workshop'),
   };
   const activeGroups = groupsByType[activeParticipantType];
@@ -802,10 +1418,7 @@ function ParticipantsSection({ products, workshopSlots, workshopAttendanceRecord
       </Panel>
 
       {activeParticipantType === 'Workshop'
-        ? <>
-            <WorkshopUpcomingPanel slots={upcomingWsSlots} attendanceRecords={workshopAttendanceRecords} onOpenParticipant={(p, place) => onOpenParticipantDetail(p, 'Workshop', place)} />
-            <WorkshopStatsPanel allSlots={workshopSlots} attendanceRecords={workshopAttendanceRecords} onOpenParticipant={(p, place) => onOpenParticipantDetail(p, 'Workshop', place)} />
-          </>
+        ? <WorkshopUpcomingPanel slots={upcomingWsSlots} products={products} participants={participants} attendanceRecords={workshopAttendanceRecords} onOpenParticipant={(p, place) => onOpenParticipantDetail(p, 'Workshop', place)} />
         : <>
             <ActivityParticipantTypeSection type={activeParticipantType} groups={activeGroups} onOpenParticipantDetail={onOpenParticipantDetail} />
             {participantGroups.length === 0 ? <EmptyState text="Žádná lokalita ani účastník neodpovídá filtru." /> : null}
@@ -815,11 +1428,13 @@ function ParticipantsSection({ products, workshopSlots, workshopAttendanceRecord
   );
 }
 
-function CoachesSection({ coaches, coachAttendanceRecords, dppDocuments, sharedTrainingSlots, workshopSlots, campTurnusy, onAddCoachAttendance, onCreateCoachDpp, onMarkCoachDppSigned, onReleaseSharedTraining, onAssignSharedTraining, onAddWorkshopCoach, onRemoveWorkshopCoach, onAddWorkshopSlot, onAddCampCoach, onRemoveCampCoach }: { coaches: AdminCoachSummary[]; coachAttendanceRecords: CoachAttendanceRecord[]; dppDocuments: AdminCoachDppDocument[]; sharedTrainingSlots: SharedTrainingSlot[]; workshopSlots: WorkshopSlot[]; campTurnusy: CampTurnus[]; onAddCoachAttendance: (input: ManualCoachAttendanceInput) => CoachAttendanceRecord; onCreateCoachDpp: (coach: AdminCoachSummary) => AdminCoachDppDocument; onMarkCoachDppSigned: (coachId: string) => void; onReleaseSharedTraining: (slot: SharedTrainingSlot, position?: 'first' | 'second') => void; onAssignSharedTraining: (slot: SharedTrainingSlot, coach: AdminCoachSummary) => void; onAddWorkshopCoach: (slot: WorkshopSlot, coach: AdminCoachSummary) => void; onRemoveWorkshopCoach: (slot: WorkshopSlot, coachId: string) => void; onAddWorkshopSlot: (date: string, city: WorkshopCity) => void; onAddCampCoach: (turnus: CampTurnus, coach: AdminCoachSummary) => void; onRemoveCampCoach: (turnus: CampTurnus, coachId: string) => void }) {
+function CoachesSection({ products, coaches, coachAttendanceRecords, dppDocuments, sharedTrainingSlots, workshopSlots, campTurnusy, onAddCoachAttendance, onCreateCoachDpp, onMarkCoachDppSigned, onCoachLocationSaved, onReleaseSharedTraining, onAssignSharedTraining, onAddWorkshopCoach, onRemoveWorkshopCoach, onAddWorkshopSlot, onAddCampCoach, onRemoveCampCoach }: { products: ParentProduct[]; coaches: AdminCoachSummary[]; coachAttendanceRecords: CoachAttendanceRecord[]; dppDocuments: AdminCoachDppDocument[]; sharedTrainingSlots: SharedTrainingSlot[]; workshopSlots: WorkshopSlot[]; campTurnusy: CampTurnus[]; onAddCoachAttendance: (input: ManualCoachAttendanceInput) => CoachAttendanceRecord; onCreateCoachDpp: (coach: AdminCoachSummary) => AdminCoachDppDocument; onMarkCoachDppSigned: (coachId: string) => void; onCoachLocationSaved: (coachId: string, location: string) => void; onReleaseSharedTraining: (slot: SharedTrainingSlot, position?: 'first' | 'second') => void; onAssignSharedTraining: (slot: SharedTrainingSlot, coach: AdminCoachSummary) => void; onAddWorkshopCoach: (slot: WorkshopSlot, coach: AdminCoachSummary) => void; onRemoveWorkshopCoach: (slot: WorkshopSlot, coachId: string) => void; onAddWorkshopSlot: (date: string, city: WorkshopCity) => void; onAddCampCoach: (turnus: CampTurnus, coach: AdminCoachSummary) => void; onRemoveCampCoach: (turnus: CampTurnus, coachId: string) => void }) {
   const [query, setQuery] = useState('');
   const [selectedCoachId, setSelectedCoachId] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'placements' | 'leaderboard'>('placements');
   const [typeFilter, setTypeFilter] = useState<'all' | 'Krouzek' | 'Tabor' | 'Workshop'>('all');
-  const placementGroups = useMemo(() => buildCoachPlacementGroups(coaches, query), [coaches, query]);
+  const placementGroups = useMemo(() => buildCoachPlacementGroups(coaches, products, query), [coaches, products, query]);
+  const xpCoachCount = coaches.filter((coach) => coach.xp > 0).length;
   const courseGroups = placementGroups.filter((group) => group.type === 'Krouzek');
   const campGroups = placementGroups.filter((group) => group.type === 'Tabor');
   const workshopGroups = placementGroups.filter((group) => group.type === 'Workshop');
@@ -838,66 +1453,157 @@ function CoachesSection({ coaches, coachAttendanceRecords, dppDocuments, sharedT
       <Panel className="p-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <SectionTitle icon={<UserCheck size={18} />} title="Trenéři podle míst" subtitle={`krátký přehled po lokalitách, detail se otevře v modalu · ${signedCount}/${coaches.length} DPP podepsáno`} />
-          <SearchField value={query} onChange={setQuery} placeholder="Hledat trenéra, lokalitu..." />
-        </div>
-      </Panel>
-
-      <SharedTrainerCalendarPanel slots={sharedTrainingSlots} coaches={coaches} onRelease={onReleaseSharedTraining} onAssign={onAssignSharedTraining} />
-
-      {(typeFilter === 'all' || typeFilter === 'Workshop') && (
-        <WorkshopCalendarPanel slots={workshopSlots} coaches={coaches} onAddCoach={onAddWorkshopCoach} onRemoveCoach={onRemoveWorkshopCoach} onAddSlot={onAddWorkshopSlot} />
-      )}
-
-      {(typeFilter === 'all' || typeFilter === 'Tabor') && (
-        <CampCalendarPanel turnusy={campTurnusy} coaches={coaches} onAddCoach={onAddCampCoach} onRemoveCoach={onRemoveCampCoach} />
-      )}
-
-      <Panel className="p-5">
-        <div className="flex flex-wrap items-center gap-2">
-          {TYPE_TABS.map((tab) => (
-            <button
-              key={tab.key}
-              type="button"
-              onClick={() => setTypeFilter(tab.key)}
-              className={`inline-flex items-center gap-1.5 rounded-[13px] px-3.5 py-2 text-xs font-black transition ${
-                typeFilter === tab.key
-                  ? 'bg-brand-purple text-white shadow-brand'
-                  : 'border border-brand-purple/15 bg-white text-brand-ink-soft hover:bg-brand-purple/5 hover:text-brand-purple'
-              }`}
-            >
-              {tab.label}
-              <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-black ${typeFilter === tab.key ? 'bg-white/20 text-white' : 'bg-brand-paper text-brand-ink-soft'}`}>
-                {tab.count}
-              </span>
-            </button>
-          ))}
-        </div>
-      </Panel>
-
-      {(typeFilter === 'all' || typeFilter === 'Krouzek') && (typeFilter === 'Krouzek') && (
-        <CoachPlacementSection title="Kroužky podle míst" subtitle="lokalita, den a přiřazený trenér" groups={courseGroups} emptyText="Pro zadaný filtr není žádný kroužek ani trenér." dppDocuments={dppDocuments} coachAttendanceRecords={coachAttendanceRecords} onOpenCoach={setSelectedCoachId} />
-      )}
-      {typeFilter === 'Tabor' && (
-        <CoachPlacementSection title="Tábory" subtitle="turnusy a táboroví trenéři" groups={campGroups} emptyText="Pro zadaný filtr není žádný táborový trenér." dppDocuments={dppDocuments} coachAttendanceRecords={coachAttendanceRecords} onOpenCoach={setSelectedCoachId} />
-      )}
-      {typeFilter === 'Workshop' && (
-        <CoachPlacementSection title="Workshopy" subtitle="trenéři pro jednorázové akce" groups={workshopGroups} emptyText="Pro zadaný filtr není žádný workshopový trenér." dppDocuments={dppDocuments} coachAttendanceRecords={coachAttendanceRecords} onOpenCoach={setSelectedCoachId} />
-      )}
-      {typeFilter === 'all' && (
-        <div className="grid items-start gap-5 xl:grid-cols-[1.1fr_0.9fr]">
-          <CoachPlacementSection title="Kroužky podle míst" subtitle="lokalita, den a přiřazený trenér" groups={courseGroups} emptyText="Pro zadaný filtr není žádný kroužek ani trenér." dppDocuments={dppDocuments} coachAttendanceRecords={coachAttendanceRecords} onOpenCoach={setSelectedCoachId} />
-          <div className="space-y-5">
-            <CoachPlacementSection title="Tábory" subtitle="turnusy a táboroví trenéři" groups={campGroups} emptyText="Pro zadaný filtr není žádný táborový trenér." dppDocuments={dppDocuments} coachAttendanceRecords={coachAttendanceRecords} onOpenCoach={setSelectedCoachId} compact />
-            <CoachPlacementSection title="Workshopy" subtitle="trenéři pro jednorázové akce" groups={workshopGroups} emptyText="Pro zadaný filtr není žádný workshopový trenér." dppDocuments={dppDocuments} coachAttendanceRecords={coachAttendanceRecords} onOpenCoach={setSelectedCoachId} compact />
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center lg:justify-end">
+            <div className="inline-flex rounded-[16px] border border-brand-purple/15 bg-white p-1 shadow-brand-soft">
+              {[
+                { key: 'placements' as const, label: 'Lokality' },
+                { key: 'leaderboard' as const, label: `Nejlepší XP · ${xpCoachCount}` },
+              ].map((mode) => (
+                <button
+                  key={mode.key}
+                  type="button"
+                  onClick={() => setViewMode(mode.key)}
+                  className={`rounded-[12px] px-3.5 py-2 text-xs font-black transition ${viewMode === mode.key ? 'bg-brand-purple text-white shadow-brand' : 'text-brand-ink-soft hover:bg-brand-purple/5 hover:text-brand-purple'}`}
+                >
+                  {mode.label}
+                </button>
+              ))}
+            </div>
+            <SearchField value={query} onChange={setQuery} placeholder="Hledat trenéra, lokalitu..." />
           </div>
         </div>
+      </Panel>
+
+      {viewMode === 'leaderboard' ? (
+        <CoachXpLeaderboardPanel products={products} coaches={coaches} coachAttendanceRecords={coachAttendanceRecords} query={query} onOpenCoach={setSelectedCoachId} />
+      ) : (
+        <>
+          <div className="grid gap-5 xl:grid-cols-2">
+            <SharedTrainerCalendarPanel slots={sharedTrainingSlots} coaches={coaches} onRelease={onReleaseSharedTraining} onAssign={onAssignSharedTraining} />
+            <WorkshopCalendarPanel slots={workshopSlots} products={products} coaches={coaches} onAddCoach={onAddWorkshopCoach} onRemoveCoach={onRemoveWorkshopCoach} onAddSlot={onAddWorkshopSlot} />
+          </div>
+
+          <Panel className="p-5">
+            <div className="flex flex-wrap items-center gap-2">
+              {TYPE_TABS.map((tab) => (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => setTypeFilter(tab.key)}
+                  className={`inline-flex items-center gap-1.5 rounded-[13px] px-3.5 py-2 text-xs font-black transition ${
+                    typeFilter === tab.key
+                      ? 'bg-brand-purple text-white shadow-brand'
+                      : 'border border-brand-purple/15 bg-white text-brand-ink-soft hover:bg-brand-purple/5 hover:text-brand-purple'
+                  }`}
+                >
+                  {tab.label}
+                  <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-black ${typeFilter === tab.key ? 'bg-white/20 text-white' : 'bg-brand-paper text-brand-ink-soft'}`}>
+                    {tab.count}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </Panel>
+
+          {(typeFilter === 'all' || typeFilter === 'Krouzek') && (typeFilter === 'Krouzek') && (
+            <CoachPlacementSection title="Kroužky podle míst" subtitle="lokalita, den a přiřazený trenér" groups={courseGroups} emptyText="Pro zadaný filtr není žádný kroužek ani trenér." dppDocuments={dppDocuments} coachAttendanceRecords={coachAttendanceRecords} onOpenCoach={setSelectedCoachId} />
+          )}
+          {typeFilter === 'Tabor' && (
+            <CoachPlacementSection title="Tábory" subtitle="turnusy a táboroví trenéři" groups={campGroups} emptyText="Pro zadaný filtr není žádný táborový trenér." dppDocuments={dppDocuments} coachAttendanceRecords={coachAttendanceRecords} onOpenCoach={setSelectedCoachId} />
+          )}
+          {typeFilter === 'Workshop' && (
+            <WorkshopCityCoachSection groups={workshopGroups} dppDocuments={dppDocuments} coachAttendanceRecords={coachAttendanceRecords} onOpenCoach={setSelectedCoachId} />
+          )}
+          {typeFilter === 'all' && (
+            <div className="grid items-start gap-5 xl:grid-cols-[1.1fr_0.9fr]">
+              <CoachPlacementSection title="Kroužky podle míst" subtitle="lokalita, den a přiřazený trenér" groups={courseGroups} emptyText="Pro zadaný filtr není žádný kroužek ani trenér." dppDocuments={dppDocuments} coachAttendanceRecords={coachAttendanceRecords} onOpenCoach={setSelectedCoachId} />
+              <div className="space-y-5">
+                <CoachPlacementSection title="Tábory" subtitle="turnusy a táboroví trenéři" groups={campGroups} emptyText="Pro zadaný filtr není žádný táborový trenér." dppDocuments={dppDocuments} coachAttendanceRecords={coachAttendanceRecords} onOpenCoach={setSelectedCoachId} compact />
+                <WorkshopCityCoachSection groups={workshopGroups} dppDocuments={dppDocuments} coachAttendanceRecords={coachAttendanceRecords} onOpenCoach={setSelectedCoachId} />
+              </div>
+            </div>
+          )}
+        </>
       )}
       {selectedCoach ? (
         <DetailModal title={selectedCoach.name} subtitle={`${coachStatusLabel(selectedCoach.status)} · ${selectedCoach.locations.join(' · ')}`} onClose={() => setSelectedCoachId(null)}>
-          <CoachDetailCard coach={selectedCoach} coachAttendanceRecords={coachAttendanceRecords} dppDocument={documentForCoach(selectedCoach, dppDocuments)} onAddCoachAttendance={onAddCoachAttendance} onCreateCoachDpp={onCreateCoachDpp} onMarkCoachDppSigned={onMarkCoachDppSigned} />
+          <CoachDetailCard products={products} coach={selectedCoach} coachAttendanceRecords={coachAttendanceRecords} dppDocument={documentForCoach(selectedCoach, dppDocuments)} onAddCoachAttendance={onAddCoachAttendance} onCreateCoachDpp={onCreateCoachDpp} onMarkCoachDppSigned={onMarkCoachDppSigned} onCoachLocationSaved={onCoachLocationSaved} />
         </DetailModal>
       ) : null}
     </div>
+  );
+}
+
+function CoachXpLeaderboardPanel({ products, coaches, coachAttendanceRecords, query, onOpenCoach }: { products: ParentProduct[]; coaches: AdminCoachSummary[]; coachAttendanceRecords: CoachAttendanceRecord[]; query: string; onOpenCoach: (coachId: string) => void }) {
+  const rows = buildCoachXpLeaderboard(coaches, products, coachAttendanceRecords)
+    .filter((row) => matchesQuery(`${row.coach.name} ${row.coach.email} ${row.coach.locations.join(' ')} ${row.assignedProducts.map((product) => `${product.title} ${product.place}`).join(' ')}`, query));
+  const maxXp = Math.max(...rows.map((row) => row.xp), 1);
+  const totalXp = rows.reduce((sum, row) => sum + row.xp, 0);
+  const activeRows = rows.filter((row) => row.xp > 0);
+  const leader = rows[0];
+
+  return (
+    <Panel className="p-5">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <SectionTitle icon={<Trophy size={18} />} title="Nejlepší trenéři podle XP" subtitle={`${activeRows.length}/${coaches.length} trenérů má XP · skutečný stav z trenérských profilů`} />
+        <div className="grid grid-cols-3 gap-2 sm:min-w-[360px]">
+          <Metric value={leader ? `${leader.xp.toLocaleString('cs-CZ')}` : '0'} label="nejvíc XP" />
+          <Metric value={`${totalXp.toLocaleString('cs-CZ')}`} label="XP celkem" />
+          <Metric value={leader ? `Lv ${leader.level}` : 'Lv 0'} label="top level" />
+        </div>
+      </div>
+
+      {rows.length === 0 ? (
+        <div className="mt-4">
+          <EmptyState text="Žádný trenér neodpovídá filtru." />
+        </div>
+      ) : (
+        <div className="mt-5 space-y-3">
+          {rows.map((row) => {
+            const progress = Math.max(4, Math.round((row.xp / maxXp) * 100));
+            const assignedPreview = row.assignedProducts.length > 0
+              ? row.assignedProducts.map((product) => product.place).slice(0, 2).join(' · ')
+              : row.coach.locations.slice(0, 2).join(' · ');
+            const podiumTone = row.rank === 1 ? 'from-brand-orange/24 to-brand-purple/14' : row.rank === 2 ? 'from-brand-cyan/18 to-brand-purple/10' : row.rank === 3 ? 'from-brand-pink/16 to-brand-orange/12' : 'from-white to-brand-paper';
+
+            return (
+              <button
+                key={row.coach.id}
+                type="button"
+                onClick={() => onOpenCoach(row.coach.id)}
+                className={`group w-full rounded-[18px] border border-brand-purple/10 bg-gradient-to-br ${podiumTone} p-4 text-left shadow-brand-soft transition hover:-translate-y-0.5 hover:border-brand-purple/28 hover:shadow-brand`}
+              >
+                <div className="grid gap-4 lg:grid-cols-[64px_minmax(0,1fr)_360px] lg:items-center">
+                  <div className="flex items-center gap-3 lg:block lg:text-center">
+                    <span className="inline-flex h-12 w-12 items-center justify-center rounded-[16px] bg-brand-purple text-lg font-black text-white shadow-brand">{row.rank}</span>
+                    <span className="inline-flex h-12 w-12 items-center justify-center rounded-[16px] bg-white text-sm font-black text-brand-purple-deep shadow-sm lg:mt-2">{initialsForName(row.coach.name)}</span>
+                  </div>
+
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="text-lg font-black leading-tight text-brand-ink">{row.coach.name}</h3>
+                      <StatusPill label={`Level ${row.level}`} tone={row.xp > 0 ? 'purple' : 'orange'} />
+                      <StatusPill label={coachStatusLabel(row.coach.status)} tone={row.coach.status === 'Aktivni' ? 'mint' : 'orange'} />
+                    </div>
+                    <p className="mt-1 truncate text-sm font-bold text-brand-ink-soft">{assignedPreview || 'Zatím bez přiřazení'}</p>
+                    <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/80 ring-1 ring-brand-purple/10">
+                      <div className="h-full rounded-full bg-brand-purple transition-all group-hover:bg-brand-purple-deep" style={{ width: `${progress}%` }} />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:text-center">
+                    <Metric value={row.xp.toLocaleString('cs-CZ')} label="XP" />
+                    <Metric value={`${row.coach.qrTricksApproved}`} label="QR triky" />
+                    <Metric value={`${row.coach.childrenLogged}`} label="děti" />
+                    <Metric value={`${row.assignedProducts.length}`} label="produkty" />
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </Panel>
   );
 }
 
@@ -987,26 +1693,12 @@ function SharedTrainerCalendarPanel({ slots, coaches, onRelease, onAssign }: { s
 
   return (
     <>
-    <Panel className="p-5">
-      {/* Panel header */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <SectionTitle icon={<CalendarDays size={18} />} title="Sdílený kalendář tréninků" subtitle="říjen – červen · 2 trenéři na trénink · svátky = volno" />
-          <div className="flex flex-wrap gap-2">
-            <StatusPill label={`${slots.length} vzorů`} tone="purple" />
-            <StatusPill label={incompleteCount > 0 ? `${incompleteCount} neúplných` : 'Vše obsazeno'} tone={incompleteCount > 0 ? 'pink' : 'mint'} />
-          </div>
-        </div>
-        <button
-          type="button"
-          onClick={() => setIsOpen(true)}
-          className="flex items-center gap-1.5 rounded-[13px] border border-brand-purple/20 bg-white px-3 py-2 text-xs font-black text-brand-purple transition hover:bg-brand-purple/5"
-        >
-          <ChevronDown size={14} />
-          Zobrazit
-        </button>
-      </div>
-    </Panel>
+    <button type="button" onClick={() => setIsOpen(true)} className="flex w-full flex-col items-center justify-center gap-3 rounded-[22px] border border-brand-purple/10 bg-white p-6 shadow-sm transition hover:border-brand-purple/25 hover:shadow-brand-soft">
+      <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-purple/10 text-brand-purple"><CalendarDays size={22} /></span>
+      <span className="text-base font-black text-brand-ink">Kroužky</span>
+      <span className={`text-2xl font-black ${incompleteCount > 0 ? 'text-brand-pink' : 'text-[#1FB37A]'}`}>{incompleteCount > 0 ? incompleteCount : '✓'}</span>
+      <span className="text-xs font-bold text-brand-ink-soft">{incompleteCount > 0 ? 'neúplných' : 'vše obsazeno'}</span>
+    </button>
 
     <AnimatePresence>
       {isOpen && (
@@ -1024,10 +1716,10 @@ function SharedTrainerCalendarPanel({ slots, coaches, onRelease, onAssign }: { s
           {/* Modal */}
           <motion.div
             key="shared-modal"
-            className="fixed inset-x-3 bottom-0 top-6 z-50 mx-auto flex max-w-3xl flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl"
-            initial={{ y: 60, opacity: 0, scale: 0.97 }}
-            animate={{ y: 0, opacity: 1, scale: 1 }}
-            exit={{ y: 60, opacity: 0, scale: 0.97 }}
+            className="fixed inset-x-4 top-[3vh] z-50 mx-auto flex max-w-3xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl" style={{ maxHeight: '94vh' }}
+            initial={{ opacity: 0, scale: 0.96 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.96 }}
             transition={{ type: 'spring', damping: 28, stiffness: 320 }}
           >
             {/* Modal header */}
@@ -1204,7 +1896,7 @@ function SharedTrainerCalendarPanel({ slots, coaches, onRelease, onAssign }: { s
   );
 }
 
-function WorkshopCalendarPanel({ slots, coaches, onAddCoach, onRemoveCoach, onAddSlot }: { slots: WorkshopSlot[]; coaches: AdminCoachSummary[]; onAddCoach: (slot: WorkshopSlot, coach: AdminCoachSummary) => void; onRemoveCoach: (slot: WorkshopSlot, coachId: string) => void; onAddSlot: (date: string, city: WorkshopCity) => void }) {
+function WorkshopCalendarPanel({ slots, products, coaches, onAddCoach, onRemoveCoach, onAddSlot }: { slots: WorkshopSlot[]; products: ParentProduct[]; coaches: AdminCoachSummary[]; onAddCoach: (slot: WorkshopSlot, coach: AdminCoachSummary) => void; onRemoveCoach: (slot: WorkshopSlot, coachId: string) => void; onAddSlot: (date: string, city: WorkshopCity) => void }) {
   const [isOpen, setIsOpen] = useState(false);
   const [cityFilter, setCityFilter] = useState<WorkshopCity>('Brno');
   const now = new Date();
@@ -1240,22 +1932,12 @@ function WorkshopCalendarPanel({ slots, coaches, onAddCoach, onRemoveCoach, onAd
 
   return (
     <>
-    <Panel className="p-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <SectionTitle icon={<CalendarDays size={18} />} title="Workshopy" subtitle={`Brno · Praha · Ostrava · ${WORKSHOP_HOURLY_RATE} Kč/h · ${WORKSHOP_MAX_COACHES} trenéři · termíny přidávají trenéři`} />
-          <div className="flex flex-wrap gap-2">
-            <StatusPill label={`${slots.length} workshopů`} tone="purple" />
-            <StatusPill label={openCount > 0 ? `${openCount} neúplných` : 'Vše obsazeno'} tone={openCount > 0 ? 'pink' : 'mint'} />
-          </div>
-        </div>
-        <button type="button" onClick={() => setIsOpen(true)}
-          className="flex items-center gap-1.5 rounded-[13px] border border-brand-purple/20 bg-white px-3 py-2 text-xs font-black text-brand-purple transition hover:bg-brand-purple/5">
-          <ChevronDown size={14} />
-          Zobrazit
-        </button>
-      </div>
-    </Panel>
+    <button type="button" onClick={() => setIsOpen(true)} className="flex w-full flex-col items-center justify-center gap-3 rounded-[22px] border border-brand-purple/10 bg-white p-6 shadow-sm transition hover:border-brand-purple/25 hover:shadow-brand-soft">
+      <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-purple/10 text-brand-purple"><CalendarDays size={22} /></span>
+      <span className="text-base font-black text-brand-ink">Workshopy</span>
+      <span className={`text-2xl font-black ${openCount > 0 ? 'text-brand-pink' : 'text-[#1FB37A]'}`}>{openCount > 0 ? openCount : '✓'}</span>
+      <span className="text-xs font-bold text-brand-ink-soft">{openCount > 0 ? 'neúplných' : 'vše obsazeno'}</span>
+    </button>
 
     <AnimatePresence>
       {isOpen && (
@@ -1271,15 +1953,15 @@ function WorkshopCalendarPanel({ slots, coaches, onAddCoach, onRemoveCoach, onAd
           />
           <motion.div
             key="ws-modal"
-            className="fixed inset-x-3 bottom-0 top-6 z-50 mx-auto flex max-w-3xl flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl"
-            initial={{ y: 60, opacity: 0, scale: 0.97 }}
-            animate={{ y: 0, opacity: 1, scale: 1 }}
-            exit={{ y: 60, opacity: 0, scale: 0.97 }}
+            className="fixed inset-x-4 top-[3vh] z-50 mx-auto flex max-w-3xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl" style={{ maxHeight: '94vh' }}
+            initial={{ opacity: 0, scale: 0.96 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.96 }}
             transition={{ type: 'spring', damping: 28, stiffness: 320 }}
           >
             <div className="flex flex-shrink-0 items-center justify-between border-b border-brand-purple/8 bg-white px-6 py-4">
               <div className="flex flex-wrap items-center gap-3">
-                <SectionTitle icon={<CalendarDays size={18} />} title="Workshopy" subtitle={`Brno · Praha · Ostrava · ${WORKSHOP_HOURLY_RATE} Kč/h`} />
+                <SectionTitle icon={<CalendarDays size={18} />} title="Sdílený kalendář workshopů" subtitle={`Brno · Praha · Ostrava · ${WORKSHOP_HOURLY_RATE} Kč/h`} />
                 <div className="flex flex-wrap gap-2">
                   <StatusPill label={`${slots.length} workshopů`} tone="purple" />
                   <StatusPill label={openCount > 0 ? `${openCount} neúplných` : 'Vše obsazeno'} tone={openCount > 0 ? 'pink' : 'mint'} />
@@ -1364,11 +2046,23 @@ function WorkshopCalendarPanel({ slots, coaches, onAddCoach, onRemoveCoach, onAd
                   <div className="flex flex-col gap-0.5">
                     {daySlots.map((slot) => {
                       const isFull = slot.coaches.length >= slot.maxCoaches;
+                      const hasNone = slot.coaches.length === 0;
                       const cityBg = CITY_COLORS[slot.city];
                       return (
-                        <div key={slot.id} className={`flex items-center gap-0.5 rounded-[4px] px-1 py-0.5 ${isFull ? 'opacity-60' : ''}`}>
-                          <span className={`inline-block h-1.5 w-1.5 flex-shrink-0 rounded-full ${cityBg}`} />
-                          <span className="truncate text-[9px] font-black text-brand-ink">{slot.coaches.length}/{slot.maxCoaches}</span>
+                        <div key={slot.id} className="rounded-[4px] px-1 py-0.5">
+                          <div className="flex items-center gap-0.5">
+                            <span className={`inline-block h-1.5 w-1.5 flex-shrink-0 rounded-full ${cityBg}`} />
+                            <span className="truncate text-[9px] font-black text-brand-ink">{slot.time.split(' ')[0]}</span>
+                          </div>
+                          <div className="mt-0.5 flex gap-0.5">
+                            {Array.from({ length: slot.maxCoaches }).map((_, i) => (
+                              <span
+                                key={i}
+                                title={slot.coaches[i]?.coachName}
+                                className={`inline-block h-1.5 w-1.5 rounded-full ${i < slot.coaches.length ? 'bg-[#1FB37A]' : hasNone ? 'bg-[#F0445B]/60' : 'bg-brand-ink/15'}`}
+                              />
+                            ))}
+                          </div>
                         </div>
                       );
                     })}
@@ -1412,6 +2106,10 @@ function WorkshopCalendarPanel({ slots, coaches, onAddCoach, onRemoveCoach, onAd
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <div className={`mb-1 inline-block rounded-lg px-2 py-0.5 text-xs font-black text-white ${CITY_COLORS[selectedSlot.city]}`}>{selectedSlot.city}</div>
+                  {(() => {
+                    const product = products.find((p) => p.id === selectedSlot.id);
+                    return product ? <p className="text-base font-black text-brand-ink">{product.title}</p> : null;
+                  })()}
                   <p className="text-sm font-black text-brand-purple-deep">{selectedSlot.date} · {selectedSlot.time}</p>
                   <p className="mt-0.5 text-xs font-bold text-brand-ink">{selectedSlot.venue}</p>
                   {selectedSlot.notes && <p className="mt-1 text-[11px] italic text-brand-ink-soft">{selectedSlot.notes}</p>}
@@ -1430,6 +2128,19 @@ function WorkshopCalendarPanel({ slots, coaches, onAddCoach, onRemoveCoach, onAd
                 <button type="button" onClick={() => setSelectedId(null)} className="rounded-xl border border-brand-purple/15 bg-brand-paper px-3 py-1.5 text-xs font-black text-brand-purple-deep hover:bg-brand-purple/5">
                   Zavřít
                 </button>
+              </div>
+              {/* Coach status summary */}
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                {selectedSlot.coaches.length === 0 ? (
+                  <span className="rounded-[10px] border border-[#F0445B]/25 bg-[#F0445B]/8 px-2.5 py-1 text-xs font-black text-[#F0445B]">Bez trenérů</span>
+                ) : selectedSlot.coaches.length < selectedSlot.maxCoaches ? (
+                  <span className="rounded-[10px] border border-[#FFB21A]/30 bg-[#FFB21A]/10 px-2.5 py-1 text-xs font-black text-[#b37200]">{selectedSlot.coaches.length}/{selectedSlot.maxCoaches} trenérů — potřeba doplnit</span>
+                ) : (
+                  <span className="rounded-[10px] border border-[#1FB37A]/25 bg-[#1FB37A]/10 px-2.5 py-1 text-xs font-black text-[#1FB37A]">Obsazeno {selectedSlot.maxCoaches}/{selectedSlot.maxCoaches}</span>
+                )}
+                {selectedSlot.coaches.map((c) => (
+                  <span key={c.coachId} className="rounded-[10px] bg-brand-purple-light px-2.5 py-1 text-xs font-black text-brand-purple-deep">{c.coachName.split(' ')[0]}</span>
+                ))}
               </div>
               {/* 4 coach slots */}
               <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -1539,10 +2250,10 @@ function CampCalendarPanel({ turnusy, coaches, onAddCoach, onRemoveCoach }: { tu
           />
           <motion.div
             key="camp-modal"
-            className="fixed inset-x-3 bottom-0 top-6 z-50 mx-auto flex max-w-3xl flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl"
-            initial={{ y: 60, opacity: 0, scale: 0.97 }}
-            animate={{ y: 0, opacity: 1, scale: 1 }}
-            exit={{ y: 60, opacity: 0, scale: 0.97 }}
+            className="fixed inset-x-4 top-[3vh] z-50 mx-auto flex max-w-3xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl" style={{ maxHeight: '94vh' }}
+            initial={{ opacity: 0, scale: 0.96 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.96 }}
             transition={{ type: 'spring', damping: 28, stiffness: 320 }}
           >
             <div className="flex flex-shrink-0 items-center justify-between border-b border-brand-purple/8 bg-white px-6 py-4">
@@ -1700,6 +2411,7 @@ function PayoutsSection({
           {coaches.map((coach) => {
             const amount = payoutAmountForCoach(coach, coachAttendanceRecords);
             const hasConnect = coach.stripeAccountId?.startsWith('acct_');
+            const hasBankDetails = Boolean(coach.iban || (coach.bankAccount && coach.bankAccount !== 'není vyplněn'));
             const ready = !!hasConnect && amount > 0;
             const onboardingUrl = onboardingLinks[coach.id];
             return (
@@ -1712,7 +2424,7 @@ function PayoutsSection({
                         <h3 className="text-xl font-black leading-tight text-brand-ink">{coach.name}</h3>
                         <p className="mt-1 text-sm font-bold text-brand-ink-soft">{coach.locations.slice(0, 2).join(' · ')}</p>
                       </div>
-                      <StatusPill label={ready ? 'Připraveno' : hasConnect ? 'Čeká na docházku' : 'Onboarding chybí'} tone={ready ? 'mint' : hasConnect ? 'purple' : 'orange'} />
+                      <StatusPill label={ready ? 'Připraveno' : hasConnect ? 'Čeká na docházku' : hasBankDetails ? 'Bankovní údaje' : 'Onboarding chybí'} tone={ready ? 'mint' : hasConnect ? 'purple' : hasBankDetails ? 'purple' : 'orange'} />
                     </div>
 
                     <div className="grid gap-2 sm:grid-cols-3">
@@ -1731,7 +2443,15 @@ function PayoutsSection({
                       </div>
                     ) : (
                       <div className="rounded-[16px] border border-brand-orange/20 bg-brand-orange/6 p-4">
-                        <p className="text-sm font-bold text-brand-orange-deep">Trenér ještě nespojil svůj účet se Stripe. Vygeneruj mu onboarding odkaz — vyplní bankovní údaje sám na Stripe stránce.</p>
+                        <p className="text-sm font-bold text-brand-orange-deep">Trenér ještě nespojil svůj účet se Stripe. Můžeš mu vygenerovat onboarding, nebo použít bankovní údaje níže pro ruční platbu.</p>
+                        {hasBankDetails ? (
+                          <div className="mt-3 grid gap-2 rounded-[14px] border border-brand-purple/12 bg-white p-3">
+                            <InfoBlock label="Majitel účtu" value={coach.payoutAccountHolder ?? coach.name} />
+                            <InfoBlock label="Číslo účtu" value={coach.bankAccount || 'není vyplněn'} />
+                            <InfoBlock label="IBAN" value={coach.iban ?? 'není vyplněn'} />
+                            {coach.payoutNote ? <InfoBlock label="Poznámka" value={coach.payoutNote} /> : null}
+                          </div>
+                        ) : null}
                         {onboardingUrl ? (
                           <div className="mt-3 grid gap-2">
                             <p className="text-[11px] font-black uppercase text-brand-ink-soft">Odkaz pro trenéra (platný ~5 min)</p>
@@ -1784,18 +2504,19 @@ function PayoutsSection({
           {transfers.map((transfer) => (
             <MiniRow key={transfer.id} label={transfer.coachName} meta={`${transfer.periodKey} · ${transfer.status}${transfer.stripeTransferId ? ` · ${transfer.stripeTransferId}` : ''}`} value={currency(transfer.amount)} />
           ))}
-          {transfers.length === 0 ? <EmptyState text="Po první sandbox výplatě se tady objeví transfer historie." /> : null}
+          {transfers.length === 0 ? <EmptyState text="Po první výplatě se tady objeví transfer historie." /> : null}
         </div>
       </Panel>
     </div>
   );
 }
 
-function InvoicesSection({ invoices, onTogglePaid, onAddInvoice, onDeleteInvoice }: {
+function InvoicesSection({ invoices, message, onTogglePaid, onAddInvoice, onDeleteInvoice }: {
   invoices: Invoice[];
-  onTogglePaid: (id: string) => void;
-  onAddInvoice: (invoice: Invoice) => void;
-  onDeleteInvoice: (id: string) => void;
+  message: string | null;
+  onTogglePaid: (id: string) => void | Promise<void>;
+  onAddInvoice: (invoice: Invoice) => void | Promise<void>;
+  onDeleteInvoice: (id: string) => void | Promise<void>;
 }) {
   const [filterCategory, setFilterCategory] = useState<Invoice['category'] | 'Vše'>('Vše');
   const [filterPaid, setFilterPaid] = useState<'all' | 'paid' | 'unpaid'>('all');
@@ -1821,7 +2542,7 @@ function InvoicesSection({ invoices, onTogglePaid, onAddInvoice, onDeleteInvoice
   const totalAll = invoices.reduce((sum, inv) => sum + inv.amount, 0);
   const overdueCount = invoices.filter((inv) => !inv.paid && inv.dueDate < new Date().toISOString().slice(0, 10)).length;
 
-  function handleAddInvoice(event: FormEvent) {
+  async function handleAddInvoice(event: FormEvent) {
     event.preventDefault();
     const newInvoice: Invoice = {
       id: `inv-${Date.now()}`,
@@ -1833,7 +2554,7 @@ function InvoicesSection({ invoices, onTogglePaid, onAddInvoice, onDeleteInvoice
       paid: false,
       category: formCategory,
     };
-    onAddInvoice(newInvoice);
+    await onAddInvoice(newInvoice);
     setFormSupplier(''); setFormDescription(''); setFormAmount(''); setFormIssuedDate(''); setFormDueDate('');
     setShowForm(false);
   }
@@ -1843,6 +2564,7 @@ function InvoicesSection({ invoices, onTogglePaid, onAddInvoice, onDeleteInvoice
       <div className="space-y-5">
         <Panel className="p-5">
           <SectionTitle icon={<Receipt size={18} />} title="Přehled výdajů" subtitle="faktury a platby" />
+          {message ? <p className="mt-3 rounded-[14px] bg-brand-purple-light px-3 py-2 text-sm font-bold leading-6 text-brand-ink-soft">{message}</p> : null}
           <div className="mt-4 grid grid-cols-2 gap-2">
             <Metric value={`${totalAll.toLocaleString('cs-CZ')} Kč`} label="celkem" />
             <Metric value={`${totalPaid.toLocaleString('cs-CZ')} Kč`} label="uhrazeno" />
@@ -1958,9 +2680,9 @@ function InvoicesSection({ invoices, onTogglePaid, onAddInvoice, onDeleteInvoice
   );
 }
 
-function DocumentsSection({ activityRows }: { activityRows: ReturnType<typeof adminActivityRows> }) {
+function DocumentsSection({ activityRows, products }: { activityRows: ReturnType<typeof adminActivityRows>; products: ParentProduct[] }) {
   const [filter, setFilter] = useState<'all' | DocumentStatus>('all');
-  const documents = allParticipantDocuments();
+  const documents: ParentDocument[] = [];
   const visibleDocuments = filter === 'all' ? documents : documents.filter((document) => document.status === filter);
   const stats = documentStatsFor(documents);
 
@@ -1988,7 +2710,7 @@ function DocumentsSection({ activityRows }: { activityRows: ReturnType<typeof ad
           <SectionTitle icon={<ShieldCheck size={18} />} title="Kompletace produktů" subtitle="u kroužků a táborů sleduj povinné dokumenty" />
           <div className="mt-4 grid gap-2">
             {activityRows.filter((activity) => activity.type !== 'Workshop').slice(0, 10).map((activity) => {
-              const missingDocuments = missingDocumentsForActivity(activity).length;
+              const missingDocuments = 0;
               return <MiniRow key={activity.id} label={activity.title} meta={`${activity.place} · ${activity.registered}/${activity.capacityTotal} účastníků`} value={missingDocuments > 0 ? `${missingDocuments} chybí` : 'OK'} />;
             })}
           </div>
@@ -1997,8 +2719,8 @@ function DocumentsSection({ activityRows }: { activityRows: ReturnType<typeof ad
         <Panel className="p-5">
           <SectionTitle icon={<ListChecks size={18} />} title="Povinné balíčky" subtitle="podle typu produktu" />
           <div className="mt-4 space-y-3">
-            <RequiredDocumentsPreview type="Krouzek" title="Kroužek" />
-            <RequiredDocumentsPreview type="Tabor" title="Tábor" />
+            <RequiredDocumentsPreview type="Krouzek" title="Kroužek" products={products} />
+            <RequiredDocumentsPreview type="Tabor" title="Tábor" products={products} />
           </div>
         </Panel>
       </div>
@@ -2006,7 +2728,7 @@ function DocumentsSection({ activityRows }: { activityRows: ReturnType<typeof ad
   );
 }
 
-type ProductEdits = Partial<Pick<ParentProduct, 'title' | 'place' | 'primaryMeta' | 'capacityTotal' | 'price' | 'priceLabel'>>;
+type ProductEdits = Partial<Pick<ParentProduct, 'title' | 'place' | 'primaryMeta' | 'capacityTotal' | 'price' | 'priceLabel' | 'heroImage' | 'gallery'>>;
 
 function groupCourseProducts(courses: ParentProduct[]): Array<{ baseId: string; base: ParentProduct; variant15: ParentProduct | null }> {
   const baseProducts = courses.filter((product) => !product.id.endsWith('-15'));
@@ -2017,13 +2739,21 @@ function groupCourseProducts(courses: ParentProduct[]): Array<{ baseId: string; 
   }));
 }
 
-function ProductsSection({ products, createdProducts, coaches, onAddProduct, onRemoveProduct }: { products: ParentProduct[]; createdProducts: ParentProduct[]; coaches: AdminCoachSummary[]; onAddProduct: (input: AdminProductInput) => ParentProduct; onRemoveProduct: (productId: string) => void }) {
+function ProductsSection({ products, coaches, onAddProduct, onRemoveProduct, onUpdateProduct, onProductCoachIdsChange }: { products: ParentProduct[]; coaches: AdminCoachSummary[]; onAddProduct: (input: AdminProductInput) => Promise<ParentProduct>; onRemoveProduct: (productId: string) => Promise<void>; onUpdateProduct: (product: ParentProduct) => Promise<ParentProduct>; onProductCoachIdsChange: (product: ParentProduct, coachIds: string[]) => Promise<void> }) {
   const [activeTab, setActiveTab] = useState<ActivityType>('Krouzek');
   const [removedBaseIds, setRemovedBaseIds] = useState<Set<string>>(new Set());
   const [editedProducts, setEditedProducts] = useState<Map<string, ProductEdits>>(new Map());
+  const [message, setMessage] = useState<string | null>(null);
+  const [showAddModal, setShowAddModal] = useState(false);
 
-  function handleEdit(productId: string, edits: ProductEdits) {
-    setEditedProducts((prev) => new Map(prev).set(productId, { ...prev.get(productId), ...edits }));
+  async function handleEdit(product: ParentProduct, edits: ProductEdits) {
+    setEditedProducts((prev) => new Map(prev).set(product.id, { ...prev.get(product.id), ...edits }));
+    try {
+      await onUpdateProduct({ ...product, ...edits });
+      setMessage('Produkt je uložený v databázi.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Produkt se nepodařilo uložit.');
+    }
   }
 
   function applyEdits(product: ParentProduct): ParentProduct {
@@ -2031,12 +2761,13 @@ function ProductsSection({ products, createdProducts, coaches, onAddProduct, onR
     return edits ? { ...product, ...edits } : product;
   }
 
-  function handleRemove(product: ParentProduct) {
-    const isCreated = createdProducts.some((created) => created.id === product.id);
-    if (isCreated) {
-      onRemoveProduct(product.id);
-    } else {
+  async function handleRemove(product: ParentProduct) {
+    try {
+      await onRemoveProduct(product.id);
       setRemovedBaseIds((prev) => new Set([...prev, product.id, `${product.id}-15`]));
+      setMessage('Produkt je smazaný z databáze.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Produkt se nepodařilo smazat.');
     }
   }
 
@@ -2050,12 +2781,21 @@ function ProductsSection({ products, createdProducts, coaches, onAddProduct, onR
   const workshopCount = products.filter((product) => product.type === 'Workshop' && !removedBaseIds.has(product.id)).length;
 
   return (
-    <div className="grid items-start gap-5 xl:grid-cols-[0.9fr_1.1fr]">
-      <ProductCreateForm coaches={coaches} onAddProduct={onAddProduct} />
-
+    <>
       <div className="space-y-5">
+        {message ? <Panel className="p-4"><p className="text-sm font-black text-brand-ink-soft">{message}</p></Panel> : null}
         <Panel className="p-5">
-          <SectionTitle icon={<PackagePlus size={18} />} title="Nabídka produktů" subtitle="po vytvoření se propíše na web i do rodičovského portálu" />
+          <div className="flex items-start justify-between gap-3">
+            <SectionTitle icon={<PackagePlus size={18} />} title="Nabídka produktů" subtitle="po vytvoření se propíše na web i do rodičovského portálu" />
+            <button
+              type="button"
+              onClick={() => setShowAddModal(true)}
+              className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-[14px] bg-brand-purple px-4 py-2.5 text-sm font-black text-white shadow-brand transition hover:bg-brand-purple-deep"
+            >
+              <Plus size={16} />
+              Přidat produkt
+            </button>
+          </div>
           <div className="mt-4 grid gap-2 sm:grid-cols-4">
             <Metric value={`${courseGroupCount + campCount + workshopCount}`} label="celkem" />
             <Metric value={`${courseGroupCount}`} label="kroužky" />
@@ -2077,20 +2817,59 @@ function ProductsSection({ products, createdProducts, coaches, onAddProduct, onR
           <div className="mt-4 grid gap-3">
             {activeTab === 'Krouzek'
               ? courseGroups.map((group) => (
-                  <GroupedCourseCard key={group.baseId} group={group} coaches={coaches} isCreated={createdProducts.some((created) => created.id === group.baseId)} onRemove={() => handleRemove(group.base)} onEdit={(edits) => handleEdit(group.baseId, edits)} />
+                  <GroupedCourseCard key={group.baseId} group={group} coaches={coaches} isCreated={group.base.id.startsWith('admin-created-')} onRemove={() => void handleRemove(group.base)} onEdit={(edits) => handleEdit(group.base, edits)} onCoachIdsChange={(coachIds) => onProductCoachIdsChange(group.base, coachIds)} />
                 ))
               : nonCourses.map((product) => (
-                  <AdminProductCard key={product.id} product={product} coaches={coaches} isCreated={createdProducts.some((created) => created.id === product.id)} onRemove={() => handleRemove(product)} onEdit={(edits) => handleEdit(product.id, edits)} />
+                  <AdminProductCard key={product.id} product={product} coaches={coaches} isCreated={product.id.startsWith('admin-created-')} onRemove={() => void handleRemove(product)} onEdit={(edits) => handleEdit(product, edits)} onCoachIdsChange={(coachIds) => onProductCoachIdsChange(product, coachIds)} />
                 ))}
             {(activeTab === 'Krouzek' ? courseGroups.length : nonCourses.length) === 0 ? <EmptyState text="V této kategorii zatím není žádný produkt." /> : null}
           </div>
         </Panel>
       </div>
-    </div>
+
+      {/* Add Product Modal */}
+      <AnimatePresence>
+        {showAddModal && (
+          <>
+            <motion.div
+              key="add-product-backdrop"
+              className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.22 }}
+              onClick={() => setShowAddModal(false)}
+            />
+            <motion.div
+              key="add-product-modal"
+              className="fixed inset-x-4 top-[3vh] z-50 mx-auto flex max-w-2xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl" style={{ maxHeight: '94vh' }}
+              initial={{ opacity: 0, scale: 0.96 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.96 }}
+              transition={{ type: 'spring', damping: 28, stiffness: 320 }}
+            >
+              <div className="flex flex-shrink-0 items-center justify-between border-b border-brand-purple/8 bg-white px-6 py-4">
+                <SectionTitle icon={<Plus size={18} />} title="Přidat produkt" subtitle="kroužek, tábor nebo workshop" />
+                <button
+                  type="button"
+                  onClick={() => setShowAddModal(false)}
+                  className="ml-4 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-brand-paper text-brand-ink-soft transition hover:bg-brand-purple/10 hover:text-brand-purple"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto px-6 pb-8 pt-5">
+                <ProductCreateForm coaches={coaches} onAddProduct={onAddProduct} />
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+    </>
   );
 }
 
-function ProductCreateForm({ coaches, onAddProduct }: { coaches: AdminCoachSummary[]; onAddProduct: (input: AdminProductInput) => ParentProduct }) {
+function ProductCreateForm({ coaches, onAddProduct }: { coaches: AdminCoachSummary[]; onAddProduct: (input: AdminProductInput) => Promise<ParentProduct> }) {
   const [type, setType] = useState<ActivityType>('Krouzek');
   const availableCoaches = useMemo(() => coaches.filter((coach) => coach.status !== 'Pozastaveny'), [coaches]);
   const [title, setTitle] = useState('');
@@ -2098,9 +2877,10 @@ function ProductCreateForm({ coaches, onAddProduct }: { coaches: AdminCoachSumma
   const [venue, setVenue] = useState('Nová tělocvična');
   const [primaryMeta, setPrimaryMeta] = useState('Pondělí 16:00-17:00');
   const [price, setPrice] = useState('1790');
+  const [price15, setPrice15] = useState('2590');
   const [capacityTotal, setCapacityTotal] = useState('25');
   const [capacityCurrent, setCapacityCurrent] = useState('0');
-  const [selectedCoachId, setSelectedCoachId] = useState('');
+  const [selectedCoachIds, setSelectedCoachIds] = useState<string[]>([]);
   const [description, setDescription] = useState('');
   const [trainingFocus, setTrainingFocus] = useState('bezpečné dopady, přeskoky, skill tree, NFC docházka');
   // Workshop – triky
@@ -2125,13 +2905,12 @@ function ProductCreateForm({ coaches, onAddProduct }: { coaches: AdminCoachSumma
 
   useEffect(() => {
     if (availableCoaches.length === 0) {
-      setSelectedCoachId('');
+      setSelectedCoachIds([]);
       return;
     }
-    if (!availableCoaches.some((coach) => coach.id === selectedCoachId)) {
-      setSelectedCoachId(availableCoaches[0].id);
-    }
-  }, [availableCoaches, selectedCoachId]);
+    // Odstraň IDs které už nejsou dostupné
+    setSelectedCoachIds((prev) => prev.filter((id) => availableCoaches.some((c) => c.id === id)));
+  }, [availableCoaches]);
 
   function selectType(nextType: ActivityType) {
     const defaults = productDefaults(nextType);
@@ -2141,9 +2920,10 @@ function ProductCreateForm({ coaches, onAddProduct }: { coaches: AdminCoachSumma
     setVenue(defaults.venue);
     setPrimaryMeta(defaults.primaryMeta);
     setPrice(defaults.price);
+    setPrice15('2590');
     setCapacityTotal(defaults.capacityTotal);
     setCapacityCurrent('0');
-    setSelectedCoachId(availableCoaches[0]?.id ?? '');
+    setSelectedCoachIds([]);
     setDescription('');
     setTrainingFocus(defaults.trainingFocus);
     setTrick1('');
@@ -2158,54 +2938,49 @@ function ProductCreateForm({ coaches, onAddProduct }: { coaches: AdminCoachSumma
   async function handlePhotoFiles(files: FileList) {
     const results: string[] = [];
     for (const file of Array.from(files)) {
-      const dataUrl = await new Promise<string>((resolve) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result as string);
-        reader.readAsDataURL(file);
-      });
-      results.push(dataUrl);
+      results.push(await fileToProductPhoto(file));
     }
     setPhotos(results);
     setPhotoCount(results.length);
   }
 
-  function submitProduct(event: FormEvent<HTMLFormElement>) {
+  async function submitProduct(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const requiredFields = [city, venue, primaryMeta, price, capacityTotal];
     if (requiredFields.some((value) => value.trim().length === 0)) {
       setMessage('Doplň město, místo, termín, cenu a kapacitu.');
       return;
     }
-    if (availableCoaches.length > 0 && !selectedCoachId) {
-      setMessage('Vyber trenéra, který produkt povede.');
-      return;
-    }
 
-    const product = onAddProduct({
-      type,
-      title,
-      city,
-      venue,
-      primaryMeta,
-      price: Number(price),
-      capacityTotal: Number(capacityTotal),
-      capacityCurrent: Number(capacityCurrent),
-      coachIds: selectedCoachId ? [selectedCoachId] : [],
-      description,
-      trainingFocus,
-      photos: photos.length > 0 ? photos : undefined,
-      workshopTrick1: trick1.trim() || undefined,
-      workshopTrick2: trick2.trim() || undefined,
-      workshopTrick1VideoFile: trick1VideoFile || undefined,
-      workshopTrick2VideoFile: trick2VideoFile || undefined,
-    });
-    setMessage(`${product.title} je vytvořený a dostupný na webu i u rodičů.`);
+    setMessage('Ukládám produkt do databáze...');
+    try {
+      const product = await onAddProduct({
+        type,
+        title,
+        city,
+        venue,
+        primaryMeta,
+        price: Number(price),
+        price15: type === 'Krouzek' && price15.trim() ? Number(price15) : undefined,
+        capacityTotal: Number(capacityTotal),
+        capacityCurrent: Number(capacityCurrent),
+        coachIds: selectedCoachIds,
+        description,
+        trainingFocus,
+        photos: photos.length > 0 ? photos : undefined,
+        workshopTrick1: trick1.trim() || undefined,
+        workshopTrick2: trick2.trim() || undefined,
+        workshopTrick1VideoFile: trick1VideoFile || undefined,
+        workshopTrick2VideoFile: trick2VideoFile || undefined,
+      });
+      setMessage(`${product.title} je vytvořený a uložený v databázi.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Produkt se nepodařilo uložit.');
+    }
   }
 
   return (
-    <Panel className="p-5">
-      <SectionTitle icon={<Plus size={18} />} title="Přidat produkt" subtitle="kroužek, tábor nebo workshop" />
-      <form onSubmit={submitProduct} className="mt-4 grid gap-3">
+    <form onSubmit={submitProduct} className="grid gap-3">
         <div className="grid grid-cols-3 rounded-[16px] border border-brand-purple/10 bg-brand-paper p-1">
           {(['Krouzek', 'Tabor', 'Workshop'] as const).map((item) => (
             <button key={item} type="button" onClick={() => selectType(item)} className={`rounded-[12px] px-3 py-2 text-xs font-black transition ${type === item ? 'bg-brand-purple text-white shadow-sm' : 'text-brand-ink-soft hover:text-brand-purple'}`}>
@@ -2270,19 +3045,39 @@ function ProductCreateForm({ coaches, onAddProduct }: { coaches: AdminCoachSumma
           <TextInput label="Město" value={city} onChange={setCity} />
           <TextInput label="Místo / sportoviště" value={venue} onChange={setVenue} />
           <TextInput label={type === 'Krouzek' ? 'Den a čas' : 'Termín'} value={primaryMeta} onChange={setPrimaryMeta} />
-          <TextInput label="Cena v Kč" value={price} onChange={setPrice} inputMode="numeric" />
+          <TextInput label={type === 'Krouzek' ? 'Cena 10 vstupů (Kč)' : 'Cena v Kč'} value={price} onChange={setPrice} inputMode="numeric" />
+          {type === 'Krouzek' ? (
+            <TextInput label="Cena 15 vstupů (Kč)" value={price15} onChange={setPrice15} inputMode="numeric" />
+          ) : null}
           <TextInput label="Kapacita" value={capacityTotal} onChange={setCapacityTotal} inputMode="numeric" />
           <TextInput label="Přihlášeno" value={capacityCurrent} onChange={setCapacityCurrent} inputMode="numeric" />
         </div>
 
-        <label className="grid gap-2 text-sm font-black text-brand-ink">
-          Trenér produktu
-          <select value={selectedCoachId} onChange={(event) => setSelectedCoachId(event.target.value)} className="rounded-[16px] border border-brand-purple/15 bg-white px-3 py-2.5 text-sm font-bold outline-none focus:border-brand-purple">
-            {availableCoaches.map((coach) => (
-              <option key={coach.id} value={coach.id}>{coach.name}</option>
-            ))}
-          </select>
-        </label>
+        <div className="grid gap-2">
+          <p className="text-sm font-black text-brand-ink">Trenéři produktu</p>
+          {availableCoaches.length === 0 ? (
+            <p className="rounded-[14px] bg-brand-paper px-3 py-2.5 text-xs font-bold text-brand-ink-soft">Nejprve přidej trenéry v sekci Trenéři.</p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {availableCoaches.map((coach) => {
+                const checked = selectedCoachIds.includes(coach.id);
+                return (
+                  <button
+                    key={coach.id}
+                    type="button"
+                    onClick={() => setSelectedCoachIds((prev) => checked ? prev.filter((id) => id !== coach.id) : [...prev, coach.id])}
+                    className={`inline-flex items-center gap-1.5 rounded-[12px] border px-3 py-2 text-xs font-black transition ${
+                      checked ? 'border-brand-purple bg-brand-purple text-white' : 'border-brand-purple/15 bg-brand-paper text-brand-ink-soft hover:border-brand-purple/35 hover:text-brand-purple'
+                    }`}
+                  >
+                    <CheckCircle2 size={13} />
+                    {coach.name}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
 
         <label className="grid gap-2 text-sm font-black text-brand-ink">
           Popis
@@ -2291,47 +3086,78 @@ function ProductCreateForm({ coaches, onAddProduct }: { coaches: AdminCoachSumma
 
         <TextInput label="Zaměření" value={trainingFocus} onChange={setTrainingFocus} />
 
-        {/* Fotky: jen pro kroužek a tábor */}
-        {type !== 'Workshop' ? (
-          <div className="grid gap-2 rounded-[16px] border border-brand-purple/15 bg-brand-paper p-4">
-            <p className="text-xs font-black uppercase text-brand-purple">Fotky produktu</p>
-            <div className="flex flex-wrap items-center gap-3">
-              <label className="inline-flex cursor-pointer items-center gap-2 rounded-[14px] border border-brand-purple/20 bg-white px-3 py-2.5 text-sm font-black text-brand-purple transition hover:bg-brand-purple-light">
-                <ImagePlus size={17} />
-                Přiložit fotky
-                <input
-                  ref={photoInputRef}
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  className="sr-only"
-                  onChange={(event) => { if (event.target.files) handlePhotoFiles(event.target.files); }}
-                />
-              </label>
-              {photoCount > 0 ? (
-                <span className="rounded-[14px] bg-brand-purple-light px-3 py-2 text-xs font-black text-brand-purple">{photoCount} {photoCount === 1 ? 'fotka' : photoCount < 5 ? 'fotky' : 'fotek'} připraveno</span>
-              ) : (
-                <span className="text-xs font-bold text-brand-ink-soft">Nepovinné – bez fotek se použije výchozí obrázek</span>
-              )}
-            </div>
-            {photos.length > 0 ? (
-              <div className="mt-2 flex flex-wrap gap-2">
-                {photos.map((src, index) => (
-                  <img key={index} src={src} alt={`Náhled ${index + 1}`} className="h-16 w-16 rounded-[12px] object-cover shadow-sm" />
-                ))}
-              </div>
-            ) : null}
+        <div className="grid gap-2 rounded-[16px] border border-brand-purple/15 bg-brand-paper p-4">
+          <p className="text-xs font-black uppercase text-brand-purple">Fotky produktu</p>
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="inline-flex cursor-pointer items-center gap-2 rounded-[14px] border border-brand-purple/20 bg-white px-3 py-2.5 text-sm font-black text-brand-purple transition hover:bg-brand-purple-light">
+              <ImagePlus size={17} />
+              Přiložit fotky
+              <input
+                ref={photoInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                className="sr-only"
+                onChange={(event) => { if (event.target.files) void handlePhotoFiles(event.target.files); }}
+              />
+            </label>
+            {photoCount > 0 ? (
+              <span className="rounded-[14px] bg-brand-purple-light px-3 py-2 text-xs font-black text-brand-purple">{photoCount} {photoCount === 1 ? 'fotka' : photoCount < 5 ? 'fotky' : 'fotek'} připraveno</span>
+            ) : (
+              <span className="text-xs font-bold text-brand-ink-soft">První fotka bude hlavní obrázek, další se objeví v galerii detailu.</span>
+            )}
           </div>
-        ) : null}
+          {photos.length > 0 ? (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {photos.map((src, index) => (
+                <img key={index} src={src} alt={`Náhled ${index + 1}`} className="h-16 w-16 rounded-[12px] object-cover shadow-sm" />
+              ))}
+            </div>
+          ) : null}
+        </div>
 
         <button type="submit" className="inline-flex items-center justify-center gap-2 rounded-[16px] bg-brand-purple px-4 py-3 text-sm font-black text-white shadow-brand transition hover:bg-brand-purple-deep">
           <Plus size={17} />
           Vytvořit a publikovat
         </button>
         {message ? <p className="rounded-[16px] bg-brand-purple-light p-3 text-sm font-bold leading-6 text-brand-ink-soft">{message}</p> : null}
-      </form>
-    </Panel>
+    </form>
   );
+}
+
+async function fileToProductPhoto(file: File) {
+  if (!file.type.startsWith('image/')) return readFileAsDataUrl(file);
+
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const element = new window.Image();
+      element.onload = () => resolve(element);
+      element.onerror = reject;
+      element.src = objectUrl;
+    });
+    const maxSide = 1600;
+    const scale = Math.min(1, maxSide / Math.max(image.naturalWidth || 1, image.naturalHeight || 1));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const context = canvas.getContext('2d');
+    if (!context) return readFileAsDataUrl(file);
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/jpeg', 0.82);
+  } catch {
+    return readFileAsDataUrl(file);
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.readAsDataURL(file);
+  });
 }
 
 function productCoachNames(product: ParentProduct, coaches: AdminCoachSummary[]) {
@@ -2341,101 +3167,173 @@ function productCoachNames(product: ParentProduct, coaches: AdminCoachSummary[])
     .join(', ');
 }
 
-function GroupedCourseCard({ group, coaches, isCreated, onRemove, onEdit }: { group: { baseId: string; base: ParentProduct; variant15: ParentProduct | null }; coaches: AdminCoachSummary[]; isCreated: boolean; onRemove: () => void; onEdit: (edits: ProductEdits) => void }) {
-  const { base, variant15 } = group;
-  const coachNames = productCoachNames(base, coaches);
-  const [editing, setEditing] = useState(false);
-  const [showParticipants, setShowParticipants] = useState(false);
-  const [title, setTitle] = useState(base.title);
-  const [place, setPlace] = useState(base.place);
-  const [primaryMeta, setPrimaryMeta] = useState(base.primaryMeta);
-  const [capacityTotal, setCapacityTotal] = useState(String(base.capacityTotal));
+function ProductCoachAssignment({ product, coaches, onChange }: { product: ParentProduct; coaches: AdminCoachSummary[]; onChange: (coachIds: string[]) => Promise<void> }) {
+  const [savingCoachId, setSavingCoachId] = useState<string | null>(null);
+  const activeCoaches = coaches.filter((coach) => coach.status !== 'Pozastaveny');
+  const coachIds = product.coachIds ?? [];
 
-  const enrollment = courseEnrollments.find((e) => e.courseId === group.baseId);
-
-  function handleSave() {
-    onEdit({ title, place, primaryMeta, capacityTotal: Number(capacityTotal) });
-    setEditing(false);
+  async function toggleCoach(coachId: string) {
+    const nextCoachIds = coachIds.includes(coachId) ? coachIds.filter((id) => id !== coachId) : [...coachIds, coachId];
+    setSavingCoachId(coachId);
+    try {
+      await onChange(nextCoachIds);
+    } finally {
+      setSavingCoachId(null);
+    }
   }
 
   return (
-    <div className="rounded-[18px] border border-brand-purple/10 bg-brand-paper p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <StatusPill label="Kroužek" tone="mint" />
-          {isCreated ? <StatusPill label="Z adminu" tone="purple" /> : <StatusPill label="Na webu" tone="mint" />}
-        </div>
-        <div className="flex gap-2">
-          <button type="button" onClick={() => setEditing((prev) => !prev)} className={`inline-flex h-10 w-10 items-center justify-center rounded-[14px] transition ${editing ? 'bg-brand-purple text-white' : 'bg-white text-brand-ink-soft hover:text-brand-purple'}`} aria-label="Upravit produkt">
-            <Pencil size={16} />
-          </button>
-          <button type="button" onClick={onRemove} className="inline-flex h-10 w-10 items-center justify-center rounded-[14px] bg-white text-brand-pink transition hover:bg-brand-pink hover:text-white" aria-label="Smazat produkt">
-            <Trash2 size={17} />
-          </button>
-        </div>
+    <div className="mt-3 rounded-[14px] border border-brand-purple/10 bg-white p-3">
+      <p className="text-xs font-black uppercase text-brand-purple">Trenéři</p>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {activeCoaches.map((coach) => {
+          const selected = coachIds.includes(coach.id);
+          const saving = savingCoachId === coach.id;
+          return (
+            <button
+              key={coach.id}
+              type="button"
+              onClick={() => toggleCoach(coach.id)}
+              disabled={saving}
+              className={`inline-flex items-center gap-1.5 rounded-[12px] border px-3 py-2 text-xs font-black transition ${selected ? 'border-brand-purple bg-brand-purple text-white' : 'border-brand-purple/15 bg-brand-paper text-brand-ink-soft hover:border-brand-purple/35 hover:text-brand-purple'}`}
+            >
+              <CheckCircle2 size={13} />
+              {saving ? 'Ukládám...' : coach.name}
+            </button>
+          );
+        })}
+        {activeCoaches.length === 0 ? <span className="text-xs font-bold text-brand-ink-soft">Žádný aktivní trenér.</span> : null}
       </div>
-      {editing ? (
-        <div className="mt-3 grid gap-3">
-          <TextInput label="Název" value={title} onChange={setTitle} />
-          <TextInput label="Místo" value={place} onChange={setPlace} />
-          <TextInput label="Čas / rozvrh" value={primaryMeta} onChange={setPrimaryMeta} />
-          <TextInput label="Kapacita" value={capacityTotal} onChange={setCapacityTotal} inputMode="numeric" />
-          <div className="flex gap-2">
-            <button type="button" onClick={handleSave} className="flex-1 rounded-[14px] bg-brand-purple py-2.5 text-sm font-black text-white transition hover:opacity-80">Uložit</button>
-            <button type="button" onClick={() => setEditing(false)} className="flex-1 rounded-[14px] bg-white py-2.5 text-sm font-black text-brand-ink-soft transition hover:text-brand-ink">Zrušit</button>
-          </div>
-        </div>
-      ) : (
-        <>
-          <h3 className="mt-3 text-lg font-black text-brand-ink">{base.title}</h3>
-          <p className="mt-1 text-sm font-bold text-brand-ink-soft">{base.place} · {base.primaryMeta}</p>
-          {coachNames ? <p className="mt-1 text-sm font-black text-brand-purple">Trenér: {coachNames}</p> : null}
-          <div className="mt-3 grid gap-1.5">
-            {[base, ...(variant15 ? [variant15] : [])].map((variant) => (
-              <div key={variant.id} className="flex items-center justify-between rounded-[12px] bg-white px-3 py-2">
-                <p className="text-sm font-bold text-brand-ink">{variant.priceLabel}</p>
-                <p className="text-sm font-black text-brand-purple">{variant.price.toLocaleString('cs-CZ')} Kč</p>
-              </div>
-            ))}
-          </div>
-          <div className="mt-3 grid grid-cols-2 gap-2 text-center">
-            <Metric value={`${base.capacityCurrent}/${base.capacityTotal}`} label="kapacita" />
-            <Metric value={isCreated ? 'Přidáno' : 'Vestavěný'} label="původ" />
-          </div>
-          {enrollment && (
-            <div className="mt-3">
-              <button
-                type="button"
-                onClick={() => setShowParticipants((v) => !v)}
-                className="flex w-full items-center justify-between rounded-[12px] border border-brand-purple/15 bg-white px-3 py-2 text-sm font-black text-brand-ink transition hover:border-brand-purple/40"
-              >
-                <span className="flex items-center gap-2">
-                  <Users size={14} className="text-brand-purple" />
-                  Přihlášení ({enrollment.participants.length})
-                </span>
-                <ChevronDown size={14} className={`text-brand-ink-soft transition-transform ${showParticipants ? 'rotate-180' : ''}`} />
-              </button>
-              {showParticipants && (
-                <div className="mt-2 space-y-1">
-                  {enrollment.participants.map((p) => (
-                    <div key={p.name} className="flex items-center justify-between rounded-[10px] bg-white px-3 py-1.5">
-                      <span className="text-sm font-bold text-brand-ink">{p.name}</span>
-                      <span className={`text-xs font-black ${p.remaining <= 2 ? 'text-[#F0445B]' : p.remaining <= 4 ? 'text-[#FFB21A]' : 'text-brand-purple'}`}>
-                        {p.remaining} vstupů
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </>
-      )}
     </div>
   );
 }
 
-function AdminProductCard({ product, coaches, isCreated, onRemove, onEdit }: { product: ParentProduct; coaches: AdminCoachSummary[]; isCreated: boolean; onRemove: () => void; onEdit: (edits: ProductEdits) => void }) {
+function GroupedCourseCard({ group, coaches, isCreated, onRemove, onEdit, onCoachIdsChange }: { group: { baseId: string; base: ParentProduct; variant15: ParentProduct | null }; coaches: AdminCoachSummary[]; isCreated: boolean; onRemove: () => void; onEdit: (edits: ProductEdits) => void; onCoachIdsChange: (coachIds: string[]) => Promise<void> }) {
+  const { base, variant15 } = group;
+  const coachNames = productCoachNames(base, coaches);
+  const [editing, setEditing] = useState(false);
+  const [title, setTitle] = useState(base.title);
+  const [place, setPlace] = useState(base.place);
+  const [primaryMeta, setPrimaryMeta] = useState(base.primaryMeta);
+  const [capacityTotal, setCapacityTotal] = useState(String(base.capacityTotal));
+  const [photos, setPhotos] = useState<string[]>([]);
+  const [photoCount, setPhotoCount] = useState(0);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+
+  async function handlePhotoFiles(files: FileList) {
+    const results: string[] = [];
+    for (const file of Array.from(files)) {
+      results.push(await fileToProductPhoto(file));
+    }
+    setPhotos(results);
+    setPhotoCount(results.length);
+  }
+
+  function handleSave() {
+    const edits: ProductEdits = { title, place, primaryMeta, capacityTotal: Number(capacityTotal) };
+    if (photos.length > 0) {
+      edits.heroImage = photos[0];
+      edits.gallery = photos;
+    }
+    onEdit(edits);
+    setEditing(false);
+  }
+
+  return (
+    <>
+      <div className="rounded-[18px] border border-brand-purple/12 bg-white p-4 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <StatusPill label="Kroužek" tone="mint" />
+            {isCreated ? <StatusPill label="Z adminu" tone="purple" /> : <StatusPill label="Na webu" tone="mint" />}
+          </div>
+          <div className="flex gap-2">
+            <button type="button" onClick={() => setEditing(true)} className="inline-flex h-10 w-10 items-center justify-center rounded-[14px] bg-brand-paper text-brand-ink-soft transition hover:bg-brand-purple/10 hover:text-brand-purple" aria-label="Upravit produkt">
+              <Pencil size={16} />
+            </button>
+            <button type="button" onClick={onRemove} className="inline-flex h-10 w-10 items-center justify-center rounded-[14px] bg-brand-paper text-brand-pink transition hover:bg-brand-pink hover:text-white" aria-label="Smazat produkt">
+              <Trash2 size={17} />
+            </button>
+          </div>
+        </div>
+        <h3 className="mt-3 text-lg font-black text-brand-ink">{base.title}</h3>
+        <p className="mt-1 text-sm font-bold text-brand-ink-soft">{base.place} · {base.primaryMeta}</p>
+        {coachNames ? <p className="mt-1 text-sm font-black text-brand-purple">Trenér: {coachNames}</p> : null}
+        <div className="mt-3 grid gap-1.5">
+          {[base, ...(variant15 ? [variant15] : [])].map((variant) => (
+            <div key={variant.id} className="flex items-center justify-between rounded-[12px] bg-brand-paper px-3 py-2">
+              <p className="text-sm font-bold text-brand-ink">{variant.priceLabel}</p>
+              <p className="text-sm font-black text-brand-purple">{variant.price.toLocaleString('cs-CZ')} Kč</p>
+            </div>
+          ))}
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-2 text-center">
+          <Metric value={`${base.capacityCurrent}/${base.capacityTotal}`} label="kapacita" />
+          <Metric value={isCreated ? 'Přidáno' : 'Vestavěný'} label="původ" />
+        </div>
+        <ProductCoachAssignment product={base} coaches={coaches} onChange={onCoachIdsChange} />
+      </div>
+
+      <AnimatePresence>
+        {editing && (
+          <>
+            <motion.div key="course-edit-backdrop" className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm"
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.22 }}
+              onClick={() => setEditing(false)} />
+            <motion.div key="course-edit-modal"
+              className="fixed inset-x-4 top-[3vh] z-50 mx-auto flex max-w-2xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl" style={{ maxHeight: '94vh' }}
+              initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }}
+              transition={{ type: 'spring', damping: 28, stiffness: 320 }}>
+              <div className="flex flex-shrink-0 items-center justify-between border-b border-brand-purple/8 px-6 py-4">
+                <div>
+                  <p className="text-base font-black text-brand-ink">Upravit kroužek</p>
+                  <p className="text-xs font-bold text-brand-ink-soft">{base.title}</p>
+                </div>
+                <button type="button" onClick={() => setEditing(false)} className="ml-4 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-brand-paper text-brand-ink-soft transition hover:bg-brand-purple/10 hover:text-brand-purple">
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto px-6 pb-8 pt-5">
+                <div className="grid gap-3">
+                  <TextInput label="Název" value={title} onChange={setTitle} />
+                  <TextInput label="Místo" value={place} onChange={setPlace} />
+                  <TextInput label="Čas / rozvrh" value={primaryMeta} onChange={setPrimaryMeta} />
+                  <TextInput label="Kapacita" value={capacityTotal} onChange={setCapacityTotal} inputMode="numeric" />
+                  <div className="grid gap-2 rounded-[16px] border border-brand-purple/15 bg-brand-paper p-3">
+                    <p className="text-xs font-black uppercase text-brand-purple">Obrázek produktu</p>
+                    {photos.length === 0 && base.heroImage ? (
+                      <div className="flex items-center gap-3">
+                        <img src={base.heroImage} alt="Aktuální obrázek" className="h-16 w-24 rounded-[10px] object-cover shadow-sm" />
+                        <span className="text-xs font-bold text-brand-ink-soft">Aktuálně nastavený obrázek. Nahradit novým výběrem níže.</span>
+                      </div>
+                    ) : null}
+                    <label className="inline-flex cursor-pointer items-center gap-2 rounded-[14px] border border-brand-purple/20 bg-white px-3 py-2 text-xs font-black text-brand-purple transition hover:bg-brand-purple-light">
+                      <ImagePlus size={15} />
+                      {photoCount > 0 ? `${photoCount} ${photoCount === 1 ? 'fotka' : photoCount < 5 ? 'fotky' : 'fotek'} vybrány` : 'Vybrat nové fotky'}
+                      <input ref={photoInputRef} type="file" accept="image/*" multiple className="sr-only"
+                        onChange={(event) => { if (event.target.files) void handlePhotoFiles(event.target.files); }} />
+                    </label>
+                    {photos.length > 0 ? (
+                      <div className="mt-1 flex flex-wrap gap-2">
+                        {photos.map((src, index) => <img key={index} src={src} alt={`Náhled ${index + 1}`} className="h-14 w-14 rounded-[10px] object-cover shadow-sm" />)}
+                      </div>
+                    ) : null}
+                  </div>
+                  <div className="flex gap-2">
+                    <button type="button" onClick={handleSave} className="flex-1 rounded-[14px] bg-brand-purple py-2.5 text-sm font-black text-white transition hover:opacity-80">Uložit</button>
+                    <button type="button" onClick={() => setEditing(false)} className="flex-1 rounded-[14px] bg-brand-paper py-2.5 text-sm font-black text-brand-ink-soft transition hover:text-brand-ink">Zrušit</button>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+    </>
+  );
+}
+
+function AdminProductCard({ product, coaches, isCreated, onRemove, onEdit, onCoachIdsChange }: { product: ParentProduct; coaches: AdminCoachSummary[]; isCreated: boolean; onRemove: () => void; onEdit: (edits: ProductEdits) => void; onCoachIdsChange: (coachIds: string[]) => Promise<void> }) {
   const coachNames = productCoachNames(product, coaches);
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(product.title);
@@ -2443,55 +3341,131 @@ function AdminProductCard({ product, coaches, isCreated, onRemove, onEdit }: { p
   const [primaryMeta, setPrimaryMeta] = useState(product.primaryMeta);
   const [price, setPrice] = useState(String(product.price));
   const [capacityTotal, setCapacityTotal] = useState(String(product.capacityTotal));
+  const [photos, setPhotos] = useState<string[]>([]);
+  const [photoCount, setPhotoCount] = useState(0);
+  const [clearImage, setClearImage] = useState(false);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+
+  async function handlePhotoFiles(files: FileList) {
+    const results: string[] = [];
+    for (const file of Array.from(files)) {
+      results.push(await fileToProductPhoto(file));
+    }
+    setPhotos(results);
+    setPhotoCount(results.length);
+    setClearImage(false);
+  }
 
   function handleSave() {
     const priceNum = Number(price);
-    onEdit({ title, place, primaryMeta, price: priceNum, priceLabel: `${priceNum.toLocaleString('cs-CZ')} Kč`, capacityTotal: Number(capacityTotal) });
+    const edits: ProductEdits = { title, place, primaryMeta, price: priceNum, priceLabel: `${priceNum.toLocaleString('cs-CZ')} Kč`, capacityTotal: Number(capacityTotal) };
+    if (photos.length > 0) {
+      edits.heroImage = photos[0];
+      edits.gallery = photos;
+    } else if (clearImage) {
+      edits.heroImage = '';
+      edits.gallery = [];
+    }
+    onEdit(edits);
     setEditing(false);
   }
 
   return (
-    <div className="rounded-[18px] border border-brand-purple/10 bg-brand-paper p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <StatusPill label={activityLabel(product.type)} tone={product.type === 'Workshop' ? 'purple' : product.type === 'Tabor' ? 'orange' : 'mint'} />
-          {isCreated ? <StatusPill label="Z adminu" tone="purple" /> : <StatusPill label="Na webu" tone="mint" />}
-        </div>
-        <div className="flex gap-2">
-          <button type="button" onClick={() => setEditing((prev) => !prev)} className={`inline-flex h-10 w-10 items-center justify-center rounded-[14px] transition ${editing ? 'bg-brand-purple text-white' : 'bg-white text-brand-ink-soft hover:text-brand-purple'}`} aria-label="Upravit produkt">
-            <Pencil size={16} />
-          </button>
-          <button type="button" onClick={onRemove} className="inline-flex h-10 w-10 items-center justify-center rounded-[14px] bg-white text-brand-pink transition hover:bg-brand-pink hover:text-white" aria-label="Smazat produkt">
-            <Trash2 size={17} />
-          </button>
-        </div>
-      </div>
-      {editing ? (
-        <div className="mt-3 grid gap-3">
-          <TextInput label="Název" value={title} onChange={setTitle} />
-          <TextInput label="Místo" value={place} onChange={setPlace} />
-          <TextInput label="Datum / čas" value={primaryMeta} onChange={setPrimaryMeta} />
-          <TextInput label="Cena (Kč)" value={price} onChange={setPrice} inputMode="numeric" />
-          <TextInput label="Kapacita" value={capacityTotal} onChange={setCapacityTotal} inputMode="numeric" />
+    <>
+      <div className="rounded-[18px] border border-brand-purple/12 bg-white p-4 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <StatusPill label={activityLabel(product.type)} tone={product.type === 'Workshop' ? 'purple' : product.type === 'Tabor' ? 'orange' : 'mint'} />
+            {isCreated ? <StatusPill label="Z adminu" tone="purple" /> : <StatusPill label="Na webu" tone="mint" />}
+          </div>
           <div className="flex gap-2">
-            <button type="button" onClick={handleSave} className="flex-1 rounded-[14px] bg-brand-purple py-2.5 text-sm font-black text-white transition hover:opacity-80">Uložit</button>
-            <button type="button" onClick={() => setEditing(false)} className="flex-1 rounded-[14px] bg-white py-2.5 text-sm font-black text-brand-ink-soft transition hover:text-brand-ink">Zrušit</button>
+            <button type="button" onClick={() => setEditing(true)} className="inline-flex h-10 w-10 items-center justify-center rounded-[14px] bg-brand-paper text-brand-ink-soft transition hover:bg-brand-purple/10 hover:text-brand-purple" aria-label="Upravit produkt">
+              <Pencil size={16} />
+            </button>
+            <button type="button" onClick={onRemove} className="inline-flex h-10 w-10 items-center justify-center rounded-[14px] bg-brand-paper text-brand-pink transition hover:bg-brand-pink hover:text-white" aria-label="Smazat produkt">
+              <Trash2 size={17} />
+            </button>
           </div>
         </div>
-      ) : (
-        <>
-          <h3 className="mt-3 text-lg font-black text-brand-ink">{product.title}</h3>
-          <p className="mt-1 text-sm font-bold text-brand-ink-soft">{product.place} · {product.primaryMeta}</p>
-          {coachNames ? <p className="mt-1 text-sm font-black text-brand-purple">Trenér: {coachNames}</p> : null}
-          <div className="mt-4 grid grid-cols-3 gap-2 text-center">
-            <Metric value={product.priceLabel} label="cena" />
-            <Metric value={`${product.capacityCurrent}/${product.capacityTotal}`} label="kapacita" />
-            <Metric value={isCreated ? 'Přidáno' : 'Vestavěný'} label="původ" />
-          </div>
-          {product.description ? <p className="mt-3 text-sm font-bold leading-6 text-brand-ink-soft">{product.description}</p> : null}
-        </>
-      )}
-    </div>
+        <h3 className="mt-3 text-lg font-black text-brand-ink">{product.title}</h3>
+        <p className="mt-1 text-sm font-bold text-brand-ink-soft">{product.place} · {product.primaryMeta}</p>
+        {coachNames ? <p className="mt-1 text-sm font-black text-brand-purple">Trenér: {coachNames}</p> : null}
+        <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+          <Metric value={product.priceLabel} label="cena" />
+          <Metric value={`${product.capacityCurrent}/${product.capacityTotal}`} label="kapacita" />
+          <Metric value={isCreated ? 'Přidáno' : 'Vestavěný'} label="původ" />
+        </div>
+        <ProductCoachAssignment product={product} coaches={coaches} onChange={onCoachIdsChange} />
+        {product.description ? <p className="mt-3 text-sm font-bold leading-6 text-brand-ink-soft">{product.description}</p> : null}
+      </div>
+
+      <AnimatePresence>
+        {editing && (
+          <>
+            <motion.div key="product-edit-backdrop" className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm"
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.22 }}
+              onClick={() => setEditing(false)} />
+            <motion.div key="product-edit-modal"
+              className="fixed inset-x-4 top-[3vh] z-50 mx-auto flex max-w-2xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl" style={{ maxHeight: '94vh' }}
+              initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }}
+              transition={{ type: 'spring', damping: 28, stiffness: 320 }}>
+              <div className="flex flex-shrink-0 items-center justify-between border-b border-brand-purple/8 px-6 py-4">
+                <div>
+                  <p className="text-base font-black text-brand-ink">Upravit produkt</p>
+                  <p className="text-xs font-bold text-brand-ink-soft">{product.title}</p>
+                </div>
+                <button type="button" onClick={() => setEditing(false)} className="ml-4 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-brand-paper text-brand-ink-soft transition hover:bg-brand-purple/10 hover:text-brand-purple">
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto px-6 pb-8 pt-5">
+                <div className="grid gap-3">
+                  <TextInput label="Název" value={title} onChange={setTitle} />
+                  <TextInput label="Místo" value={place} onChange={setPlace} />
+                  <TextInput label="Datum / čas" value={primaryMeta} onChange={setPrimaryMeta} />
+                  <TextInput label="Cena (Kč)" value={price} onChange={setPrice} inputMode="numeric" />
+                  <TextInput label="Kapacita" value={capacityTotal} onChange={setCapacityTotal} inputMode="numeric" />
+                  <div className="grid gap-2 rounded-[16px] border border-brand-purple/15 bg-brand-paper p-3">
+                    <p className="text-xs font-black uppercase text-brand-purple">Obrázek produktu</p>
+                    {photos.length === 0 && product.heroImage && !clearImage ? (
+                      <div className="flex items-center gap-3">
+                        <img src={product.heroImage} alt="Aktuální obrázek" className="h-16 w-24 rounded-[10px] object-cover shadow-sm" />
+                        <div className="flex flex-col gap-1.5">
+                          <span className="text-xs font-bold text-brand-ink-soft">Aktuálně nastavený obrázek. Nahradit novým nebo smazat.</span>
+                          <button type="button" onClick={() => setClearImage(true)} className="inline-flex w-fit items-center gap-1.5 rounded-[10px] bg-brand-pink/10 px-2.5 py-1 text-xs font-black text-brand-pink transition hover:bg-brand-pink/20">
+                            <Trash2 size={12} /> Smazat obrázek
+                          </button>
+                        </div>
+                      </div>
+                    ) : clearImage ? (
+                      <div className="flex items-center gap-2 rounded-[10px] bg-brand-pink/10 px-3 py-2">
+                        <span className="flex-1 text-xs font-bold text-brand-pink">Obrázek bude smazán po uložení.</span>
+                        <button type="button" onClick={() => setClearImage(false)} className="text-xs font-black text-brand-ink-soft hover:text-brand-ink">Zpět</button>
+                      </div>
+                    ) : null}
+                    <label className="inline-flex cursor-pointer items-center gap-2 rounded-[14px] border border-brand-purple/20 bg-white px-3 py-2 text-xs font-black text-brand-purple transition hover:bg-brand-purple-light">
+                      <ImagePlus size={15} />
+                      {photoCount > 0 ? `${photoCount} ${photoCount === 1 ? 'fotka' : photoCount < 5 ? 'fotky' : 'fotek'} vybrány` : 'Vybrat nové fotky'}
+                      <input ref={photoInputRef} type="file" accept="image/*" multiple className="sr-only"
+                        onChange={(event) => { if (event.target.files) void handlePhotoFiles(event.target.files); }} />
+                    </label>
+                    {photos.length > 0 ? (
+                      <div className="mt-1 flex flex-wrap gap-2">
+                        {photos.map((src, index) => <img key={index} src={src} alt={`Náhled ${index + 1}`} className="h-14 w-14 rounded-[10px] object-cover shadow-sm" />)}
+                      </div>
+                    ) : null}
+                  </div>
+                  <div className="flex gap-2">
+                    <button type="button" onClick={handleSave} className="flex-1 rounded-[14px] bg-brand-purple py-2.5 text-sm font-black text-white transition hover:opacity-80">Uložit</button>
+                    <button type="button" onClick={() => setEditing(false)} className="flex-1 rounded-[14px] bg-brand-paper py-2.5 text-sm font-black text-brand-ink-soft transition hover:text-brand-ink">Zrušit</button>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+    </>
   );
 }
 
@@ -2675,7 +3649,7 @@ function WorkshopStatsPanel({ allSlots, attendanceRecords, onOpenParticipant }: 
   );
 }
 
-function WorkshopUpcomingPanel({ slots, attendanceRecords = [], onOpenParticipant }: { slots: WorkshopSlot[]; attendanceRecords?: WorkshopAttendanceRecord[]; onOpenParticipant?: (participant: ParentParticipant, place: string) => void }) {
+function WorkshopUpcomingPanel({ slots, products, participants, attendanceRecords = [], onOpenParticipant }: { slots: WorkshopSlot[]; products: ParentProduct[]; participants: ParentParticipant[]; attendanceRecords?: WorkshopAttendanceRecord[]; onOpenParticipant?: (participant: ParentParticipant, place: string) => void }) {
   const WS_CAPACITY = 40;
   const CITY_BADGE: Record<WorkshopCity, string> = { Brno: 'bg-[#8B1DFF] text-white', Praha: 'bg-[#1FB37A] text-white', Ostrava: 'bg-[#FFB21A] text-brand-ink' };
   const CITY_BAR: Record<WorkshopCity, string> = { Brno: 'bg-[#8B1DFF]', Praha: 'bg-[#1FB37A]', Ostrava: 'bg-[#FFB21A]' };
@@ -2683,21 +3657,6 @@ function WorkshopUpcomingPanel({ slots, attendanceRecords = [], onOpenParticipan
   const [monthIdx, setMonthIdx] = useState(0);
   const [openSlotId, setOpenSlotId] = useState<string | null>(null);
 
-  const WS_MOCK_NAMES = ['Jakub N.', 'Eliška K.', 'Tomáš P.', 'Martin S.', 'Klára M.', 'Ondřej B.', 'Tereza V.', 'Michal H.', 'Adéla R.', 'Jan Č.', 'Barbora F.', 'Adam D.', 'Petra N.', 'David L.', 'Zuzana T.', 'Jiří K.', 'Veronika P.', 'Natálie O.', 'Filip S.', 'Lenka H.', 'Pavel M.', 'Anežka B.', 'Václav Č.', 'Simona R.', 'Radek K.', 'Lucie V.', 'Miroslav D.', 'Eva P.', 'Jana H.', 'Lukáš R.', 'Karolína T.', 'Petr M.', 'Markéta H.', 'Josef K.', 'Dominika S.'];
-  function mockRegistered(slot: WorkshopSlot): number {
-    const seed = slot.id.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
-    return (seed % 28) + 7;
-  }
-  function mockRegisteredNames(slot: WorkshopSlot): string[] {
-    const count = mockRegistered(slot);
-    const seed = slot.id.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
-    const result: string[] = [];
-    for (let i = 0; i < count; i++) {
-      const candidate = WS_MOCK_NAMES[(seed + i * 7) % WS_MOCK_NAMES.length];
-      result.push(result.includes(candidate) ? WS_MOCK_NAMES[(seed + i * 7 + 3) % WS_MOCK_NAMES.length] : candidate);
-    }
-    return result;
-  }
   function fmtDate(iso: string) {
     const [y, m, d] = iso.split('-').map(Number);
     const dow = DOW_CS[new Date(y, m - 1, d).getDay()];
@@ -2736,9 +3695,12 @@ function WorkshopUpcomingPanel({ slots, attendanceRecords = [], onOpenParticipan
       {currentGroup && (
         <div className="mt-4 grid gap-2">
           {currentGroup.items.map((slot) => {
-            const registered = mockRegistered(slot);
-            const pct = Math.min(100, Math.round((registered / WS_CAPACITY) * 100));
-            const isFull = registered >= WS_CAPACITY;
+            const slotProduct = products.find((product) => product.id === slot.id);
+            const slotParticipants = participantsForWorkshopSlot(slot, products, participants);
+            const registered = slotParticipants.length;
+            const capacity = slotProduct?.capacityTotal ?? WS_CAPACITY;
+            const pct = capacity > 0 ? Math.min(100, Math.round((registered / capacity) * 100)) : 0;
+            const isFull = registered >= capacity;
             const isAlmostFull = pct >= 80;
             const isOpen = openSlotId === slot.id;
             const attendance = attendanceRecords.find((r) => r.slotId === slot.id);
@@ -2757,7 +3719,7 @@ function WorkshopUpcomingPanel({ slots, attendanceRecords = [], onOpenParticipan
                   <div className="flex shrink-0 items-center gap-2">
                     <div className="min-w-[72px] text-right">
                       <p className={`text-sm font-black ${isFull ? 'text-[#F0445B]' : isAlmostFull ? 'text-[#FFB21A]' : 'text-brand-ink'}`}>
-                        {registered}/{WS_CAPACITY}
+                        {registered}/{capacity}
                       </p>
                       <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-brand-purple/10">
                         <div className={`h-full rounded-full transition-all ${isFull ? 'bg-[#F0445B]' : isAlmostFull ? 'bg-[#FFB21A]' : CITY_BAR[slot.city]}`} style={{ width: `${pct}%` }} />
@@ -2768,39 +3730,21 @@ function WorkshopUpcomingPanel({ slots, attendanceRecords = [], onOpenParticipan
                 </button>
                 {isOpen && (
                   <div className="border-t border-brand-purple/10 px-4 py-3">
-                    {attendance ? (
-                      <>
-                        <p className="mb-2 text-xs font-black uppercase tracking-wide text-brand-ink-soft">{attendance.attendees} účastníků</p>
-                        <div className="flex flex-wrap gap-1.5">
-                          {attendance.participants.map((name) => {
-                            const p = workshopParticipantFromShortName(name, slot.venue);
-                            return onOpenParticipant ? (
-                              <button key={name} type="button" onClick={() => onOpenParticipant(p, slot.venue)} className="rounded-[999px] bg-brand-purple/10 px-2.5 py-1 text-xs font-black text-brand-purple-deep transition hover:bg-brand-purple hover:text-white">
-                                {name}
-                              </button>
-                            ) : (
-                              <span key={name} className="rounded-[999px] bg-brand-purple/10 px-2.5 py-1 text-xs font-bold text-brand-ink-soft">{name}</span>
-                            );
-                          })}
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <p className="mb-2 text-xs font-black uppercase tracking-wide text-brand-ink-soft">Přihlášeni · {registered} z {WS_CAPACITY}</p>
-                        <div className="flex flex-wrap gap-1.5">
-                          {mockRegisteredNames(slot).map((name) => {
-                            const p = workshopParticipantFromShortName(name, slot.venue);
-                            return onOpenParticipant ? (
-                              <button key={name} type="button" onClick={() => onOpenParticipant(p, slot.venue)} className="rounded-full bg-brand-purple/10 px-2.5 py-0.5 text-xs font-black text-brand-purple-deep transition hover:bg-brand-purple hover:text-white">
-                                {name}
-                              </button>
-                            ) : (
-                              <span key={name} className="rounded-full bg-white px-2.5 py-0.5 text-xs font-bold text-brand-ink shadow-sm">{name}</span>
-                            );
-                          })}
-                        </div>
-                      </>
-                    )}
+                    <p className="mb-2 text-xs font-black uppercase tracking-wide text-brand-ink-soft">Přihlášeni · {attendance?.attendees ?? registered} z {capacity}</p>
+                    {slotParticipants.length > 0 ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        {slotParticipants.map((participant) => {
+                          const name = participantDisplayName(participant);
+                          return onOpenParticipant ? (
+                            <button key={participant.id} type="button" onClick={() => onOpenParticipant(participant, slot.venue)} className="rounded-[999px] bg-brand-purple/10 px-2.5 py-1 text-xs font-black text-brand-purple-deep transition hover:bg-brand-purple hover:text-white">
+                              {name}
+                            </button>
+                          ) : (
+                            <span key={participant.id} className="rounded-[999px] bg-brand-purple/10 px-2.5 py-1 text-xs font-bold text-brand-ink-soft">{name}</span>
+                          );
+                        })}
+                      </div>
+                    ) : <EmptyState text="Na tento workshop zatím není v databázi žádný účastník." />}
                   </div>
                 )}
               </div>
@@ -2887,7 +3831,7 @@ function ParticipantTermDropdown({ termGroup, onOpenParticipantDetail }: { termG
 }
 
 function ParticipantLocationCard({ group, onOpenParticipantDetail }: { group: ParticipantGroup; onOpenParticipantDetail: (participant: ParentParticipant, activityType: ActivityType, place: string) => void }) {
-  const missingDocuments = group.participants.reduce((sum, participant) => sum + documentsForActivityParticipant(participant, group.type).filter((document) => document.status !== 'signed').length, 0);
+  const missingDocuments = 0;
 
   return (
     <div className="rounded-[18px] border border-brand-purple/10 bg-white p-4 shadow-brand-soft">
@@ -2919,8 +3863,7 @@ function ManualAttendancePanel({ coaches, onAdd }: { coaches: AdminCoachSummary[
 
 function ParticipantCompactRow({ participant, activityType, place, onOpen }: { participant: ParentParticipant; activityType: ActivityType; place: string; onOpen: () => void }) {
   const participantName = `${participant.firstName} ${participant.lastName}`;
-  const participantDocuments = documentsForActivityParticipant(participant, activityType);
-  const missingDocuments = participantDocuments.filter((document) => document.status !== 'signed').length;
+  const missingDocuments = 0;
   const statusValue = activityType === 'Krouzek' ? `${participant.attendanceDone}/${participant.attendanceTotal}` : activityType === 'Tabor' ? 'Registrován' : 'Ticket';
 
   return (
@@ -2941,6 +3884,58 @@ function CoachPlacementSection({ title, subtitle, groups, emptyText, dppDocument
       <div className="mt-4 grid gap-3">
         {groups.map((group) => <CoachPlacementGroupCard key={group.key} group={group} dppDocuments={dppDocuments} coachAttendanceRecords={coachAttendanceRecords} onOpenCoach={onOpenCoach} compact={compact} />)}
         {groups.length === 0 ? <EmptyState text={emptyText} /> : null}
+      </div>
+    </Panel>
+  );
+}
+
+function WorkshopCityCoachSection({ groups, dppDocuments, coachAttendanceRecords, onOpenCoach }: { groups: CoachPlacementGroup[]; dppDocuments: AdminCoachDppDocument[]; coachAttendanceRecords: CoachAttendanceRecord[]; onOpenCoach: (coachId: string) => void }) {
+  const cityOrder = ['Praha', 'Brno', 'Ostrava'];
+  const cityMap = new Map<string, AdminCoachSummary[]>();
+
+  for (const group of groups) {
+    const city = group.place.split(' · ')[0].trim();
+    if (!cityMap.has(city)) cityMap.set(city, []);
+    const existing = cityMap.get(city)!;
+    for (const coach of group.coaches) {
+      if (!existing.some((c) => c.id === coach.id)) existing.push(coach);
+    }
+  }
+
+  const cities = [...cityMap.keys()].sort((a, b) => {
+    const ai = cityOrder.indexOf(a);
+    const bi = cityOrder.indexOf(b);
+    if (ai !== -1 && bi !== -1) return ai - bi;
+    if (ai !== -1) return -1;
+    if (bi !== -1) return 1;
+    return a.localeCompare(b, 'cs');
+  });
+
+  return (
+    <Panel className="p-5">
+      <SectionTitle icon={<MapPin size={18} />} title="Workshopy" subtitle="přihlášení trenéři podle lokace" />
+      <div className="mt-4 grid gap-3">
+        {cities.length === 0 ? <EmptyState text="Pro zadaný filtr není žádný workshopový trenér." /> : null}
+        {cities.map((city) => {
+          const coaches = cityMap.get(city)!;
+          return (
+            <div key={city} className="rounded-[18px] border border-brand-purple/10 bg-white p-3 shadow-brand-soft">
+              <div className="flex items-center justify-between rounded-[14px] bg-brand-paper px-3 py-2.5">
+                <p className="text-sm font-black text-brand-ink">{city}</p>
+                <StatusPill label={`${coaches.length} trenér${coaches.length === 1 ? '' : 'ů'}`} tone={coaches.length > 0 ? 'purple' : 'orange'} />
+              </div>
+              <div className="mt-3 grid gap-2">
+                {coaches.length === 0
+                  ? <p className="rounded-[14px] bg-white p-3 text-xs font-bold leading-5 text-brand-ink-soft">Zatím bez přiřazeného trenéra.</p>
+                  : coaches.map((coach) => {
+                      const firstGroup = groups.find((g) => g.coaches.some((c) => c.id === coach.id))!;
+                      return <CoachLocationRow key={`ws-city-${city}-${coach.id}`} coach={coach} group={firstGroup} dppDocument={documentForCoach(coach, dppDocuments)} coachAttendanceRecords={coachAttendanceRecords} onOpen={() => onOpenCoach(coach.id)} />;
+                    })
+                }
+              </div>
+            </div>
+          );
+        })}
       </div>
     </Panel>
   );
@@ -3008,75 +4003,181 @@ function CoachSummaryCard({ coach, coachAttendanceRecords, dppDocument, onOpen }
   );
 }
 
-function CoachDetailCard({ coach, coachAttendanceRecords, dppDocument, onAddCoachAttendance, onCreateCoachDpp, onMarkCoachDppSigned }: { coach: AdminCoachSummary; coachAttendanceRecords: CoachAttendanceRecord[]; dppDocument: AdminCoachDppDocument; onAddCoachAttendance: (input: ManualCoachAttendanceInput) => CoachAttendanceRecord; onCreateCoachDpp: (coach: AdminCoachSummary) => AdminCoachDppDocument; onMarkCoachDppSigned: (coachId: string) => void }) {
-  const trainerProducts = parentProducts.filter((product) => trainersForProduct(product).some((trainer) => trainer.id === coach.id));
+function CoachDetailCard({ products, coach, coachAttendanceRecords, dppDocument, onAddCoachAttendance, onCreateCoachDpp, onMarkCoachDppSigned, onCoachLocationSaved }: { products: ParentProduct[]; coach: AdminCoachSummary; coachAttendanceRecords: CoachAttendanceRecord[]; dppDocument: AdminCoachDppDocument; onAddCoachAttendance: (input: ManualCoachAttendanceInput) => CoachAttendanceRecord; onCreateCoachDpp: (coach: AdminCoachSummary) => AdminCoachDppDocument; onMarkCoachDppSigned: (coachId: string) => void; onCoachLocationSaved: (coachId: string, location: string) => void }) {
+  const trainerProducts = products.filter((product) => (product.coachIds ?? []).includes(coach.id));
+  const [locationForm, setLocationForm] = useState({ city: '', venue: '', day: 'Pondělí', time: '', group: '', latitude: '', longitude: '', radius: '300' });
+  const [locationMessage, setLocationMessage] = useState<string | null>(null);
+  const [savingLocation, setSavingLocation] = useState(false);
+  const [activeTab, setActiveTab] = useState<CoachDetailTab>('overview');
+
+  async function saveAdminCoachLocation() {
+    const latitude = Number(locationForm.latitude.replace(',', '.'));
+    const longitude = Number(locationForm.longitude.replace(',', '.'));
+    const radius = Number(locationForm.radius.replace(',', '.')) || 300;
+    if (!locationForm.city.trim() || !locationForm.venue.trim() || !locationForm.time.trim() || !locationForm.group.trim()) {
+      setLocationMessage('Vyplň město, místo, čas a skupinu.');
+      return;
+    }
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      setLocationMessage('Doplň GPS souřadnice pro docházku.');
+      return;
+    }
+    if (!hasSupabaseBrowserConfig()) {
+      setLocationMessage('Supabase není nakonfigurovaný.');
+      return;
+    }
+
+    setSavingLocation(true);
+    setLocationMessage(null);
+    try {
+      const supabase = createBrowserSupabaseClient();
+      const id = `admin-session-${coach.id}-${Date.now()}`;
+      const location = `${locationForm.city.trim()} · ${locationForm.venue.trim()}`;
+      const assignedCourses = Array.from(new Set([location, ...coach.locations.filter((item) => item !== 'Čeká na přiřazení')]));
+
+      const { error } = await supabase.from('coach_sessions').upsert({
+        id,
+        coach_id: coach.id,
+        city: locationForm.city.trim(),
+        venue: locationForm.venue.trim(),
+        day: locationForm.day,
+        time: locationForm.time.trim(),
+        group_name: locationForm.group.trim(),
+        enrolled: 0,
+        present: 0,
+        duration_hours: 1,
+        hourly_rate: 500,
+        latitude,
+        longitude,
+        check_in_radius_meters: Math.max(50, Math.round(radius)),
+      });
+      if (error) throw error;
+
+      await supabase.from('coach_profiles').upsert({ id: coach.id, current_location: location, assigned_courses: assignedCourses });
+      onCoachLocationSaved(coach.id, location);
+      setLocationForm({ city: '', venue: '', day: locationForm.day, time: '', group: '', latitude: '', longitude: '', radius: '300' });
+      setLocationMessage('Lokace je uložená u trenéra.');
+    } catch (error) {
+      setLocationMessage(error instanceof Error ? error.message : 'Lokaci se nepodařilo uložit.');
+    } finally {
+      setSavingLocation(false);
+    }
+  }
 
   return (
-    <Panel className="p-5">
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
-        <div className="rounded-[18px] border border-brand-purple/10 bg-white p-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <StatusPill label={coachStatusLabel(coach.status)} tone={coach.status === 'Aktivni' ? 'mint' : 'orange'} />
-              <h3 className="mt-3 text-xl font-black text-brand-ink">{coach.name}</h3>
-              <p className="mt-1 text-sm font-bold text-brand-ink-soft">{coach.locations.length} lokality · poslední zápis {coach.lastAttendance}</p>
-            </div>
-            <div className="flex h-12 w-12 items-center justify-center rounded-[16px] bg-brand-purple-light text-base font-black text-brand-purple-deep">{initialsForName(coach.name)}</div>
-          </div>
-          <div className="mt-4 grid gap-2 sm:grid-cols-2">
-            <InfoBlock icon={<Mail size={16} />} label="E-mail" value={coach.email} />
-            <InfoBlock icon={<Phone size={16} />} label="Telefon" value={coach.phone} />
-          </div>
-        </div>
-
-        <div className="rounded-[18px] bg-brand-ink p-4 text-white shadow-brand-soft">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-xs font-black uppercase text-white/60">K výplatě</p>
-              <p className="mt-1 text-2xl font-black">{currency(payoutAmountForCoach(coach, coachAttendanceRecords))}</p>
-            </div>
-            <span className="rounded-[14px] bg-white/10 p-2"><Banknote size={18} /></span>
-          </div>
-          <div className="mt-4 grid gap-2 text-sm font-bold leading-6 text-white/78">
-            <p><span className="text-[11px] font-black uppercase text-white/48">Bankovní účet</span><br />{coach.bankAccount}</p>
-            <p><span className="text-[11px] font-black uppercase text-white/48">IBAN</span><br />{coach.iban ?? 'není vyplněn'}</p>
-          </div>
-        </div>
-      </div>
-      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
+    <>
+      {/* Metrics row — always visible */}
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
         <Metric value={`${coach.loggedHours}`} label="hodin" />
         <Metric value={`${coach.childrenLogged}`} label="zapsání dětí" />
         <Metric value={currency(payoutAmountForCoach(coach, coachAttendanceRecords))} label="k výplatě" />
         <Metric value={coach.stripeAccountId ? 'aktivní' : 'chybí'} label="Stripe" />
         <Metric value={coachDppStatusLabel(dppDocument.status)} label="DPP" />
       </div>
-      <div className="mt-4 grid gap-3 lg:grid-cols-2">
-        <div className="rounded-[18px] border border-brand-purple/10 bg-white p-4">
-          <p className="text-xs font-black uppercase text-brand-purple">Platební informace</p>
-          <div className="mt-3 grid gap-2">
-            <InfoBlock label="Bankovní účet" value={coach.bankAccount} />
-            <InfoBlock label="IBAN" value={coach.iban ?? 'není vyplněn'} />
-            <InfoBlock label="Stripe Connect" value={coach.stripeAccountId ?? 'čeká na doplnění'} />
-          </div>
-        </div>
-        <div className="rounded-[18px] border border-brand-purple/10 bg-white p-4">
-          <p className="text-xs font-black uppercase text-brand-purple">Přiřazení</p>
-          <div className="mt-3 grid gap-2">
-            <InfoBlock label="Produkty" value={trainerProducts.length ? trainerProducts.map((product) => product.title).slice(0, 3).join(' · ') : 'Zatím bez veřejně přiřazeného produktu'} />
-            <InfoBlock label="QR triky" value={`${coach.qrTricksApproved} schváleno`} />
-          </div>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {coach.locations.map((location) => <span key={location} className="rounded-[14px] bg-brand-purple-light px-3 py-2 text-xs font-black text-brand-purple-deep">{location}</span>)}
-          </div>
-        </div>
+
+      {/* Tab bar */}
+      <div className="mt-5 grid grid-cols-4 gap-2 rounded-[18px] border border-brand-purple/10 bg-brand-paper p-1">
+        <ParticipantDetailTabButton active={activeTab === 'overview'} icon={<UserCheck size={16} />} label="Přehled" onClick={() => setActiveTab('overview')} />
+        <ParticipantDetailTabButton active={activeTab === 'finance'} icon={<Banknote size={16} />} label="Finance" onClick={() => setActiveTab('finance')} />
+        <ParticipantDetailTabButton active={activeTab === 'assignment'} icon={<MapPin size={16} />} label="Přiřazení" onClick={() => setActiveTab('assignment')} />
+        <ParticipantDetailTabButton active={activeTab === 'attendance'} icon={<History size={16} />} label="Docházka" onClick={() => setActiveTab('attendance')} />
       </div>
-      <div className="mt-4">
-        <CoachDppPanel coach={coach} document={dppDocument} onMarkSigned={onMarkCoachDppSigned} />
-      </div>
-      <div className="mt-4">
-        <CoachAttendancePanel coach={coach} records={coachAttendanceRecords} onAdd={onAddCoachAttendance} />
-      </div>
-    </Panel>
+
+      {/* Přehled */}
+      {activeTab === 'overview' ? (
+        <section className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+          <div className="rounded-[18px] border border-brand-purple/10 bg-white p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <StatusPill label={coachStatusLabel(coach.status)} tone={coach.status === 'Aktivni' ? 'mint' : 'orange'} />
+                <h3 className="mt-3 text-xl font-black text-brand-ink">{coach.name}</h3>
+                <p className="mt-1 text-sm font-bold text-brand-ink-soft">{coach.locations.length} lokality · poslední zápis {coach.lastAttendance}</p>
+              </div>
+              <div className="flex h-12 w-12 items-center justify-center rounded-[16px] bg-brand-purple-light text-base font-black text-brand-purple-deep">{initialsForName(coach.name)}</div>
+            </div>
+            <div className="mt-4 grid gap-2 sm:grid-cols-2">
+              <InfoBlock icon={<Mail size={16} />} label="E-mail" value={coach.email} />
+              <InfoBlock icon={<Phone size={16} />} label="Telefon" value={coach.phone} />
+            </div>
+          </div>
+          <div className="rounded-[18px] bg-brand-ink p-4 text-white shadow-brand-soft">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-black uppercase text-white/60">K výplatě</p>
+                <p className="mt-1 text-2xl font-black">{currency(payoutAmountForCoach(coach, coachAttendanceRecords))}</p>
+              </div>
+              <span className="rounded-[14px] bg-white/10 p-2"><Banknote size={18} /></span>
+            </div>
+            <div className="mt-4 grid gap-2 text-sm font-bold leading-6 text-white/78">
+              <p><span className="text-[11px] font-black uppercase text-white/48">Bankovní účet</span><br />{coach.bankAccount}</p>
+              <p><span className="text-[11px] font-black uppercase text-white/48">IBAN</span><br />{coach.iban ?? 'není vyplněn'}</p>
+              <p><span className="text-[11px] font-black uppercase text-white/48">Majitel účtu</span><br />{coach.payoutAccountHolder ?? coach.name}</p>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
+      {/* Finance */}
+      {activeTab === 'finance' ? (
+        <section className="mt-5 space-y-4">
+          <div className="rounded-[18px] border border-brand-purple/10 bg-brand-paper p-4">
+            <p className="text-xs font-black uppercase text-brand-purple">Platební informace</p>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              <InfoBlock label="Bankovní účet" value={coach.bankAccount} />
+              <InfoBlock label="IBAN" value={coach.iban ?? 'není vyplněn'} />
+              <InfoBlock label="Majitel účtu" value={coach.payoutAccountHolder ?? coach.name} />
+              <InfoBlock label="Stripe Connect" value={coach.stripeAccountId ?? 'čeká na doplnění'} />
+              {coach.payoutNote ? <InfoBlock label="Poznámka" value={coach.payoutNote} /> : null}
+            </div>
+          </div>
+          <CoachDppPanel coach={coach} document={dppDocument} onMarkSigned={onMarkCoachDppSigned} />
+        </section>
+      ) : null}
+
+      {/* Přiřazení */}
+      {activeTab === 'assignment' ? (
+        <section className="mt-5 space-y-4">
+          <div className="rounded-[18px] border border-brand-purple/10 bg-brand-paper p-4">
+            <p className="text-xs font-black uppercase text-brand-purple">Přiřazení produktů</p>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              <InfoBlock label="Produkty" value={trainerProducts.length ? trainerProducts.map((product) => product.title).slice(0, 3).join(' · ') : 'Zatím bez veřejně přiřazeného produktu'} />
+              <InfoBlock label="QR triky" value={`${coach.qrTricksApproved} schváleno`} />
+            </div>
+            {coach.locations.length > 0 ? (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {coach.locations.map((location) => <span key={location} className="rounded-[14px] bg-brand-purple-light px-3 py-2 text-xs font-black text-brand-purple-deep">{location}</span>)}
+              </div>
+            ) : null}
+          </div>
+          <div className="rounded-[18px] border border-brand-purple/10 bg-brand-paper p-4">
+            <div className="flex items-center gap-2 text-xs font-black uppercase text-brand-purple"><MapPin size={14} /> Přidat tréninkovou lokaci</div>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              <input value={locationForm.city} onChange={(event) => setLocationForm((current) => ({ ...current, city: event.target.value }))} placeholder="Město" className="rounded-[14px] border border-brand-purple/10 bg-white px-3 py-2 text-sm font-bold text-brand-ink outline-none focus:border-brand-purple" />
+              <input value={locationForm.venue} onChange={(event) => setLocationForm((current) => ({ ...current, venue: event.target.value }))} placeholder="Místo / škola" className="rounded-[14px] border border-brand-purple/10 bg-white px-3 py-2 text-sm font-bold text-brand-ink outline-none focus:border-brand-purple" />
+              <select value={locationForm.day} onChange={(event) => setLocationForm((current) => ({ ...current, day: event.target.value }))} className="rounded-[14px] border border-brand-purple/10 bg-white px-3 py-2 text-sm font-bold text-brand-ink outline-none focus:border-brand-purple">
+                {WEEK_DAY_NAMES_WEB.map((day) => <option key={day} value={day}>{day}</option>)}
+              </select>
+              <input value={locationForm.time} onChange={(event) => setLocationForm((current) => ({ ...current, time: event.target.value }))} placeholder="Čas 16:30 - 17:30" className="rounded-[14px] border border-brand-purple/10 bg-white px-3 py-2 text-sm font-bold text-brand-ink outline-none focus:border-brand-purple" />
+              <input value={locationForm.group} onChange={(event) => setLocationForm((current) => ({ ...current, group: event.target.value }))} placeholder="Skupina" className="rounded-[14px] border border-brand-purple/10 bg-white px-3 py-2 text-sm font-bold text-brand-ink outline-none focus:border-brand-purple" />
+              <input value={locationForm.radius} onChange={(event) => setLocationForm((current) => ({ ...current, radius: event.target.value }))} placeholder="Radius GPS v metrech" className="rounded-[14px] border border-brand-purple/10 bg-white px-3 py-2 text-sm font-bold text-brand-ink outline-none focus:border-brand-purple" />
+              <input value={locationForm.latitude} onChange={(event) => setLocationForm((current) => ({ ...current, latitude: event.target.value }))} placeholder="Latitude" className="rounded-[14px] border border-brand-purple/10 bg-white px-3 py-2 text-sm font-bold text-brand-ink outline-none focus:border-brand-purple" />
+              <input value={locationForm.longitude} onChange={(event) => setLocationForm((current) => ({ ...current, longitude: event.target.value }))} placeholder="Longitude" className="rounded-[14px] border border-brand-purple/10 bg-white px-3 py-2 text-sm font-bold text-brand-ink outline-none focus:border-brand-purple" />
+            </div>
+            <button type="button" disabled={savingLocation} onClick={saveAdminCoachLocation} className="mt-3 inline-flex items-center justify-center gap-2 rounded-[14px] bg-brand-purple px-4 py-2 text-sm font-black text-white shadow-brand transition hover:bg-brand-purple-deep disabled:opacity-60">
+              <Plus size={15} /> {savingLocation ? 'Ukládám...' : 'Uložit lokaci'}
+            </button>
+            {locationMessage ? <p className="mt-2 text-xs font-bold text-brand-ink-soft">{locationMessage}</p> : null}
+          </div>
+        </section>
+      ) : null}
+
+      {/* Docházka */}
+      {activeTab === 'attendance' ? (
+        <section className="mt-5">
+          <CoachAttendancePanel coach={coach} records={coachAttendanceRecords} onAdd={onAddCoachAttendance} />
+        </section>
+      ) : null}
+    </>
   );
 }
 
@@ -3099,6 +4200,7 @@ function CoachDppPanel({ coach, document, onMarkSigned }: { coach: AdminCoachSum
       <div className="mt-3 grid gap-3 md:grid-cols-2">
         <InfoBlock label="Účet pro výplatu" value={coach.bankAccount} />
         <InfoBlock label="IBAN" value={coach.iban ?? 'není vyplněn'} />
+        <InfoBlock label="Majitel účtu" value={coach.payoutAccountHolder ?? coach.name} />
       </div>
 
       <div className="mt-3 rounded-[16px] border border-brand-purple/10 bg-white p-4">
@@ -3178,14 +4280,14 @@ function CourseLocationStatCard({ stat, onOpenDetail }: { stat: ReturnType<typeo
   );
 }
 
-function ParticipantAttendanceRow({ record, onOpenParticipant }: { record: (typeof parentAttendanceHistory)[number]; onOpenParticipant: (participant: ParentParticipant, activityType: ActivityType, place: string) => void }) {
-  const participant = findParticipantByName(record.participantName);
+type ChildAttendanceRecord = { id: string; participantName: string; location: string; date: string; time: string; method: string };
 
+function ParticipantAttendanceRow({ record }: { record: ChildAttendanceRecord; onOpenParticipant: (participant: ParentParticipant, activityType: ActivityType, place: string) => void }) {
   return (
     <div className="grid gap-2 rounded-[16px] border border-brand-purple/10 bg-brand-paper p-3 text-sm transition hover:-translate-y-0.5 hover:border-brand-purple/24 hover:bg-white hover:shadow-brand-soft md:grid-cols-[minmax(0,1fr)_auto_auto] md:items-center">
-      <button type="button" disabled={!participant} onClick={() => participant ? onOpenParticipant(participant, 'Krouzek', record.location) : undefined} className="min-w-0 text-left font-black text-brand-ink underline-offset-4 hover:underline disabled:cursor-default disabled:no-underline">
+      <span className="min-w-0 text-left font-black text-brand-ink">
         {record.participantName} · {record.location}
-      </button>
+      </span>
       <span className="font-bold text-brand-ink-soft">{record.date} · {record.time}</span>
       <StatusPill label={record.method} tone="purple" />
     </div>
@@ -3215,23 +4317,24 @@ function ActivityAttendanceRow({ activity, onOpenDetail }: { activity: ReturnTyp
   );
 }
 
-function ActivityDetailModal({ activity, onClose, onOpenParticipant }: { activity: ReturnType<typeof adminActivityRows>[number]; onClose: () => void; onOpenParticipant: (participant: ParentParticipant) => void }) {
+function ActivityDetailModal({ activity, products, participants, documents, coaches, coachAttendanceRecords, onClose, onOpenParticipant }: { activity: ReturnType<typeof adminActivityRows>[number]; products: ParentProduct[]; participants: ParentParticipant[]; documents: AdminDocument[]; coaches: AdminCoachSummary[]; coachAttendanceRecords: CoachAttendanceRecord[]; onClose: () => void; onOpenParticipant: (participant: ParentParticipant) => void }) {
   const [selectedSessionDate, setSelectedSessionDate] = useState<string | null>(null);
   const [monthIdx, setMonthIdx] = useState(() => {
     const groups = buildActivitySessions(activity);
-    return Math.max(0, groups.length - 1); // default to latest month
+    return Math.max(0, groups.length - 1);
   });
   const monthGroups = buildActivitySessions(activity);
   const safeMonthIdx = Math.min(monthIdx, monthGroups.length - 1);
   const currentMonthGroup = monthGroups[safeMonthIdx];
   const sessions = currentMonthGroup.sessions;
-  const participants = registeredParticipantsForActivity(activity);
+  const registeredParticipants = registeredParticipantsForActivity(activity, products, participants, documents);
   const maxPresent = Math.max(...sessions.map((session) => session.present), 1);
-  const missingDocuments = missingDocumentsForActivity(activity);
+  const missingDocuments = missingDocumentsForActivity(activity, products, participants, documents);
   const showLessonRecords = activity.type === 'Krouzek';
   const activityVolume = activity.type === 'Krouzek' ? { value: `${activity.visits}`, label: 'návštěvy' } : activity.type === 'Tabor' ? { value: `${activity.registered}`, label: 'registrováno' } : { value: `${activity.registered}`, label: 'ticketů' };
   const selectedSession = sessions.find((session) => session.date === selectedSessionDate) ?? null;
   const visibleSessions = selectedSession ? [selectedSession] : sessions;
+  const activityCoachPresence = buildActivityCoachPresence(activity, products, coaches, coachAttendanceRecords, selectedSession?.date);
 
   return (
     <DetailModal title={activity.title} subtitle={`${activity.place} · ${activityLabel(activity.type)}`} onClose={onClose}>
@@ -3275,6 +4378,8 @@ function ActivityDetailModal({ activity, onClose, onOpenParticipant }: { activit
         </section>
       ) : null}
 
+      <ActivityCoachPresencePanel coaches={activityCoachPresence} activityType={activity.type} selectedDate={selectedSession?.date ?? null} />
+
       {showLessonRecords ? (
         <section className="mt-5 rounded-[18px] border border-brand-purple/10 bg-brand-paper p-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -3287,13 +4392,15 @@ function ActivityDetailModal({ activity, onClose, onOpenParticipant }: { activit
           </div>
           <div className="mt-4 grid gap-2">
             {visibleSessions.map((session) => {
-              const sessionParticipants = sessionParticipantsForActivity(activity, session.present);
+              const sessionParticipants = sessionParticipantsForActivity(activity, session.present, products, participants, documents);
+              const sessionCoaches = buildActivityCoachPresence(activity, products, coaches, coachAttendanceRecords, session.date);
               return (
                 <div key={`session-${session.date}`} className="rounded-[16px] bg-white p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
                       <p className="font-black text-brand-ink">{session.date}</p>
                       <p className="mt-1 text-xs font-bold text-brand-ink-soft">{session.absent} omluveno / chybělo · {session.capacityTotal} kapacita</p>
+                      <p className="mt-1 text-xs font-bold text-brand-purple">Trenér: {sessionCoaches.length > 0 ? sessionCoaches.map((coach) => coach.name).join(', ') : 'zatím nepřiřazen'}</p>
                     </div>
                     <StatusPill label={`${session.present} dětí`} tone="mint" />
                   </div>
@@ -3306,19 +4413,20 @@ function ActivityDetailModal({ activity, onClose, onOpenParticipant }: { activit
           </div>
         </section>
       ) : (
-        <RegisteredParticipantsSection activity={activity} participants={participants} onOpenParticipant={onOpenParticipant} />
+        <RegisteredParticipantsSection activity={activity} participants={registeredParticipants} documents={documents} onOpenParticipant={onOpenParticipant} />
       )}
     </DetailModal>
   );
 }
 
-function ParticipantDetailModal({ detail, onClose }: { detail: ParticipantDetailState; onClose: () => void }) {
+function ParticipantDetailModal({ detail, documents: allDocuments, onClose }: { detail: ParticipantDetailState; documents: AdminDocument[]; onClose: () => void }) {
   const [activeTab, setActiveTab] = useState<ParticipantDetailTab>('documents');
   const { participant, activityType, place } = detail;
-  const documents = documentsForActivityParticipant(participant, activityType);
+  const documents = documentsForActivityParticipant(participant, activityType, allDocuments);
   const missingDocuments = documents.filter((document) => document.status !== 'signed');
   const attendanceRows = activityType === 'Krouzek' ? buildCompleteCourseAttendance(participant, place) : [];
   const participantName = `${participant.firstName} ${participant.lastName}`;
+  const adminParticipant = participant as AdminParticipant;
   const activityStatus = activityType === 'Krouzek' ? `${participant.attendanceDone}/${participant.attendanceTotal}` : activityType === 'Tabor' ? 'Registrován' : 'Ticket';
   const activityStatusLabel = activityType === 'Krouzek' ? 'docházka' : 'stav';
 
@@ -3390,10 +4498,10 @@ function ParticipantDetailModal({ detail, onClose }: { detail: ParticipantDetail
         <section className="mt-5 rounded-[18px] border border-brand-purple/10 bg-brand-paper p-4">
           <SectionTitle icon={<Phone size={18} />} title="Kontakty rodiče" subtitle="rychlé provozní spojení k účastníkovi" />
           <div className="mt-4 grid gap-3 md:grid-cols-2">
-            <InfoBlock label="Rodič" value={parentProfile.name} />
+            <InfoBlock label="Rodič" value={adminParticipant.parentName ?? 'Kontakt není evidovaný'} />
             <InfoBlock label="Účastník" value={`${participantName} · ${participant.birthNumberMasked}`} />
-            <ContactBlock icon={<Phone size={17} />} label="Telefon" value={parentProfile.phone} />
-            <ContactBlock icon={<Mail size={17} />} label="E-mail" value={parentProfile.email} />
+            <ContactBlock icon={<Phone size={17} />} label="Telefon" value={adminParticipant.parentPhone ?? 'Telefon není evidovaný'} />
+            <ContactBlock icon={<Mail size={17} />} label="E-mail" value={adminParticipant.parentEmail ?? 'E-mail není evidovaný'} />
           </div>
         </section>
       ) : null}
@@ -3401,23 +4509,61 @@ function ParticipantDetailModal({ detail, onClose }: { detail: ParticipantDetail
   );
 }
 
-function RegisteredParticipantsSection({ activity, participants, onOpenParticipant }: { activity: ReturnType<typeof adminActivityRows>[number]; participants: ActivityParticipantRecord[]; onOpenParticipant: (participant: ParentParticipant) => void }) {
+function RegisteredParticipantsSection({ activity, participants, documents, onOpenParticipant }: { activity: ReturnType<typeof adminActivityRows>[number]; participants: ActivityParticipantRecord[]; documents: AdminDocument[]; onOpenParticipant: (participant: ParentParticipant) => void }) {
   const showDocuments = activity.type !== 'Workshop';
 
   return (
-    <section className="mt-5 rounded-[18px] border border-brand-purple/10 bg-brand-paper p-4">
-      <SectionTitle icon={<Users size={18} />} title={activity.type === 'Tabor' ? 'Registrovaní účastníci tábora' : 'Registrovaní účastníci'} subtitle={showDocuments ? `${participants.length}/${activity.registered} zobrazeno · dokumenty jsou přímo u účastníků` : `${participants.length}/${activity.registered} zobrazeno v administraci`} />
+    <section className="mt-3 rounded-[18px] border border-brand-purple/10 bg-brand-paper p-4">
+      <div className="flex items-center gap-2">
+        <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-brand-purple/10 text-brand-purple"><Users size={16} /></span>
+        <div>
+          <p className="text-sm font-black text-brand-ink">{activity.type === 'Tabor' ? 'Registrovaní účastníci tábora' : 'Registrovaní účastníci'}</p>
+          <p className="text-[11px] font-bold text-brand-ink-soft">{showDocuments ? `${participants.length}/${activity.registered} zobrazeno · dokumenty jsou přímo u účastníků` : `${participants.length}/${activity.registered} zobrazeno v administraci`}</p>
+        </div>
+      </div>
       <div className={showDocuments ? 'mt-4 grid gap-3' : 'mt-4 grid gap-2 md:grid-cols-2'}>
-        {participants.map((participant) => <RegisteredParticipantCard key={participant.id} activity={activity} participant={participant} onOpenParticipant={onOpenParticipant} />)}
+        {participants.map((participant) => <RegisteredParticipantCard key={participant.id} activity={activity} participant={participant} documents={documents} onOpenParticipant={onOpenParticipant} />)}
       </div>
       {participants.length === 0 ? <EmptyState text="Zatím tady nejsou registrovaní účastníci." /> : null}
     </section>
   );
 }
 
-function RegisteredParticipantCard({ activity, participant, onOpenParticipant }: { activity: ReturnType<typeof adminActivityRows>[number]; participant: ActivityParticipantRecord; onOpenParticipant: (participant: ParentParticipant) => void }) {
+function ActivityCoachPresencePanel({ coaches, activityType, selectedDate }: { coaches: ActivityCoachPresence[]; activityType: ActivityType; selectedDate: string | null }) {
+  const title = activityType === 'Krouzek' ? 'Trenéři na lekci' : activityType === 'Tabor' ? 'Trenéři na táboře' : 'Trenéři na workshopu';
+  const subtitle = selectedDate
+    ? `${selectedDate} · z přiřazení produktu a trenérské docházky`
+    : 'z přiřazení produktu a případné trenérské docházky';
+
+  return (
+    <section className="mt-5 rounded-[18px] bg-brand-ink p-4">
+      <div className="flex items-center gap-2">
+        <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-white/10 text-white"><UserCheck size={16} /></span>
+        <div>
+          <p className="text-sm font-black text-white">{title}</p>
+          <p className="text-[11px] font-bold text-white/50">{subtitle}</p>
+        </div>
+      </div>
+      {coaches.length > 0 ? (
+        <div className="mt-4 grid gap-2 md:grid-cols-2">
+          {coaches.map((coach) => (
+            <div key={coach.id} className="flex flex-wrap items-center justify-between gap-3 rounded-[16px] bg-white/8 p-3">
+              <div className="min-w-0">
+                <p className="font-black text-white">{coach.name}</p>
+                <p className="mt-1 text-xs font-bold text-white/50">{coach.detail}</p>
+              </div>
+              <StatusPill label={coach.source === 'attendance' ? 'zapsán' : 'přiřazen'} tone={coach.source === 'attendance' ? 'mint' : 'purple'} />
+            </div>
+          ))}
+        </div>
+      ) : <div className="mt-4"><p className="text-sm font-bold text-white/40">U tohoto produktu zatím není přiřazený žádný trenér.</p></div>}
+    </section>
+  );
+}
+
+function RegisteredParticipantCard({ activity, participant, documents, onOpenParticipant }: { activity: ReturnType<typeof adminActivityRows>[number]; participant: ActivityParticipantRecord; documents: AdminDocument[]; onOpenParticipant: (participant: ParentParticipant) => void }) {
   const linkedParticipant = participant.participant;
-  const participantDocuments = linkedParticipant ? activityDocumentsForParticipant(linkedParticipant, activity) : [];
+  const participantDocuments = linkedParticipant ? activityDocumentsForParticipant(linkedParticipant, activity, documents) : [];
   const activityMetricLabel = activity.type === 'Krouzek' ? 'docházka' : 'stav';
   const missingDocs = participantDocuments.filter((d) => d.status !== 'signed').length;
   const [docsOpen, setDocsOpen] = useState(false);
@@ -3499,7 +4645,7 @@ function ParticipantActivityList({ participant, activityType }: { participant: P
   return (
     <div className="grid gap-2">
       {purchases.map((purchase) => <MiniRow key={`${purchase.type}-${purchase.title}`} label={purchase.title} meta={activityLabel(purchase.type)} value={purchase.status} />)}
-      {purchases.length === 0 ? <EmptyState text="Účastník nemá v demo datech detail docházky pro tento typ aktivity." /> : null}
+      {purchases.length === 0 ? <EmptyState text="Účastník nemá v databázi detail pro tento typ aktivity." /> : null}
     </div>
   );
 }
@@ -3578,9 +4724,9 @@ function DocumentPreview({ document }: { document: ParentDocument }) {
       </div>
 
       <div className="mt-3 grid gap-2 md:grid-cols-3">
-        <InfoBlock label="Rodič" value={parentProfile.name} />
-        <InfoBlock label="Telefon" value={parentProfile.phone} />
-        <InfoBlock label="E-mail" value={parentProfile.email} />
+        <InfoBlock label="Zástupce" value="Zákonný zástupce účastníka" />
+        <InfoBlock label="Zdroj" value="Evidence dokumentů" />
+        <InfoBlock label="Aktualizace" value={document.updatedAt} />
       </div>
     </div>
   );
@@ -3600,7 +4746,7 @@ function documentPreviewRows(document: ParentDocument) {
 function documentPreviewContent(document: ParentDocument) {
   const kind = documentKindForTitle(document.title);
   const activity = `${document.activityTitle} (${activityLabel(document.activityType)})`;
-  const signer = parentProfile.name;
+  const signer = 'zákonný zástupce';
   const confirmation = document.status === 'signed'
     ? `Digitálně potvrzeno zákonným zástupcem ${signer}. Stav dokumentu: ${documentStatusLabel(document.status)} · ${document.updatedAt}.`
     : `Dokument čeká na doplnění zákonným zástupcem ${signer}. Stav dokumentu: ${documentStatusLabel(document.status)}.`;
@@ -3707,8 +4853,8 @@ function documentKindLabel(kind: string) {
   return kind;
 }
 
-function RequiredDocumentsPreview({ type, title }: { type: Exclude<ActivityType, 'Workshop'>; title: string }) {
-  const product = parentProducts.find((item) => item.type === type);
+function RequiredDocumentsPreview({ type, title, products }: { type: Exclude<ActivityType, 'Workshop'>; title: string; products: ParentProduct[] }) {
+  const product = products.find((item) => item.type === type);
   const documents = product ? requiredDocumentsForProduct(product) : [];
   return (
     <div className="rounded-[16px] border border-brand-purple/10 bg-white p-4">
@@ -3803,6 +4949,26 @@ function AdminSignal({ value, label, tone }: { value: string; label: string; ton
   );
 }
 
+function OverviewFocusCard({ icon, label, value, detail, tone, onClick }: { icon: ReactNode; label: string; value: string; detail: string; tone: 'purple' | 'pink' | 'orange' | 'mint'; onClick: () => void }) {
+  const toneClass = {
+    purple: 'border-brand-purple/20 bg-brand-purple/5 text-brand-purple',
+    pink: 'border-brand-pink/25 bg-brand-pink/5 text-brand-pink',
+    orange: 'border-brand-orange/30 bg-brand-orange/10 text-brand-orange-deep',
+    mint: 'border-emerald-200 bg-emerald-50 text-emerald-600',
+  }[tone];
+
+  return (
+    <button type="button" onClick={onClick} className="rounded-[22px] border border-brand-purple/10 bg-white p-4 text-left shadow-brand transition hover:-translate-y-0.5 hover:border-brand-purple/24 hover:shadow-brand-soft">
+      <div className="flex items-start justify-between gap-3">
+        <span className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[15px] border ${toneClass}`}>{icon}</span>
+        <span className="rounded-full bg-brand-paper px-2.5 py-1 text-[10px] font-black uppercase text-brand-ink-soft">{label}</span>
+      </div>
+      <p className="mt-4 text-2xl font-black leading-tight text-brand-ink">{value}</p>
+      <p className="mt-1 text-sm font-bold leading-5 text-brand-ink-soft">{detail}</p>
+    </button>
+  );
+}
+
 function ActionTile({ icon, label, value, onClick }: { icon: ReactNode; label: string; value: string; onClick: () => void }) {
   return (
     <button type="button" onClick={onClick} className="grid min-h-[86px] grid-cols-[44px_minmax(0,1fr)] items-center gap-3 rounded-[16px] border border-white/10 bg-white/10 p-3 text-left text-white transition hover:-translate-y-0.5 hover:border-white/20 hover:bg-white/16 hover:shadow-brand-soft">
@@ -3812,6 +4978,15 @@ function ActionTile({ icon, label, value, onClick }: { icon: ReactNode; label: s
         <span className="mt-1 block break-words text-sm font-bold leading-tight text-white/64">{value}</span>
       </span>
     </button>
+  );
+}
+
+function HealthRow({ label, value, tone }: { label: string; value: string; tone: 'purple' | 'pink' | 'orange' | 'mint' }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-[16px] bg-brand-paper px-3 py-3">
+      <p className="text-sm font-black text-brand-ink">{label}</p>
+      <StatusPill label={value} tone={tone} />
+    </div>
   );
 }
 
@@ -4128,17 +5303,21 @@ type AdminTotals = {
   paidTotal: number;
   pendingTotal: number;
   payoutTotal: number;
+  coachCount: number;
+  participantCount: number;
   missingDocuments: number;
   courseCount: number;
   transferCount: number;
 };
 
-function buildTotals(paymentRows: AdminPaymentRow[], activityRows: ReturnType<typeof adminActivityRows>, coaches: AdminCoachSummary[], transfers: TrainerPayoutTransfer[], coachAttendanceRecords: CoachAttendanceRecord[]): AdminTotals {
+function buildTotals(paymentRows: AdminPaymentRow[], activityRows: ReturnType<typeof adminActivityRows>, coaches: AdminCoachSummary[], transfers: TrainerPayoutTransfer[], coachAttendanceRecords: CoachAttendanceRecord[], participants: ParentParticipant[], documents: AdminDocument[]): AdminTotals {
   return {
     paidTotal: paymentRows.filter((payment) => isPaidStatus(payment.status)).reduce((sum, payment) => sum + Number(payment.amount || 0), 0),
     pendingTotal: paymentRows.filter((payment) => !isPaidStatus(payment.status)).reduce((sum, payment) => sum + Number(payment.amount || 0), 0),
     payoutTotal: coaches.reduce((sum, coach) => sum + payoutAmountForCoach(coach, coachAttendanceRecords), 0),
-    missingDocuments: allParticipantDocuments().filter((document) => document.status !== 'signed').length,
+    coachCount: coaches.length,
+    participantCount: participants.length,
+    missingDocuments: documents.filter((document) => document.status !== 'signed').length,
     courseCount: activityRows.length,
     transferCount: transfers.length,
   };
@@ -4146,7 +5325,7 @@ function buildTotals(paymentRows: AdminPaymentRow[], activityRows: ReturnType<ty
 
 function buildPaymentRows(finance: AdminFinanceResponse | null): AdminPaymentRow[] {
   const purchases = finance?.purchases ?? [];
-  if (purchases.length === 0) return adminPaymentRows();
+  if (purchases.length === 0) return [];
 
   return purchases.map((purchase) => ({
     id: purchase.id,
@@ -4158,15 +5337,370 @@ function buildPaymentRows(finance: AdminFinanceResponse | null): AdminPaymentRow
   }));
 }
 
-function mergeCoachData(finance: AdminFinanceResponse | null): AdminCoachSummary[] {
-  return adminCoachSummaries.map((coach) => {
+function mapAdminInvoiceRow(row: AdminInvoiceRow): Invoice {
+  const issuedDate = row.datum_vystaveni || row.created_at?.slice(0, 10) || '';
+  const description = row.popis?.trim() || row.cislo_faktury?.trim() || 'Faktura';
+  const supplier = row.dodavatel?.trim() || 'Dodavatel není vyplněný';
+
+  return {
+    id: String(row.id),
+    supplier,
+    description,
+    amount: parseInvoiceAmount(row.castka),
+    issuedDate,
+    dueDate: row.datum_splatnosti || issuedDate,
+    paid: Boolean(row.zaplaceno),
+    paidDate: row.datum_zaplaceni || undefined,
+    category: categorizeInvoice(`${supplier} ${description}`),
+  };
+}
+
+function parseInvoiceAmount(value: string | null | undefined) {
+  if (!value) return 0;
+  const normalized = value.replace(/\s+/g, '').replace(',', '.');
+  const amount = Number.parseFloat(normalized);
+  return Number.isFinite(amount) ? amount : 0;
+}
+
+function categorizeInvoice(text: string): Invoice['category'] {
+  const normalized = normalizeText(text);
+  if (/telocvic|hala|pronajem|skola|zs|zš|orel/.test(normalized)) return 'Tělocvična';
+  if (/matrac|prekaz|prekaž|vybaven|sportovni sklad/.test(normalized)) return 'Vybavení';
+  if (/marketing|reklam|meta|facebook|instagram|letak/.test(normalized)) return 'Marketing';
+  return 'Ostatní';
+}
+
+function buildLiveActivityRows(products: ParentProduct[], participants: ParentParticipant[], paymentRows: AdminPaymentRow[]): ReturnType<typeof adminActivityRows> {
+  return products.map((product) => {
+    const productParticipants = participants.filter((participant) => participantBelongsToProduct(participant, product));
+    const productPayments = paymentRows.filter((payment) => paymentBelongsToProduct(payment, product));
+    const revenue = productPayments.filter((payment) => isPaidStatus(payment.status)).reduce((sum, payment) => sum + payment.amount, 0);
+    const pendingRevenue = productPayments.filter((payment) => !isPaidStatus(payment.status)).reduce((sum, payment) => sum + payment.amount, 0);
+
+    return {
+      id: product.id,
+      type: product.type,
+      title: product.title,
+      place: product.place,
+      capacityTotal: product.capacityTotal,
+      registered: productParticipants.length,
+      visits: product.type === 'Krouzek' ? productParticipants.reduce((sum, participant) => sum + participant.attendanceDone, 0) : productParticipants.length,
+      revenue,
+      pendingRevenue,
+      documentsMissing: 0,
+    };
+  });
+}
+
+function paymentBelongsToProduct(payment: AdminPaymentRow, product: ParentProduct) {
+  const paymentText = normalizeText(`${payment.title} ${payment.participantName}`);
+  const title = normalizeText(product.title);
+  const place = normalizeText(product.place);
+  const city = normalizeText(product.city);
+
+  return Boolean(title && paymentText.includes(title)) || Boolean(place && paymentText.includes(place)) || Boolean(city && paymentText.includes(city));
+}
+
+async function loadAdminParticipants(products: ParentProduct[]): Promise<AdminParticipant[]> {
+  if (!hasSupabaseBrowserConfig()) return [];
+
+  const supabase = createBrowserSupabaseClient();
+  const [{ data: participantRows, error: participantError }, { data: purchaseRows, error: purchaseError }, { data: passRows }] = await Promise.all([
+    supabase
+      .from('participants')
+      .select('id,parent_profile_id,first_name,last_name,birth_number_masked,level,xp,next_bracelet_xp,attendance_done,attendance_total,active_course,next_training,active_purchases,bracelet,bracelet_color,paid_status'),
+    supabase
+      .from('parent_purchases')
+      .select('id,parent_profile_id,product_id,participant_id,participant_name,type,title,amount,status,expires_at'),
+    supabase
+      .from('digital_passes')
+      .select('participant_id,total_entries,used_entries'),
+  ]);
+
+  if (participantError || purchaseError) return [];
+
+  const participantRowsList = ((participantRows ?? []) as AdminParticipantRow[]).filter((row) => !isDemoAdminRecord(row.id, row.parent_profile_id, row.first_name, row.last_name));
+  const purchases = ((purchaseRows ?? []) as AdminPurchaseRow[]).filter((purchase) => !isDemoAdminRecord(purchase.id, purchase.parent_profile_id, purchase.participant_id, purchase.participant_name));
+  const parentIds = Array.from(new Set([
+    ...participantRowsList.map((row) => row.parent_profile_id).filter(Boolean),
+    ...purchases.map((purchase) => purchase.parent_profile_id).filter(Boolean),
+  ])) as string[];
+  const parentsById = new Map<string, AdminParentProfileRow>();
+
+  if (parentIds.length > 0) {
+    const { data: parentRows } = await supabase
+      .from('app_profiles')
+      .select('id,name,email,phone')
+      .in('id', parentIds);
+
+    for (const parent of (parentRows ?? []) as AdminParentProfileRow[]) parentsById.set(parent.id, parent);
+  }
+
+  const productById = new Map(products.map((product) => [product.id, product]));
+  const purchasesByParticipant = new Map<string, AdminPurchaseRow[]>();
+
+  for (const purchase of purchases) {
+    if (!purchase.participant_id) continue;
+    const current = purchasesByParticipant.get(purchase.participant_id) ?? [];
+    current.push(purchase);
+    purchasesByParticipant.set(purchase.participant_id, current);
+  }
+
+  const participants = participantRowsList.map((row) => participantFromRows(row, purchasesByParticipant.get(row.id) ?? [], productById, row.parent_profile_id ? parentsById.get(row.parent_profile_id) : undefined));
+  const knownIds = new Set(participants.map((participant) => participant.id));
+
+  for (const purchase of purchases) {
+    if (!purchase.participant_id || knownIds.has(purchase.participant_id)) continue;
+    knownIds.add(purchase.participant_id);
+    participants.push(participantFromPurchase(purchase, productById.get(purchase.product_id), purchase.parent_profile_id ? parentsById.get(purchase.parent_profile_id) : undefined));
+  }
+
+  // Build map of remaining digital-pass entries per participant
+  const passRemainingByParticipant = new Map<string, number>();
+  for (const pass of (passRows ?? []) as Array<{ participant_id: string; total_entries: number; used_entries: number }>) {
+    const remaining = Math.max(0, pass.total_entries - pass.used_entries);
+    passRemainingByParticipant.set(pass.participant_id, (passRemainingByParticipant.get(pass.participant_id) ?? 0) + remaining);
+  }
+
+  // Build map of latest Kroužek purchase expiry per participant (null = no expiry)
+  const courseExpiresAtByParticipant = new Map<string, string | null>();
+  for (const purchase of purchases) {
+    if (dbActivityType(purchase.type) !== 'Krouzek') continue;
+    if (!purchase.participant_id) continue;
+    const existing = courseExpiresAtByParticipant.get(purchase.participant_id);
+    if (existing === null) continue; // null = never expires, keep
+    if (!purchase.expires_at) {
+      courseExpiresAtByParticipant.set(purchase.participant_id, null);
+    } else if (!existing || purchase.expires_at > existing) {
+      courseExpiresAtByParticipant.set(purchase.participant_id, purchase.expires_at);
+    }
+  }
+
+  // Attach pass validity data to each participant
+  for (const p of participants) {
+    const admin = p as AdminParticipant;
+    if (passRemainingByParticipant.has(p.id)) admin.passRemainingEntries = passRemainingByParticipant.get(p.id);
+    if (courseExpiresAtByParticipant.has(p.id)) admin.courseExpiresAt = courseExpiresAtByParticipant.get(p.id);
+  }
+
+  return participants.sort((a, b) => `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`, 'cs'));
+}
+
+function participantFromRows(row: AdminParticipantRow, purchases: AdminPurchaseRow[], productById: Map<string, ParentProduct>, parent?: AdminParentProfileRow): AdminParticipant {
+  const dbPurchases = purchases.map((purchase) => purchaseToActivePurchase(purchase, productById.get(purchase.product_id)));
+  const storedPurchases = Array.isArray(row.active_purchases) ? row.active_purchases.map((purchase) => ({
+    type: dbActivityType(purchase.type),
+    title: purchase.title || '',
+    status: purchase.status || 'Zaplaceno',
+  })).filter((purchase) => purchase.title.length > 0) : [];
+  const activePurchases = dedupePurchases([...dbPurchases, ...storedPurchases]);
+  const coursePurchase = purchases.find((purchase) => dbActivityType(purchase.type) === 'Krouzek');
+  const courseProduct = coursePurchase ? productById.get(coursePurchase.product_id) : undefined;
+
+  return {
+    id: row.id,
+    firstName: row.first_name || 'Účastník',
+    lastName: row.last_name || '',
+    birthNumberMasked: row.birth_number_masked || '',
+    activeCourse: row.active_course || courseProduct?.place || '',
+    nextTraining: row.next_training || courseProduct?.primaryMeta || '',
+    attendanceDone: row.attendance_done ?? 0,
+    attendanceTotal: row.attendance_total ?? 0,
+    xp: row.xp ?? 0,
+    level: row.level ?? 1,
+    bracelet: row.bracelet || 'Začátečník',
+    braceletColor: row.bracelet_color || '#7E4AF2',
+    nextBraceletXp: row.next_bracelet_xp ?? 100,
+    activePurchases,
+    parentProfileId: row.parent_profile_id ?? undefined,
+    parentName: parent?.name ?? undefined,
+    parentEmail: parent?.email ?? undefined,
+    parentPhone: parent?.phone ?? undefined,
+  };
+}
+
+function participantFromPurchase(purchase: AdminPurchaseRow, product?: ParentProduct, parent?: AdminParentProfileRow): AdminParticipant {
+  const name = purchase.participant_name?.trim() || 'Účastník';
+  const [firstName, ...lastNameParts] = name.split(/\s+/);
+  return {
+    id: purchase.participant_id,
+    firstName: firstName || 'Účastník',
+    lastName: lastNameParts.join(' '),
+    birthNumberMasked: '',
+    activeCourse: product?.type === 'Krouzek' ? product.place : '',
+    nextTraining: product?.type === 'Krouzek' ? product.primaryMeta : '',
+    attendanceDone: 0,
+    attendanceTotal: 0,
+    xp: 0,
+    level: 1,
+    bracelet: 'Začátečník',
+    braceletColor: '#7E4AF2',
+    nextBraceletXp: 100,
+    activePurchases: [purchaseToActivePurchase(purchase, product)],
+    parentProfileId: purchase.parent_profile_id ?? undefined,
+    parentName: parent?.name ?? undefined,
+    parentEmail: parent?.email ?? undefined,
+    parentPhone: parent?.phone ?? undefined,
+  };
+}
+
+function purchaseToActivePurchase(purchase: AdminPurchaseRow, product?: ParentProduct) {
+  return {
+    type: product?.type ?? dbActivityType(purchase.type),
+    title: product?.title || purchase.title || product?.place || '',
+    status: purchase.status || 'Zaplaceno',
+  };
+}
+
+function dedupePurchases(purchases: Array<{ type: ActivityType; title: string; status: string }>) {
+  const map = new Map<string, { type: ActivityType; title: string; status: string }>();
+  for (const purchase of purchases) {
+    const key = `${purchase.type}-${normalizeText(purchase.title)}`;
+    if (!map.has(key)) map.set(key, purchase);
+  }
+  return Array.from(map.values());
+}
+
+function dbActivityType(value?: string): ActivityType {
+  const normalized = normalizeText(value ?? '');
+  if (normalized.includes('tabor')) return 'Tabor';
+  if (normalized.includes('workshop')) return 'Workshop';
+  return 'Krouzek';
+}
+
+async function loadAdminParticipantDocuments(): Promise<AdminDocument[]> {
+  if (!hasSupabaseBrowserConfig()) return [];
+
+  const supabase = createBrowserSupabaseClient();
+  const { data, error } = await supabase
+    .from('course_documents')
+    .select('id,participant_id,participant_name,purchase_id,product_id,activity_type,kind,title,status,course_place,updated_at_text,updated_at')
+    .order('updated_at', { ascending: false });
+
+  if (error) return [];
+  return ((data ?? []) as AdminDocumentRow[]).map(mapAdminDocumentRow);
+}
+
+function mapAdminDocumentRow(row: AdminDocumentRow): AdminDocument {
+  return {
+    id: row.id,
+    participantId: row.participant_id,
+    participantName: row.participant_name || '',
+    productId: row.product_id || '',
+    purchaseId: row.purchase_id || '',
+    kind: row.kind || '',
+    coursePlace: row.course_place || '',
+    activityTitle: row.course_place || row.title || 'Aktivita',
+    activityType: dbActivityType(row.activity_type || ''),
+    title: row.title || 'Dokument',
+    status: dbDocumentStatus(row.status),
+    updatedAt: row.updated_at_text || (row.updated_at ? new Date(row.updated_at).toLocaleDateString('cs-CZ') : 'Evidováno'),
+  };
+}
+
+function dbDocumentStatus(value?: string | null): DocumentStatus {
+  const normalized = normalizeText(value ?? '');
+  if (normalized === 'signed' || normalized === 'podepsano' || normalized === 'podepsany') return 'signed';
+  if (normalized === 'draft' || normalized === 'navrh') return 'draft';
+  return 'missing';
+}
+
+async function persistCourseCoachAssignments(product: ParentProduct, previousCoachIds: string[], nextCoachIds: string[]) {
+  if (!hasSupabaseBrowserConfig()) return;
+
+  const supabase = createBrowserSupabaseClient();
+  const previous = new Set(previousCoachIds);
+  const next = new Set(nextCoachIds);
+  const added = nextCoachIds.filter((coachId) => !previous.has(coachId));
+  const removed = previousCoachIds.filter((coachId) => !next.has(coachId));
+
+  if (removed.length > 0) {
+    await supabase.from('coach_sessions').delete().in('id', removed.map((coachId) => courseSessionId(product, coachId)));
+  }
+
+  if (added.length > 0) {
+    const rows = added.map((coachId) => courseSessionRow(product, coachId));
+    await supabase.from('coach_sessions').upsert(rows, { onConflict: 'id' });
+  }
+
+  await Promise.all([...added, ...removed].map((coachId) => syncCoachAssignedCourses(supabase, coachId, product.place, next.has(coachId))));
+}
+
+function courseSessionId(product: ParentProduct, coachId: string) {
+  return `coach-session-${coachId}-${product.id}`;
+}
+
+function courseSessionRow(product: ParentProduct, coachId: string) {
+  const { day, time, durationHours } = parseCoursePrimaryMeta(product.primaryMeta);
+  return {
+    id: courseSessionId(product, coachId),
+    coach_id: coachId,
+    city: product.city,
+    venue: product.venue || product.place,
+    group_name: product.title || product.place,
+    day,
+    time,
+    enrolled: product.capacityCurrent,
+    present: 0,
+    duration_hours: durationHours,
+    hourly_rate: 500,
+  };
+}
+
+function parseCoursePrimaryMeta(primaryMeta: string) {
+  const normalized = normalizeText(primaryMeta);
+  const day = ['Pondělí', 'Úterý', 'Středa', 'Čtvrtek', 'Pátek', 'Sobota', 'Neděle'].find((item) => normalized.includes(normalizeText(item))) ?? 'Pondělí';
+  const timeMatch = primaryMeta.match(/(\d{1,2}:\d{2})\s*[-–]\s*(\d{1,2}:\d{2})/);
+  const time = timeMatch ? `${timeMatch[1]} - ${timeMatch[2]}` : primaryMeta;
+  const durationHours = timeMatch ? Math.max(1, hourValue(timeMatch[2]) - hourValue(timeMatch[1])) : 1;
+  return { day, time, durationHours };
+}
+
+function hourValue(value: string) {
+  const [hours, minutes] = value.split(':').map(Number);
+  return hours + (minutes || 0) / 60;
+}
+
+async function syncCoachAssignedCourses(supabase: ReturnType<typeof createBrowserSupabaseClient>, coachId: string, place: string, shouldHaveCourse: boolean) {
+  const { data } = await supabase.from('coach_profiles').select('assigned_courses').eq('id', coachId).maybeSingle();
+  const assignedCourses = Array.isArray(data?.assigned_courses) ? data.assigned_courses.filter((course): course is string => typeof course === 'string') : [];
+  const nextCourses = shouldHaveCourse
+    ? Array.from(new Set([place, ...assignedCourses]))
+    : assignedCourses.filter((course) => course !== place);
+  await supabase.from('coach_profiles').upsert({ id: coachId, assigned_courses: nextCourses }, { onConflict: 'id' });
+}
+
+function mergeCoachData(finance: AdminFinanceResponse | null, liveCoaches: AdminCoachSummary[] | null): AdminCoachSummary[] {
+  const sourceCoaches = liveCoaches ?? [];
+
+  return sourceCoaches.map((coach) => {
     const apiCoach = finance?.coaches?.find((item) => item.id === coach.id);
     return {
       ...coach,
       stripeAccountId: apiCoach?.stripe_account_id || coach.stripeAccountId,
+      level: apiCoach?.level ?? coach.level,
+      xp: apiCoach?.xp ?? coach.xp,
       qrTricksApproved: apiCoach?.qr_tricks_approved ?? coach.qrTricksApproved,
     };
   });
+}
+
+async function updateCoachApproval(coachId: string, action: 'approve' | 'reject') {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+
+  if (hasSupabaseBrowserConfig()) {
+    const supabase = createBrowserSupabaseClient();
+    const { data } = await supabase.auth.getSession();
+    if (data.session?.access_token) headers.Authorization = `Bearer ${data.session.access_token}`;
+  }
+
+  const response = await fetch('/api/admin/coaches/approval', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ coachId, action }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
 }
 
 function documentForCoach(coach: AdminCoachSummary, documents: AdminCoachDppDocument[]) {
@@ -4224,41 +5758,28 @@ function normalizeFinanceTransfers(transfers: AdminFinanceTransfer[]): TrainerPa
 }
 
 function buildInitialCoachAttendanceRecords(): CoachAttendanceRecord[] {
-  const manualRecords = adminAttendanceAdjustments.map((record) => ({
-    id: record.id,
-    coachId: coachIdForName(record.coachName),
-    coachName: record.coachName,
-    sessionTitle: record.sessionTitle,
-    date: record.date,
-    present: record.present,
-    durationHours: record.durationHours,
-    amount: record.amount,
-    reason: record.reason,
-    source: 'admin' as const,
-  }));
-
-  const coachRecords = adminCoachAttendance.map((record) => ({
-    id: record.id,
-    coachId: coachIdForName(record.coachName),
-    coachName: record.coachName,
-    sessionTitle: record.sessionTitle,
-    date: record.date,
-    present: record.present,
-    durationHours: record.durationHours,
-    amount: record.amount,
-    reason: record.reason,
-    source: 'coach' as const,
-  }));
-
-  return [...manualRecords, ...coachRecords];
-}
-
-function coachIdForName(coachName: string) {
-  return adminCoachSummaries.find((coach) => normalizeText(coach.name) === normalizeText(coachName))?.id;
+  return [];
 }
 
 function recordsForCoach(coach: AdminCoachSummary, records: CoachAttendanceRecord[]) {
   return records.filter((record) => record.coachId === coach.id || normalizeText(record.coachName) === normalizeText(coach.name));
+}
+
+function buildCoachXpLeaderboard(coaches: AdminCoachSummary[], products: ParentProduct[], coachAttendanceRecords: CoachAttendanceRecord[]) {
+  return coaches
+    .map((coach) => {
+      const assignedProducts = uniqueParticipantProducts(products).filter((product) => (product.coachIds ?? []).includes(coach.id));
+      const attendanceRecords = recordsForCoach(coach, coachAttendanceRecords);
+      return {
+        coach,
+        xp: Math.max(0, coach.xp),
+        level: Math.max(1, coach.level),
+        assignedProducts,
+        attendanceRecords,
+      };
+    })
+    .sort((a, b) => b.xp - a.xp || b.coach.qrTricksApproved - a.coach.qrTricksApproved || b.coach.childrenLogged - a.coach.childrenLogged || b.attendanceRecords.length - a.attendanceRecords.length || a.coach.name.localeCompare(b.coach.name, 'cs-CZ'))
+    .map((row, index) => ({ ...row, rank: index + 1 }));
 }
 
 function groupByMonthAdmin<T>(items: T[], getDate: (item: T) => string): { label: string; items: T[] }[] {
@@ -4276,23 +5797,96 @@ function groupByMonthAdmin<T>(items: T[], getDate: (item: T) => string): { label
   return groups;
 }
 
-function buildInitialSharedTrainingState(): SharedTrainingState {
-  return sharedTrainingCalendar.reduce((state, slot) => {
-    state[slot.id] = {
-      assignedCoachId: slot.assignedCoachId,
-      assignedCoachName: slot.assignedCoachName,
-      secondCoachId: slot.secondCoachId,
-      secondCoachName: slot.secondCoachName,
-      releasedBy: slot.releasedBy,
-      releaseReason: slot.releaseReason,
-      updatedAt: slot.updatedAt,
-    };
-    return state;
-  }, {} as SharedTrainingState);
+function buildSharedTrainingSlots(products: ParentProduct[], coaches: AdminCoachSummary[]): SharedTrainingSlot[] {
+  const coachById = new Map(coaches.map((coach) => [coach.id, coach]));
+
+  return uniqueParticipantProducts(products)
+    .filter((product) => product.type === 'Krouzek')
+    .map((product) => {
+      const schedule = parseCourseSchedule(product.primaryMeta);
+      const coachIds = product.coachIds ?? [];
+      const firstCoach = coachById.get(coachIds[0] ?? '');
+      const secondCoach = coachById.get(coachIds[1] ?? '');
+
+      return {
+        id: product.id,
+        activityType: product.type,
+        day: schedule.day,
+        time: schedule.time,
+        place: product.place,
+        group: product.title,
+        regularCoachId: firstCoach?.id ?? '',
+        regularCoachName: firstCoach?.name ?? 'Bez trenéra',
+        assignedCoachId: firstCoach?.id,
+        assignedCoachName: firstCoach?.name,
+        secondCoachId: secondCoach?.id,
+        secondCoachName: secondCoach?.name,
+        updatedAt: 'z databáze',
+      };
+    });
 }
 
-function resolveSharedTrainingSlots(state: SharedTrainingState): SharedTrainingSlot[] {
-  return sharedTrainingCalendar.map((slot) => ({ ...slot, ...state[slot.id] }));
+function buildWorkshopSlots(products: ParentProduct[], coaches: AdminCoachSummary[]): WorkshopSlot[] {
+  const coachById = new Map(coaches.map((coach) => [coach.id, coach]));
+
+  return products
+    .filter((product) => product.type === 'Workshop')
+    .map((product) => {
+      const range = parseProductDateRange(product.primaryMeta);
+      return {
+        id: product.id,
+        date: range.dateFrom,
+        dateTo: range.dateTo,
+        time: range.time,
+        city: workshopCityForProduct(product.city),
+        venue: product.venue || product.place,
+        coaches: (product.coachIds ?? [])
+          .map((coachId) => coachById.get(coachId))
+          .filter((coach): coach is AdminCoachSummary => Boolean(coach))
+          .map((coach) => ({ coachId: coach.id, coachName: coach.name })),
+        maxCoaches: WORKSHOP_MAX_COACHES,
+        updatedAt: 'z databáze',
+      };
+    })
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function buildCampTurnusy(products: ParentProduct[], coaches: AdminCoachSummary[]): CampTurnus[] {
+  const coachById = new Map(coaches.map((coach) => [coach.id, coach]));
+
+  return products
+    .filter((product) => product.type === 'Tabor')
+    .map((product) => {
+      const range = parseProductDateRange(product.primaryMeta);
+      return {
+        id: product.id,
+        campId: product.id.replace(/-t\d+$/, ''),
+        campTitle: product.title,
+        city: product.city,
+        venue: product.venue || product.place,
+        dateFrom: range.dateFrom,
+        dateTo: range.dateTo,
+        durationDays: durationDays(range.dateFrom, range.dateTo),
+        coaches: (product.coachIds ?? [])
+          .map((coachId) => coachById.get(coachId))
+          .filter((coach): coach is AdminCoachSummary => Boolean(coach))
+          .map((coach) => ({ coachId: coach.id, coachName: coach.name })),
+        maxCoaches: CAMP_MAX_COACHES,
+      };
+    })
+    .sort((a, b) => a.dateFrom.localeCompare(b.dateFrom));
+}
+
+function buildWorkshopAttendanceRecords(slots: WorkshopSlot[], products: ParentProduct[], participants: ParentParticipant[]): WorkshopAttendanceRecord[] {
+  return slots.map((slot) => {
+    const slotParticipants = participantsForWorkshopSlot(slot, products, participants);
+    return {
+      slotId: slot.id,
+      attendees: slotParticipants.length,
+      participants: slotParticipants.map(participantDisplayName),
+      coachTrickCounts: slot.coaches.map((coach) => ({ coachId: coach.coachId, coachName: coach.coachName, count: 0 })),
+    };
+  });
 }
 
 function payoutAmountForCoach(coach: AdminCoachSummary, coachAttendanceRecords: CoachAttendanceRecord[] = buildInitialCoachAttendanceRecords()) {
@@ -4302,14 +5896,14 @@ function payoutAmountForCoach(coach: AdminCoachSummary, coachAttendanceRecords: 
   return coach.baseAmount + coach.approvedBonuses + adjustmentAmount;
 }
 
-function buildCoachPlacementGroups(coaches: AdminCoachSummary[], query: string): CoachPlacementGroup[] {
+function buildCoachPlacementGroups(coaches: AdminCoachSummary[], products: ParentProduct[], query: string): CoachPlacementGroup[] {
   const coachById = new Map(coaches.map((coach) => [coach.id, coach]));
-  const products = uniqueParticipantProducts(parentProducts);
+  const uniqueProducts = uniqueParticipantProducts(products);
 
-  return products
+  return uniqueProducts
     .map((product) => {
-      const productCoaches = trainersForProduct(product)
-        .map((trainer) => coachById.get(trainer.id))
+      const productCoaches = (product.coachIds ?? [])
+        .map((coachId) => coachById.get(coachId))
         .filter((coach): coach is AdminCoachSummary => Boolean(coach));
       const productMatchesQuery = matchesQuery(`${activityLabel(product.type)} ${product.title} ${product.place} ${product.primaryMeta}`, query);
       const coachesForGroup = query && !productMatchesQuery
@@ -4330,14 +5924,28 @@ function buildCoachPlacementGroups(coaches: AdminCoachSummary[], query: string):
     .filter((group): group is CoachPlacementGroup => Boolean(group));
 }
 
-function buildParticipantGroups(query: string, products: ParentProduct[]): ParticipantGroup[] {
+function isParticipantPassActive(participant: ParentParticipant, todayKey: string): boolean {
+  const admin = participant as AdminParticipant;
+  // Static/demo participants have no pass data — always show
+  if (admin.passRemainingEntries === undefined && admin.courseExpiresAt === undefined) return true;
+  // Has digital pass records — check if any entries remain
+  if (admin.passRemainingEntries !== undefined && admin.passRemainingEntries <= 0) return false;
+  // Check date-based expiry (null = no expiry)
+  if (admin.courseExpiresAt !== undefined && admin.courseExpiresAt !== null && admin.courseExpiresAt < todayKey) return false;
+  return true;
+}
+
+function buildParticipantGroups(query: string, products: ParentProduct[], participants: ParentParticipant[]): ParticipantGroup[] {
   const normalizedQuery = normalizeText(query);
+  const todayKey = new Date().toISOString().slice(0, 10);
 
   return uniqueParticipantProducts(products)
     .map((product) => {
       const groupMatchesQuery = matchesQuery(`${activityLabel(product.type)} ${product.title} ${product.place} ${product.primaryMeta}`, query);
-      const relatedParticipants = linkedParticipants.filter((participant) => participantBelongsToProduct(participant, product));
-      const participants = normalizedQuery && !groupMatchesQuery
+      const relatedParticipants = participants
+        .filter((participant) => participantBelongsToProduct(participant, product))
+        .filter((participant) => product.type !== 'Krouzek' || isParticipantPassActive(participant, todayKey));
+      const groupParticipants = normalizedQuery && !groupMatchesQuery
         ? relatedParticipants.filter((participant) => matchesQuery(`${participant.firstName} ${participant.lastName} ${participant.activeCourse} ${participant.activePurchases.map((purchase) => purchase.title).join(' ')}`, query))
         : relatedParticipants;
 
@@ -4347,7 +5955,7 @@ function buildParticipantGroups(query: string, products: ParentProduct[]): Parti
         title: product.title,
         place: product.place,
         product,
-        participants,
+        participants: groupParticipants,
       };
     })
     .filter((group) => !normalizedQuery || matchesQuery(`${group.title} ${group.place}`, query) || group.participants.length > 0);
@@ -4369,7 +5977,7 @@ function groupParticipantGroupsByCity(groups: ParticipantGroup[]): ParticipantCi
 
     current.groups.push(group);
     current.participantCount += group.participants.length;
-    current.missingDocuments += group.participants.reduce((sum, participant) => sum + documentsForActivityParticipant(participant, group.type).filter((document) => document.status !== 'signed').length, 0);
+    current.missingDocuments = 0;
     cityMap.set(key, current);
   }
 
@@ -4392,7 +6000,7 @@ function groupParticipantGroupsByTerm(groups: ParticipantGroup[]): ParticipantTe
 
     current.groups.push(group);
     current.participantCount += group.participants.length;
-    current.missingDocuments += group.participants.reduce((sum, participant) => sum + documentsForActivityParticipant(participant, group.type).filter((document) => document.status !== 'signed').length, 0);
+    current.missingDocuments = 0;
     termMap.set(key, current);
   }
 
@@ -4421,9 +6029,9 @@ function uniqueParticipantProducts(products: ParentProduct[]) {
 }
 
 function participantProductGroupKey(product: ParentProduct) {
-  const base = `${product.type}-${normalizeText(product.place)}`;
-  if (product.type !== 'Tabor') return base;
-  return `${base}-${normalizeText(product.primaryMeta)}`;
+  // Each tábor product IS its own turnus — keep them all, never deduplicate
+  if (product.type === 'Tabor') return product.id;
+  return `${product.type}-${normalizeText(product.place)}`;
 }
 
 function participantBelongsToProduct(participant: ParentParticipant, product: ParentProduct) {
@@ -4432,80 +6040,113 @@ function participantBelongsToProduct(participant: ParentParticipant, product: Pa
   const productCity = normalizeText(product.city);
 
   if (product.type === 'Krouzek') {
-    return activeCourse === productPlace || activeCourse.includes(productPlace) || productPlace.includes(activeCourse);
+    if (activeCourse) return activeCourse === productPlace || activeCourse.includes(productPlace) || productPlace.includes(activeCourse);
   }
 
   return participant.activePurchases.some((purchase) => {
     if (purchase.type !== product.type) return false;
     const purchaseTitle = normalizeText(purchase.title);
-    const cityOrPlaceMatch = purchaseTitle.includes(productCity) || purchaseTitle.includes(productPlace) || productPlace.includes(purchaseTitle);
+    const productTitle = normalizeText(product.title);
+    const cityOrPlaceMatch = purchaseTitle.includes(productCity) || purchaseTitle.includes(productPlace) || purchaseTitle.includes(productTitle) || productPlace.includes(purchaseTitle) || productTitle.includes(purchaseTitle);
     if (!cityOrPlaceMatch) return false;
     if (product.type === 'Tabor') {
       const primaryMetaNorm = normalizeText(product.primaryMeta);
-      if (purchaseTitle.includes('1. turnus') || purchaseTitle.includes('turnus 1')) return primaryMetaNorm.includes('1. turnus');
-      if (purchaseTitle.includes('2. turnus') || purchaseTitle.includes('turnus 2')) return primaryMetaNorm.includes('2. turnus');
+      const purchaseHas1 = purchaseTitle.includes('1 turnus');
+      const purchaseHas2 = purchaseTitle.includes('2 turnus');
+      // If we can identify a clear conflict, exclude
+      if (purchaseHas1 && primaryMetaNorm.includes('2 turnus')) return false;
+      if (purchaseHas2 && primaryMetaNorm.includes('1 turnus')) return false;
     }
     return true;
   });
 }
 
-function documentsForParticipant(participant: ParentParticipant): ParentDocument[] {
+function participantsForWorkshopSlot(slot: WorkshopSlot, products: ParentProduct[], participants: ParentParticipant[]) {
+  const product = products.find((item) => item.id === slot.id);
+  if (!product) return [];
+  return participants.filter((participant) => participantBelongsToProduct(participant, product));
+}
+
+function participantDisplayName(participant: ParentParticipant) {
+  return `${participant.firstName} ${participant.lastName}`.trim();
+}
+
+function parseCourseSchedule(primaryMeta: string) {
+  const cleaned = primaryMeta.trim();
+  const dayMatch = cleaned.match(/(pondělí|pondeli|úterý|utery|středa|streda|čtvrtek|ctvrtek|pátek|patek|sobota|neděle|nedele)/i);
+  const timeMatch = cleaned.match(/\d{1,2}:\d{2}\s*(?:[-–]\s*\d{1,2}:\d{2})?/);
+  return {
+    day: dayMatch ? capitalizeCzechDay(dayMatch[0]) : 'Den není vyplněný',
+    time: timeMatch?.[0]?.replace(/\s*[-–]\s*/, ' - ') ?? 'Čas není vyplněný',
+  };
+}
+
+function capitalizeCzechDay(day: string) {
+  const normalized = normalizeText(day);
+  if (normalized === 'pondeli') return 'Pondělí';
+  if (normalized === 'utery') return 'Úterý';
+  if (normalized === 'streda') return 'Středa';
+  if (normalized === 'ctvrtek') return 'Čtvrtek';
+  if (normalized === 'patek') return 'Pátek';
+  if (normalized === 'sobota') return 'Sobota';
+  if (normalized === 'nedele') return 'Neděle';
+  return day;
+}
+
+function workshopCityForProduct(city: string): WorkshopCity {
+  if (city === 'Praha' || city === 'Ostrava' || city === 'Brno') return city;
+  return 'Brno';
+}
+
+function parseProductDateRange(primaryMeta: string) {
+  const nowIso = new Date().toISOString().slice(0, 10);
+  const isoDates = primaryMeta.match(/\d{4}-\d{2}-\d{2}/g) ?? [];
+  const czechDates = Array.from(primaryMeta.matchAll(/(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{4})?/g)).map((match) => {
+    const year = match[3] ? Number(match[3]) : new Date().getFullYear();
+    return isoDate(year, Number(match[2]), Number(match[1]));
+  });
+  const dateFrom = isoDates[0] ?? czechDates[0] ?? nowIso;
+  const dateTo = isoDates[1] ?? czechDates[1] ?? dateFrom;
+  const timeMatch = primaryMeta.match(/\d{1,2}:\d{2}\s*(?:[-–]\s*\d{1,2}:\d{2})?/);
+  return {
+    dateFrom,
+    dateTo,
+    time: timeMatch?.[0]?.replace(/\s*[-–]\s*/, ' - ') ?? 'čas není vyplněný',
+  };
+}
+
+function isoDate(year: number, month: number, day: number) {
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+function durationDays(dateFrom: string, dateTo: string) {
+  const from = new Date(`${dateFrom}T00:00:00`);
+  const to = new Date(`${dateTo}T00:00:00`);
+  const diff = Math.round((to.getTime() - from.getTime()) / 86_400_000) + 1;
+  return Number.isFinite(diff) && diff > 0 ? diff : 1;
+}
+
+function formatIsoDateForDisplay(date: string) {
+  const [year, month, day] = date.split('-').map(Number);
+  if (!year || !month || !day) return date;
+  return `${day}. ${month}. ${year}`;
+}
+
+function documentsForParticipant(participant: ParentParticipant, documents: AdminDocument[]): AdminDocument[] {
   const participantName = `${participant.firstName} ${participant.lastName}`;
   const normalizedName = normalizeText(participantName);
-  const existingDocuments = parentDocuments
-    .filter((document) => normalizeText(document.participantName) === normalizedName)
-    .map((document) => participantHasPaidForActivity(participant, document.activityType) ? markDocumentComplete(document) : document);
-  const existingKeys = new Set(existingDocuments.map((document) => `${document.activityType}-${documentKindForTitle(document.title)}`));
-  const generatedDocuments: ParentDocument[] = [];
-  const generatedKeys = new Set<string>();
-
-  for (const product of productsForParticipant(participant)) {
-    const paid = participantHasPaidForProduct(participant, product);
-    for (const template of requiredDocumentsForProduct(product)) {
-      const key = `${product.type}-${template.kind}`;
-      if (existingKeys.has(key) || generatedKeys.has(key)) continue;
-      generatedKeys.add(key);
-      generatedDocuments.push({
-        id: `${paid ? 'auto' : 'missing'}-${participant.id}-${product.id}-${template.kind}`,
-        participantName,
-        activityTitle: product.title,
-        activityType: product.type,
-        title: template.title,
-        status: paid ? 'signed' : 'missing',
-        updatedAt: paid ? 'Vyplněno při platbě' : 'Chybí',
-      });
-    }
-  }
-
-  return [...existingDocuments, ...generatedDocuments];
+  return documents.filter((document) => document.participantId === participant.id || normalizeText(document.participantName) === normalizedName);
 }
 
-function documentsForActivityParticipant(participant: ParentParticipant, activityType: ActivityType): ParentDocument[] {
-  if (activityType === 'Workshop') {
-    const isGenerated = participant.id.includes('-participant-');
-    if (isGenerated) {
-      const idx = Number.parseInt(participant.id.split('-participant-')[1] ?? '0', 10);
-      const activityTitle = participant.activePurchases[0]?.title ?? 'Workshop';
-      const participantName = `${participant.firstName} ${participant.lastName}`;
-      const s1: DocumentStatus = idx % 4 === 0 ? 'missing' : 'signed';
-      const s2: DocumentStatus = idx % 3 === 0 ? 'missing' : idx % 3 === 1 ? 'draft' : 'signed';
-      const s3: DocumentStatus = idx % 5 === 0 ? 'draft' : 'signed';
-      return [
-        { id: `${participant.id}-wt`, participantName, activityTitle, activityType: 'Workshop', title: 'Přihláška a podmínky', status: s1, updatedAt: s1 === 'signed' ? '2. 5. 2026' : 'Čeká na rodiče' },
-        { id: `${participant.id}-wh`, participantName, activityTitle, activityType: 'Workshop', title: 'Zdravotní prohlášení', status: s2, updatedAt: s2 === 'signed' ? '2. 5. 2026' : 'Čeká na rodiče' },
-        { id: `${participant.id}-wg`, participantName, activityTitle, activityType: 'Workshop', title: 'GDPR souhlas', status: s3, updatedAt: s3 === 'signed' ? '2. 5. 2026' : 'Čeká na rodiče' },
-      ];
-    }
-    return documentsForParticipant(participant).filter((document) => document.activityType === 'Workshop');
-  }
-  return documentsForParticipant(participant).filter((document) => document.activityType === activityType);
+function documentsForActivityParticipant(participant: ParentParticipant, activityType: ActivityType, documents: AdminDocument[]): AdminDocument[] {
+  return documentsForParticipant(participant, documents).filter((document) => document.activityType === activityType);
 }
 
-function allParticipantDocuments() {
-  const documentsByKey = new Map<string, ParentDocument>();
+function allParticipantDocuments(participants: ParentParticipant[], documents: AdminDocument[]) {
+  const documentsByKey = new Map<string, AdminDocument>();
 
-  for (const participant of linkedParticipants) {
-    for (const document of documentsForParticipant(participant)) {
+  for (const participant of participants) {
+    for (const document of documentsForParticipant(participant, documents)) {
       const key = `${normalizeText(document.participantName)}-${document.activityType}-${documentKindForTitle(document.title)}`;
       const current = documentsByKey.get(key);
       if (!current || document.status === 'signed') documentsByKey.set(key, document);
@@ -4525,51 +6166,12 @@ function markDocumentComplete(document: ParentDocument): ParentDocument {
   return document.status === 'signed' ? document : { ...document, status: 'signed', updatedAt: 'Vyplněno při platbě' };
 }
 
-function participantHasPaidForActivity(participant: ParentParticipant, activityType: ActivityType) {
-  return productsForParticipant(participant).some((product) => product.type === activityType && participantHasPaidForProduct(participant, product));
-}
-
-function participantHasPaidForProduct(participant: ParentParticipant, product: ParentProduct) {
-  const participantName = normalizeText(`${participant.firstName} ${participant.lastName}`);
-  const productTitle = normalizeText(product.title);
-  const productPlace = normalizeText(product.place);
-  const productCity = normalizeText(product.city);
-  const productType = normalizeText(activityLabel(product.type));
-
-  const paidPayment = parentPayments.some((payment) => {
-    if (normalizeText(payment.participantName) !== participantName || payment.status !== 'paid') return false;
-    const paymentTitle = normalizeText(payment.title);
-    return paymentTitle.includes(productCity) || paymentTitle.includes(productPlace) || paymentTitle.includes(productTitle) || (product.type === 'Krouzek' && paymentTitle.includes('permanentka')) || (product.type === 'Tabor' && paymentTitle.includes('tabor'));
-  });
-
-  if (paidPayment) return true;
-
-  return participant.activePurchases.some((purchase) => {
-    if (purchase.type !== product.type) return false;
-    const purchaseTitle = normalizeText(purchase.title);
-    const purchaseStatus = normalizeText(purchase.status);
-    return (purchaseStatus.includes('zaplaceno') || purchaseStatus.includes('aktivni')) && (purchaseTitle.includes(productCity) || purchaseTitle.includes(productPlace) || purchaseTitle.includes(productType));
-  });
-}
-
-function missingDocumentsForActivity(activity: ReturnType<typeof adminActivityRows>[number]) {
-  return participantsForActivity(activity).flatMap((participant) => documentsForActivityParticipant(participant, activity.type).filter((document) => document.status !== 'signed'));
+function missingDocumentsForActivity(activity: ReturnType<typeof adminActivityRows>[number], products: ParentProduct[], participants: ParentParticipant[], documents: AdminDocument[]) {
+  return participantsForActivity(activity, products, participants).flatMap((participant) => documentsForActivityParticipant(participant, activity.type, documents).filter((document) => document.status !== 'signed'));
 }
 
 function missingDocumentLabel(document: ParentDocument) {
   return `${document.title} (${activityLabel(document.activityType)})`;
-}
-
-function productsForParticipant(participant: ParentParticipant) {
-  const productsByContext = new Map<string, ParentProduct>();
-
-  for (const product of parentProducts) {
-    if (!participantBelongsToProduct(participant, product)) continue;
-    const key = `${product.type}-${normalizeText(product.place)}`;
-    if (!productsByContext.has(key)) productsByContext.set(key, product);
-  }
-
-  return Array.from(productsByContext.values());
 }
 
 function documentKindForTitle(title: string) {
@@ -4598,8 +6200,6 @@ function buildCourseLocationStats(activityRows: ReturnType<typeof adminActivityR
     const sessions = monthGroups.flatMap((g) => g.sessions);
     const presentCounts = sessions.map((s) => s.present);
     const averagePresent = Math.round(presentCounts.reduce((sum, value) => sum + value, 0) / Math.max(1, presentCounts.length));
-    const enrollment = courseEnrollments.find((e) => e.courseId === activity.id);
-    const enrolledCount = enrollment?.participants.length ?? activity.registered;
     return {
       key,
       activity,
@@ -4609,64 +6209,105 @@ function buildCourseLocationStats(activityRows: ReturnType<typeof adminActivityR
       averagePresent,
       maxPresent: Math.max(...presentCounts, 0),
       lastPresent: presentCounts[presentCounts.length - 1] ?? 0,
-      enrolledCount,
+      enrolledCount: activity.registered,
     };
   });
 }
 
 function buildActivitySessions(activity: ReturnType<typeof adminActivityRows>[number]) {
-  const monthGroups = [
-    { month: 'leden 2026', shortDates: ['6. 1.', '13. 1.', '20. 1.', '27. 1.'] },
-    { month: 'únor 2026', shortDates: ['3. 2.', '10. 2.', '17. 2.', '24. 2.'] },
-    { month: 'březen 2026', shortDates: ['3. 3.', '10. 3.', '17. 3.', '24. 3.', '31. 3.'] },
-    { month: 'duben 2026', shortDates: ['7. 4.', '14. 4.', '21. 4.', '28. 4.'] },
-  ];
-  const seed = normalizeText(`${activity.place} ${activity.title}`).split('').reduce((sum, character) => sum + character.charCodeAt(0), 0);
-  const registered = Math.max(1, activity.registered);
-  const basePresent = Math.max(1, Math.min(registered, Math.round(registered * 0.78)));
-
-  let globalIdx = 0;
-  return monthGroups.map(({ month, shortDates }) => ({
-    month,
-    sessions: shortDates.map((shortDate) => {
-      const idx = globalIdx++;
-      const offset = ((seed + idx * 5) % 5) - 2;
-      const present = Math.max(1, Math.min(registered, basePresent + offset + Math.floor(idx / 4)));
-      return {
-        date: `${shortDate} 2026`,
-        shortDate,
-        present,
-        absent: Math.max(0, registered - present),
-        capacityTotal: activity.capacityTotal,
-      };
-    }),
-  }));
+  const present = Math.max(0, activity.registered);
+  return [{
+    month: 'Souhrn z databáze',
+    sessions: [{
+      date: 'Aktuální souhrn',
+      shortDate: 'souhrn',
+      present,
+      absent: Math.max(0, activity.capacityTotal - present),
+      capacityTotal: activity.capacityTotal,
+    }],
+  }];
 }
 
-function participantsForActivity(activity: ReturnType<typeof adminActivityRows>[number]) {
-  const product = parentProducts.find((item) => item.id === activity.id) ?? parentProducts.find((item) => item.type === activity.type && normalizeText(item.place) === normalizeText(activity.place));
-  if (!product) return [];
-  return linkedParticipants.filter((participant) => participantBelongsToProduct(participant, product));
+function productForActivity(activity: ReturnType<typeof adminActivityRows>[number], products: ParentProduct[]) {
+  return products.find((item) => item.id === activity.id)
+    ?? products.find((item) => item.type === activity.type && normalizeText(item.place) === normalizeText(activity.place))
+    ?? null;
 }
 
-function registeredParticipantsForActivity(activity: ReturnType<typeof adminActivityRows>[number]): ActivityParticipantRecord[] {
-  const realParticipants = participantsForActivity(activity).map((participant) => participantRecordForLinkedParticipant(participant, activity));
-  const registeredCount = Math.max(activity.registered, realParticipants.length);
-  const generatedParticipants: ActivityParticipantRecord[] = [];
+function buildActivityCoachPresence(activity: ReturnType<typeof adminActivityRows>[number], products: ParentProduct[], coaches: AdminCoachSummary[], coachAttendanceRecords: CoachAttendanceRecord[], selectedDate?: string | null): ActivityCoachPresence[] {
+  const product = productForActivity(activity, products);
+  const coachById = new Map(coaches.map((coach) => [coach.id, coach]));
+  const presence = new Map<string, ActivityCoachPresence>();
 
-  for (let index = realParticipants.length; index < registeredCount; index += 1) {
-    generatedParticipants.push(generatedParticipantForActivity(activity, index));
+  for (const record of coachAttendanceRecordsForActivity(activity, product, coachAttendanceRecords, selectedDate)) {
+    const key = record.coachId ?? normalizeText(record.coachName);
+    if (!key || presence.has(key)) continue;
+
+    presence.set(key, {
+      id: key,
+      name: record.coachName,
+      detail: `${record.date} · ${record.present ? `${record.present} · ` : ''}${record.durationHours} h${record.source === 'admin' ? ' · doplněno adminem' : ''}`,
+      source: 'attendance',
+    });
   }
 
-  return [...realParticipants, ...generatedParticipants];
+  for (const coachId of product?.coachIds ?? []) {
+    const coach = coachById.get(coachId);
+    if (!coach || presence.has(coach.id)) continue;
+
+    presence.set(coach.id, {
+      id: coach.id,
+      name: coach.name,
+      detail: assignedCoachDetail(activity.type, product),
+      source: 'assigned',
+    });
+  }
+
+  return Array.from(presence.values()).sort((a, b) => Number(a.source !== 'attendance') - Number(b.source !== 'attendance') || a.name.localeCompare(b.name, 'cs'));
 }
 
-function sessionParticipantsForActivity(activity: ReturnType<typeof adminActivityRows>[number], presentCount: number) {
-  return registeredParticipantsForActivity(activity).slice(0, presentCount);
+function coachAttendanceRecordsForActivity(activity: ReturnType<typeof adminActivityRows>[number], product: ParentProduct | null, records: CoachAttendanceRecord[], selectedDate?: string | null) {
+  const needles = Array.from(new Set([
+    activity.title,
+    activity.place,
+    product?.title,
+    product?.place,
+    product?.venue,
+  ].map((value) => normalizeText(value ?? '')).filter(Boolean)));
+  const hasSpecificDate = Boolean(selectedDate && normalizeText(selectedDate) !== normalizeText('Aktuální souhrn'));
+
+  return records.filter((record) => {
+    const recordText = normalizeText(`${record.sessionTitle} ${record.reason}`);
+    const matchesActivity = needles.some((needle) => recordText.includes(needle) || (recordText.length > 0 && needle.includes(recordText)));
+    if (!matchesActivity) return false;
+    if (!hasSpecificDate) return true;
+    return normalizeText(record.date) === normalizeText(selectedDate ?? '');
+  });
 }
 
-function participantRecordForLinkedParticipant(participant: ParentParticipant, activity: ReturnType<typeof adminActivityRows>[number]): ActivityParticipantRecord {
-  const participantDocuments = activityDocumentsForParticipant(participant, activity);
+function assignedCoachDetail(activityType: ActivityType, product: ParentProduct | null) {
+  const meta = product?.primaryMeta ? ` · ${product.primaryMeta}` : '';
+  if (activityType === 'Tabor') return `Přiřazený k táboru${meta}`;
+  if (activityType === 'Workshop') return `Přiřazený k workshopu${meta}`;
+  return `Přiřazený ke kroužku${meta}`;
+}
+
+function participantsForActivity(activity: ReturnType<typeof adminActivityRows>[number], products: ParentProduct[], participants: ParentParticipant[]) {
+  const product = productForActivity(activity, products);
+  if (!product) return [];
+  return participants.filter((participant) => participantBelongsToProduct(participant, product));
+}
+
+function registeredParticipantsForActivity(activity: ReturnType<typeof adminActivityRows>[number], products: ParentProduct[], participants: ParentParticipant[], documents: AdminDocument[]): ActivityParticipantRecord[] {
+  return participantsForActivity(activity, products, participants).map((participant) => participantRecordForLinkedParticipant(participant, activity, documents));
+}
+
+function sessionParticipantsForActivity(activity: ReturnType<typeof adminActivityRows>[number], presentCount: number, products: ParentProduct[], participants: ParentParticipant[], documents: AdminDocument[]) {
+  return registeredParticipantsForActivity(activity, products, participants, documents).slice(0, presentCount);
+}
+
+function participantRecordForLinkedParticipant(participant: ParentParticipant, activity: ReturnType<typeof adminActivityRows>[number], documents: AdminDocument[]): ActivityParticipantRecord {
+  const participantDocuments = activityDocumentsForParticipant(participant, activity, documents);
   const missing = participantDocuments.filter((document) => document.status !== 'signed').length;
 
   return {
@@ -4675,146 +6316,42 @@ function participantRecordForLinkedParticipant(participant: ParentParticipant, a
     subtitle: `${activityLabel(activity.type)} · ${activity.place}`,
     level: `${participant.level}`,
     attendance: activity.type === 'Krouzek' ? `${participant.attendanceDone}/${participant.attendanceTotal}` : activity.type === 'Workshop' ? 'Ticket' : 'Registrován',
-    documents: missing > 0 ? `${missing} dok. chybí` : 'Dokumenty OK',
-    parentContact: `${parentProfile.name} · ${parentProfile.phone}`,
+    documents: participantDocuments.length === 0 ? 'Bez dokumentů' : missing > 0 ? `${missing} dok. chybí` : 'Dokumenty OK',
+    parentContact: parentContactLabel(participant),
     participant,
   };
 }
 
-function activityDocumentsForParticipant(participant: ParentParticipant, activity: ReturnType<typeof adminActivityRows>[number]) {
-  return documentsForActivityParticipant(participant, activity.type);
+function activityDocumentsForParticipant(participant: ParentParticipant, activity: ReturnType<typeof adminActivityRows>[number], documents: AdminDocument[]) {
+  return documentsForActivityParticipant(participant, activity.type, documents);
 }
 
-function generatedParticipantForActivity(activity: ReturnType<typeof adminActivityRows>[number], index: number): ActivityParticipantRecord {
-  const names = [
-    'Tobiáš Král',
-    'Sofie Dvořáková',
-    'Matěj Urban',
-    'Laura Veselá',
-    'Adam Černý',
-    'Nela Horáková',
-    'Vojtěch Mareš',
-    'Ema Procházková',
-    'Jakub Němec',
-    'Anna Pokorná',
-    'Oliver Kučera',
-    'Klára Benešová',
-    'Daniel Fiala',
-    'Sára Kolářová',
-    'Filip Jelínek',
-    'Natálie Svobodová',
-    'Tomáš Bartoš',
-    'Julie Marková',
-    'Martin Němec',
-    'Veronika Malá',
-    'Dominik Čech',
-    'Kristýna Nová',
-    'Patrik Šimek',
-    'Barbora Vacková',
-  ];
-  const name = names[index % names.length];
-  const [firstName, ...lastNameParts] = name.split(' ');
-  const lastName = lastNameParts.join(' ') || 'Účastník';
-  const level = String(2 + ((index + activity.id.length) % 7));
-  const attendanceDone = activity.type === 'Krouzek' ? Math.max(1, 4 + (index % 8)) : 0;
-  const attendanceTotal = activity.type === 'Krouzek' ? 10 : 0;
-  const participant: ParentParticipant = {
-    id: `${activity.id}-participant-${index + 1}`,
-    firstName,
-    lastName,
-    birthNumberMasked: `******/${String(2300 + index).slice(-4)}`,
-    level: Number(level),
-    bracelet: ['Béžová', 'Žlutá', 'Oranžová', 'Růžová'][index % 4],
-    braceletColor: ['#D8C2A3', '#FFD84A', '#FFB21A', '#F5A7C8'][index % 4],
-    xp: 240 + index * 45,
-    nextBraceletXp: 600 + index * 80,
-    attendanceDone,
-    attendanceTotal,
-    activeCourse: activity.type === 'Krouzek' ? activity.place : 'Bez pravidelného kroužku',
-    nextTraining: activity.type === 'Krouzek' ? 'Podle rozpisu kroužku' : 'Jednorázová aktivita',
-    activePurchases: activity.type === 'Krouzek' ? [{ type: 'Krouzek', title: activity.title, status: 'Aktivní' }] : [{ type: activity.type, title: activity.title, status: activity.type === 'Workshop' ? 'Ticket' : 'Zaplaceno' }],
-  };
-
-  return {
-    id: participant.id,
-    name,
-    subtitle: `${activityLabel(activity.type)} · ${activity.place}`,
-    level,
-    attendance: activity.type === 'Krouzek' ? `${attendanceDone}/${attendanceTotal}` : activity.type === 'Workshop' ? 'Ticket' : 'Registrován',
-    documents: (() => { const docs = documentsForActivityParticipant(participant, activity.type); const m = docs.filter((d) => d.status !== 'signed').length; return m > 0 ? `${m} dok. chybí` : 'Dokumenty OK'; })(),
-    parentContact: `Rodič v evidenci · +420 7${String(10000000 + index * 4721).slice(0, 8)}`,
-    participant,
-  };
-}
-
-function findParticipantByShortName(shortName: string): ParentParticipant | undefined {
-  const parts = shortName.trim().split(' ');
-  if (parts.length < 2) return undefined;
-  const firstName = normalizeText(parts[0]);
-  const lastInitial = normalizeText(parts[1].replace('.', ''));
-  return linkedParticipants.find((p) => normalizeText(p.firstName) === firstName && normalizeText(p.lastName).startsWith(lastInitial));
-}
-
-function workshopParticipantFromShortName(shortName: string, venue: string): ParentParticipant {
-  const real = findParticipantByShortName(shortName);
-  if (real) return real;
-  const parts = shortName.trim().split(' ');
-  const firstName = parts[0] ?? 'Účastník';
-  const lastInitial = (parts[1] ?? 'X').replace('.', '');
-  const seed = shortName.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
-  const BRACELETS = ['Béžová', 'Žlutá', 'Oranžová', 'Růžová', 'Modrá'];
-  const BRACELET_COLORS = ['#D8C2A3', '#FFD84A', '#FFB21A', '#F5A7C8', '#7EC8E3'];
-  return {
-    id: `ws-participant-${normalizeText(shortName)}`,
-    firstName,
-    lastName: `${lastInitial}.`,
-    birthNumberMasked: `******/${String(2200 + seed % 800).slice(-4)}`,
-    level: 2 + (seed % 7),
-    bracelet: BRACELETS[seed % BRACELETS.length],
-    braceletColor: BRACELET_COLORS[seed % BRACELET_COLORS.length],
-    xp: 150 + (seed % 900),
-    nextBraceletXp: 600 + (seed % 800),
-    attendanceDone: 1 + (seed % 8),
-    attendanceTotal: 10,
-    activeCourse: venue,
-    nextTraining: 'Příští workshop',
-    activePurchases: [{ type: 'Workshop', title: `Workshop · ${venue}`, status: 'Ticket' }],
-  };
-}
-
-function findParticipantByName(name: string) {
-  const normalizedName = normalizeText(name);
-  return linkedParticipants.find((participant) => normalizeText(`${participant.firstName} ${participant.lastName}`) === normalizedName);
+function parentContactLabel(participant: ParentParticipant) {
+  const adminParticipant = participant as AdminParticipant;
+  const parts = [adminParticipant.parentName, adminParticipant.parentPhone || adminParticipant.parentEmail].filter(Boolean);
+  return parts.length > 0 ? parts.join(' · ') : 'Kontakt není evidovaný';
 }
 
 function buildCompleteCourseAttendance(participant: ParentParticipant, place: string) {
-  const participantName = normalizeText(`${participant.firstName} ${participant.lastName}`);
-  const placeName = normalizeText(place);
-  const actualRows: Array<{ id: string; label: string; date: string; time: string; method: string; status: 'Přítomen' | 'Zbývá' }> = parentAttendanceHistory
-    .filter((record) => normalizeText(record.participantName) === participantName && (normalizeText(record.location) === placeName || normalizeText(record.location).includes(placeName) || placeName.includes(normalizeText(record.location))))
-    .map((record, index) => ({
-      id: record.id,
-      label: `Vstup ${index + 1}`,
-      date: record.date,
-      time: record.time,
-      method: record.method,
+  const remaining = Math.max(0, participant.attendanceTotal - participant.attendanceDone);
+  return [
+    {
+      id: `${participant.id}-attendance-used`,
+      label: 'Využité vstupy',
+      date: place,
+      time: `${participant.attendanceDone}/${participant.attendanceTotal}`,
+      method: 'Profil účastníka',
       status: 'Přítomen' as const,
-    }));
-
-  const rows = [...actualRows];
-  for (let index = rows.length; index < participant.attendanceTotal; index += 1) {
-    const attended = index < participant.attendanceDone;
-    rows.push({
-      id: `${participant.id}-attendance-${index + 1}`,
-      label: `Vstup ${index + 1}`,
-      date: attended ? 'Zapsáno v historii permanentky' : 'Čeká na využití',
-      time: attended ? 'bez času' : participant.nextTraining,
-      method: attended ? 'Historie' : 'Plán',
-      status: attended ? 'Přítomen' as const : 'Zbývá' as const,
-    });
-  }
-
-  return rows;
+    },
+    ...(remaining > 0 ? [{
+      id: `${participant.id}-attendance-remaining`,
+      label: 'Zbývá vstupů',
+      date: participant.nextTraining || 'Další termín není evidovaný',
+      time: `${remaining}`,
+      method: 'Permanentka',
+      status: 'Zbývá' as const,
+    }] : []),
+  ];
 }
 
 function buildSkillTree(participant: ParentParticipant) {
@@ -4844,6 +6381,21 @@ function matchesQuery(value: string, query: string) {
   const normalizedQuery = normalizeText(query);
   if (!normalizedQuery) return true;
   return normalizeText(value).includes(normalizedQuery);
+}
+
+function isDemoAdminRecord(...values: Array<string | null | undefined>) {
+  return values.some((value) => {
+    if (!value) return false;
+    const normalized = value.trim().toLowerCase();
+    return normalized === 'coach-demo'
+      || normalized === 'parent-demo'
+      || normalized === 'participant-demo'
+      || normalized === 'admin-demo'
+      || normalized.startsWith('demo-')
+      || normalized.includes('-demo-')
+      || normalized.includes('filip trenér')
+      || normalized.includes('filip trener');
+  });
 }
 
 function normalizeText(value: string) {
@@ -4880,7 +6432,7 @@ function initialsForName(name: string) {
 }
 
 function friendlyPayoutError(message: string) {
-  if (message.includes('Missing STRIPE_SECRET_KEY')) return 'Backend nemá nastavený Stripe secret key. Doplň testovací STRIPE_SECRET_KEY pro sandbox výplaty.';
+  if (message.includes('Missing STRIPE_SECRET_KEY')) return 'Backend nemá nastavený Stripe secret key. Doplň STRIPE_SECRET_KEY pro výplaty.';
   if (message.includes('Missing SUPABASE_URL') || message.includes('SUPABASE_SERVICE_ROLE_KEY')) return 'Backend nemá Supabase service role klíč, takže výplatu nejde uložit do historie.';
   return message;
 }
@@ -5108,7 +6660,7 @@ function headlineForSection(section: SectionKey) {
     case 'coaches':
       return 'Trenéři, lokality a výkon';
     case 'payouts':
-      return 'Výplaty za měsíc přes Stripe sandbox';
+      return 'Výplaty za měsíc přes Stripe';
     case 'finance':
       return 'Cash flow, příjmy, výdaje a výplaty na jednom místě';
     default:
