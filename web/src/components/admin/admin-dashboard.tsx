@@ -957,10 +957,8 @@ function AttendanceSection({ query, onQueryChange, activityRows, campTurnusy, wo
 
       <div className="grid gap-4 xl:grid-cols-2">
         <CampTurnusModalPanel campTurnusy={pastCampTurnusy} activities={activityRows.filter((a) => a.type === 'Tabor')} onOpenActivityDetail={onOpenActivityDetail} participants={participants} products={products} />
-        <WorkshopCalendarAttendancePanel slots={pastWsSlots} activities={workshopActivities} attendanceRecords={workshopAttendanceRecords} />
+        <WorkshopCalendarAttendancePanel slots={pastWsSlots} allSlots={workshopSlots} activities={workshopActivities} attendanceRecords={workshopAttendanceRecords} />
       </div>
-
-      <WorkshopStatsPanel allSlots={workshopSlots} attendanceRecords={workshopAttendanceRecords} />
 
       <CollapsiblePanel icon={<Banknote size={18} />} title="Trenérská docházka podle trenéra" subtitle="celý záznam trenéra včetně admin doplnění" count={`${visibleCoaches.length} trenérů`} defaultOpen={false}>
         <div className="grid gap-3 lg:grid-cols-2">
@@ -1214,7 +1212,7 @@ function CollapsibleEventAttendancePanel({ title, subtitle, countLabel, activiti
   );
 }
 
-function WorkshopCalendarAttendancePanel({ slots, activities, attendanceRecords }: { slots: WorkshopSlot[]; activities: ReturnType<typeof adminActivityRows>; attendanceRecords: WorkshopAttendanceRecord[] }) {
+function WorkshopCalendarAttendancePanel({ slots, allSlots, activities, attendanceRecords }: { slots: WorkshopSlot[]; allSlots: WorkshopSlot[]; activities: ReturnType<typeof adminActivityRows>; attendanceRecords: WorkshopAttendanceRecord[] }) {
   const now = new Date();
   const [isOpen, setIsOpen] = useState(false);
   const [calYear, setCalYear] = useState(now.getFullYear());
@@ -1378,6 +1376,11 @@ function WorkshopCalendarAttendancePanel({ slots, activities, attendanceRecords 
                     </div>
                   );
                 })()}
+
+                {/* Stats */}
+                <div className="mt-6 border-t border-brand-purple/8 pt-6">
+                  <WorkshopStatsPanel allSlots={allSlots} attendanceRecords={attendanceRecords} />
+                </div>
               </div>
             </motion.div>
           </>
