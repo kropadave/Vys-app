@@ -1,6 +1,7 @@
 import { FontAwesome5 } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter } from 'expo-router';
 import { useCallback, useMemo, useState, type ComponentProps } from 'react';
 import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
@@ -22,6 +23,7 @@ import { useBreakpoint } from '@/lib/use-breakpoint';
 export default function ParticipantOverview() {
   const { isMobile } = useBreakpoint();
   const { profile, profileReady, loading: profileLoading, authLoading } = useParticipantProfile();
+  const router = useRouter();
   const liveRewardPath = useMemo(() => rewardPathForXp(profile.xp), [profile.xp]);
   const progress = Math.min(profile.xp / profile.nextBraceletXp, 1);
   const courseColors = activityColors('Kroužek');
@@ -85,6 +87,30 @@ export default function ParticipantOverview() {
           <Text style={styles.rewardBody}>{nextRewardDistance} XP zbývá</Text>
         </ParticipantCard>
       ) : null}
+
+      {/* Tutorials shortcut */}
+      <Pressable
+        onPress={() => router.push('/tutorials' as never)}
+        style={({ pressed }) => [styles.tutorialsCard, pressed && { opacity: 0.85 }]}
+        accessibilityRole="button"
+        accessibilityLabel="Tutoriály triků"
+      >
+        <LinearGradient
+          colors={['#8B1DFF', '#F12BB3'] as [string, string]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.tutorialsGradient}
+        >
+          <View style={styles.tutorialsIconWrap}>
+            <FontAwesome5 name="play-circle" size={28} color="rgba(255,255,255,0.92)" />
+          </View>
+          <View style={styles.tutorialsText}>
+            <Text style={styles.tutorialsTitle}>Tutoriály triků</Text>
+            <Text style={styles.tutorialsSub}>46 triků · postup, chyby, bezpečnostní tipy</Text>
+          </View>
+          <FontAwesome5 name="chevron-right" size={13} color="rgba(255,255,255,0.7)" />
+        </LinearGradient>
+      </Pressable>
 
     </ScrollView>
   );
@@ -1015,5 +1041,40 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     fontWeight: '700',
     textAlign: 'center',
+  },
+  tutorialsCard: {
+    borderRadius: Radius.lg,
+    overflow: 'hidden',
+    marginTop: 4,
+  },
+  tutorialsGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    paddingVertical: 16,
+    paddingHorizontal: 18,
+    borderRadius: Radius.lg,
+  },
+  tutorialsIconWrap: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tutorialsText: {
+    flex: 1,
+  },
+  tutorialsTitle: {
+    fontSize: 16,
+    fontWeight: '900',
+    color: '#fff',
+    letterSpacing: -0.3,
+  },
+  tutorialsSub: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.75)',
+    marginTop: 2,
   },
 });

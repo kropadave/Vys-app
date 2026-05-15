@@ -78,6 +78,7 @@ export default function ParticipantTabs() {
       <Tabs.Screen name="tricks" options={{ title: 'Skill tree', tabBarAccessibilityLabel: 'Triky' }} />
       <Tabs.Screen name="dochazka" options={{ title: 'Docházka', tabBarAccessibilityLabel: 'Docházka' }} />
       <Tabs.Screen name="leaderboard" options={{ title: 'Žebříček', tabBarAccessibilityLabel: 'Žebříček' }} />
+      <Tabs.Screen name="tutorials" options={{ href: null, title: 'Tutoriály', headerShown: false }} />
     </Tabs>
   );
 }
