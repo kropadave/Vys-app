@@ -17,7 +17,7 @@ import {
     TextInput,
     View,
 } from 'react-native';
-import MapView from 'react-native-maps';
+import type MapView from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import SpotsMapView from '@/components/spots-map-view';
@@ -308,7 +308,6 @@ export default function SpotsScreen() {
   const filteredSpots = selectedCity === 'Vše' ? spots : spots.filter((s) => s.city === selectedCity);
   const myReview = session ? reviews.find((r) => r.user_id === session.userId) : null;
   const avgRating = reviews.length > 0 ? reviews.reduce((a, r) => a + r.rating, 0) / reviews.length : 0;
-  const headerH = insets.top + 56;
 
   return (
     <View style={styles.root}>
