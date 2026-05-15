@@ -3,23 +3,23 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useMemo, useRef, useState } from 'react';
 import {
-  Animated,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    Animated,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 
 import { FadeInUp } from '@/components/animated/motion';
 import { Brand, BrandGradient } from '@/lib/brand';
 import { Palette, Radius, Shadow, Spacing } from '@/lib/theme';
 import {
-  BRACELET_COLORS,
-  LEVEL_TITLES,
-  trickTutorials,
-  type TrickTutorial,
+    BRACELET_COLORS,
+    LEVEL_TITLES,
+    trickTutorials,
+    type TrickTutorial,
 } from '@/lib/tricks-tutorials';
 import { useBreakpoint } from '@/lib/use-breakpoint';
 

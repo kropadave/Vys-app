@@ -112,6 +112,30 @@ export default function ParticipantOverview() {
         </LinearGradient>
       </Pressable>
 
+      {/* Training spots shortcut */}
+      <Pressable
+        onPress={() => router.push('/spots' as never)}
+        style={({ pressed }) => [styles.spotsCard, pressed && { opacity: 0.85 }]}
+        accessibilityRole="button"
+        accessibilityLabel="Trénovací spoty"
+      >
+        <LinearGradient
+          colors={['#1FB37A', '#14C8FF'] as [string, string]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.tutorialsGradient}
+        >
+          <View style={styles.tutorialsIconWrap}>
+            <FontAwesome5 name="map-marked-alt" size={22} color="rgba(255,255,255,0.92)" />
+          </View>
+          <View style={styles.tutorialsText}>
+            <Text style={styles.tutorialsTitle}>Trénovací spoty</Text>
+            <Text style={styles.tutorialsSub}>16 ověřených hal · mapa · recenze</Text>
+          </View>
+          <FontAwesome5 name="chevron-right" size={13} color="rgba(255,255,255,0.7)" />
+        </LinearGradient>
+      </Pressable>
+
     </ScrollView>
   );
 }
@@ -1046,6 +1070,11 @@ const styles = StyleSheet.create({
     borderRadius: Radius.lg,
     overflow: 'hidden',
     marginTop: 4,
+  },
+  spotsCard: {
+    borderRadius: Radius.lg,
+    overflow: 'hidden',
+    marginTop: 8,
   },
   tutorialsGradient: {
     flexDirection: 'row',

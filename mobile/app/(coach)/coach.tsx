@@ -1320,6 +1320,15 @@ export default function CoachHome() {
               <Text style={styles.muted}>První pomoc, metodika, harmonogram sezóny a hry na zahřátí.</Text>
             </View>
           </Pressable>
+          <Pressable style={({ pressed }) => [styles.quickActionButton, styles.quickActionSpots, pressed && { opacity: 0.86 }]} onPress={() => router.push('/spots' as never)}>
+            <View style={[styles.quickActionIcon, styles.quickActionIconSpots]}>
+              <Feather name="map-pin" size={18} color={CoachColors.teal} />
+            </View>
+            <View style={styles.quickActionCopy}>
+              <Text style={styles.quickActionTitle}>Trénovací spoty</Text>
+              <Text style={styles.muted}>Mapa hal a venkovních spotů, recenze, přidat nové místo.</Text>
+            </View>
+          </Pressable>
         </View>
       </ParentCard>
 
@@ -1776,10 +1785,12 @@ const styles = StyleSheet.create({
   quickActionAttendance: { borderLeftWidth: 4, borderLeftColor: CoachColors.teal },
   quickActionQr: { borderLeftWidth: 4, borderLeftColor: CoachColors.blue },
   quickActionGuide: { borderLeftWidth: 4, borderLeftColor: CoachColors.amber },
+  quickActionSpots: { borderLeftWidth: 4, borderLeftColor: CoachColors.teal },
   quickActionIcon: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
   quickActionIconAttendance: { backgroundColor: CoachColors.tealSoft },
   quickActionIconQr: { backgroundColor: CoachColors.blueSoft },
   quickActionIconGuide: { backgroundColor: CoachColors.amberSoft },
+  quickActionIconSpots: { backgroundColor: CoachColors.tealSoft },
   quickActionCopy: { flex: 1, minWidth: 0, gap: 2 },
   quickActionTitle: { color: Palette.text, fontSize: 18, lineHeight: 24, fontWeight: '900' },
   progressTrack: { height: 10, backgroundColor: CoachColors.slateSoft, borderRadius: Radius.pill, overflow: 'hidden' },
