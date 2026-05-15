@@ -1,12 +1,12 @@
 'use client';
 
-import { motion, useScroll, useSpring, useTransform } from 'framer-motion';
-import { Apple, Bell, Check, ExternalLink, Fingerprint, QrCode, RefreshCw, ShieldCheck, Smartphone, Sparkles, Trophy, Wifi } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { Bell, Check, ExternalLink, Fingerprint, QrCode, ShieldCheck, Sparkles, Trophy, Wifi } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
 
 const easeBrand = [0.22, 1, 0.36, 1] as const;
+const appUrl = 'https://vys-expo-web-export.vercel.app/sign-in';
 
 const featurePills = [
   { icon: Wifi, label: 'Online data ze Supabase' },
@@ -38,155 +38,82 @@ const audiences = [
 ] as const;
 
 export default function AplikacePage() {
-  const [followPhone, setFollowPhone] = useState(false);
-  const { scrollYProgress } = useScroll();
-  const phoneY = useSpring(useTransform(scrollYProgress, [0, 0.22, 0.46], [0, 150, 330]), {
-    stiffness: 82,
-    damping: 24,
-    mass: 0.45,
-  });
-  const phoneRotate = useTransform(scrollYProgress, [0, 0.3, 0.6], [0, -1.2, 1.4]);
-
-  useEffect(() => {
-    const query = window.matchMedia('(min-width: 1024px)');
-    const update = () => setFollowPhone(query.matches);
-    update();
-    query.addEventListener('change', update);
-    return () => query.removeEventListener('change', update);
-  }, []);
-
   return (
     <div className="relative">
-      <section className="section-shell pt-10 pb-16 md:pt-16 md:pb-24">
-        <div className="grid gap-10 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
-          <motion.div
-            initial={{ opacity: 0, y: 18 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, ease: easeBrand }}
-            className="space-y-6"
-          >
-            <span className="inline-flex items-center gap-2 rounded-brand bg-brand-purple-light px-3 py-1.5 text-xs font-black uppercase tracking-wider text-brand-purple">
-              <Sparkles size={14} /> TeamVYS aplikace
-            </span>
-            <h1 className="text-4xl font-black leading-[1.05] text-brand-ink md:text-6xl">
-              Aplikace pro účastníky a trenéry <span className="gradient-text">rovnou v telefonu</span>.
-            </h1>
-            <p className="max-w-xl text-base font-bold text-brand-ink-soft md:text-lg">
-              TeamVYS aplikace je jen pro účastníky a trenéry v terénu. Děti v ní sledují progres, trenéři řeší docházku,
-              QR triky a přehled práce. Rodiče a administrace zůstávají ve webovém portálu.
-            </p>
+      <section className="bg-gradient-to-b from-white via-brand-paper to-white py-10 md:py-14 lg:py-16">
+        <div className="section-shell grid gap-8 lg:grid-cols-[minmax(0,1fr)_420px] lg:items-start">
+          <div className="grid gap-8 lg:gap-10">
+            <motion.div
+              initial={{ opacity: 0, y: 18 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, ease: easeBrand }}
+              className="max-w-[820px] space-y-6"
+            >
+              <span className="inline-flex items-center gap-2 rounded-brand bg-brand-purple-light px-3 py-1.5 text-xs font-black uppercase tracking-wider text-brand-purple">
+                <Sparkles size={14} /> TeamVYS aplikace
+              </span>
+              <h1 className="text-4xl font-black leading-[1.05] text-brand-ink md:text-6xl">
+                Aplikace pro účastníky a trenéry <span className="gradient-text">rovnou v telefonu</span>.
+              </h1>
+              <p className="max-w-2xl text-base font-bold text-brand-ink-soft md:text-lg">
+                TeamVYS aplikace je jen pro účastníky a trenéry v terénu. Děti v ní sledují progres, trenéři řeší docházku,
+                QR triky a přehled práce. Rodiče a administrace zůstávají ve webovém portálu.
+              </p>
 
-            <div className="flex flex-wrap gap-3">
               <Link
-                href="/app/sign-in"
+                href={appUrl}
                 className="inline-flex items-center gap-2 rounded-brand bg-gradient-brand px-5 py-3.5 text-sm font-black text-white shadow-brand-soft transition-transform hover:-translate-y-px"
               >
                 <ExternalLink size={18} />
                 Spustit aplikaci
               </Link>
-              <Link
-                href="/app/sign-in"
-                className="inline-flex items-center gap-2 rounded-brand border border-brand-purple/15 bg-white px-5 py-3.5 text-sm font-black text-brand-ink shadow-brand-soft transition-transform hover:-translate-y-px"
-              >
-                <Smartphone size={18} />
-                Otevřít appku pro instalaci
-              </Link>
-              <button
-                type="button"
-                disabled
-                className="inline-flex cursor-not-allowed items-center gap-2 rounded-brand border border-brand-purple/15 bg-white px-5 py-3.5 text-sm font-black text-brand-ink-soft opacity-80"
-                title="APK build připravujeme"
-              >
-                <Smartphone size={18} />
-                APK · připravujeme
-              </button>
-              <button
-                type="button"
-                disabled
-                className="inline-flex cursor-not-allowed items-center gap-2 rounded-brand border border-brand-purple/15 bg-white px-5 py-3.5 text-sm font-black text-brand-ink-soft opacity-80"
-                title="iOS verze v přípravě"
-              >
-                <Apple size={18} />
-                iOS · v přípravě
-              </button>
-            </div>
 
-            <p className="text-xs font-bold text-brand-ink-soft">
-              Instalovatelná část běží pod /app, takže ikona na ploše otevírá jen účastnickou a trenérskou appku. Webové profily
-              pro rodiče a adminy se používají dál přes běžný web TeamVYS.
-            </p>
+              <p className="max-w-2xl text-xs font-bold text-brand-ink-soft">
+                Instalovatelná část běží jako samostatná Expo PWA, takže ikona na ploše otevírá jen účastnickou a trenérskou appku.
+                Webové profily pro rodiče a adminy se používají dál přes běžný web TeamVYS.
+              </p>
 
-            <div className="flex flex-wrap gap-2 pt-2">
-              {featurePills.map((pill) => (
-                <span
-                  key={pill.label}
-                  className="inline-flex items-center gap-2 rounded-brand border border-brand-purple/12 bg-white px-3 py-2 text-xs font-black text-brand-ink shadow-brand-soft"
+              <div className="flex flex-wrap gap-2 pt-2">
+                {featurePills.map((pill) => (
+                  <span
+                    key={pill.label}
+                    className="inline-flex items-center gap-2 rounded-brand border border-brand-purple/12 bg-white px-3 py-2 text-xs font-black text-brand-ink shadow-brand-soft"
+                  >
+                    <pill.icon size={14} className="text-brand-purple" />
+                    {pill.label}
+                  </span>
+                ))}
+              </div>
+            </motion.div>
+
+            <div className="grid gap-5">
+              {audiences.map((role, idx) => (
+                <motion.div
+                  key={role.title}
+                  initial={{ opacity: 0, y: 18 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true, margin: '-80px' }}
+                  transition={{ duration: 0.5, ease: easeBrand, delay: idx * 0.1 }}
+                  className="relative overflow-hidden rounded-brand-lg border border-brand-purple/12 bg-white p-7 shadow-brand-soft"
                 >
-                  <pill.icon size={14} className="text-brand-purple" />
-                  {pill.label}
-                </span>
+                  <div className={`absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r ${role.accent}`} />
+                  <p className="text-xs font-black uppercase tracking-wider text-brand-purple">Pro {role.title.toLowerCase()}a</p>
+                  <h2 className="mt-1 text-3xl font-black text-brand-ink">{role.title}</h2>
+                  <ul className="mt-5 space-y-3">
+                    {role.bullets.map((bullet) => (
+                      <li key={bullet} className="flex items-start gap-3">
+                        <span className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-purple-light text-brand-purple">
+                          <Check size={14} strokeWidth={3} />
+                        </span>
+                        <span className="text-sm font-bold text-brand-ink-soft">{bullet}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </motion.div>
               ))}
             </div>
-          </motion.div>
 
-          <motion.div
-            initial={{ opacity: 0, y: 48, scale: 0.88 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            transition={{ duration: 1.0, ease: easeBrand, delay: 0.15 }}
-            style={followPhone ? { y: phoneY, rotate: phoneRotate } : undefined}
-            className="pointer-events-none relative mx-auto w-full max-w-[380px] will-change-transform lg:sticky lg:top-24 lg:max-w-[460px]"
-          >
-            <motion.div
-              animate={{ y: [0, -10, 0] }}
-              transition={{ duration: 4, ease: 'easeInOut', repeat: Infinity, repeatType: 'loop' }}
-            >
-              <Image
-                src="/telefon-mockup.png"
-                alt="Ukázka aplikace TeamVYS v iPhonu"
-                width={760}
-                height={960}
-                priority
-                sizes="(min-width: 1024px) 460px, 90vw"
-                className="w-full drop-shadow-[0_40px_80px_rgba(139,29,255,0.28)]"
-              />
-            </motion.div>
-          </motion.div>
-        </div>
-      </section>
-
-      <section className="bg-white/60 py-16 backdrop-blur">
-        <div className="section-shell grid gap-6 md:grid-cols-2">
-          {audiences.map((role, idx) => (
-            <motion.div
-              key={role.title}
-              initial={{ opacity: 0, y: 18 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, margin: '-80px' }}
-              transition={{ duration: 0.5, ease: easeBrand, delay: idx * 0.1 }}
-              className="relative overflow-hidden rounded-brand-lg border border-brand-purple/12 bg-white p-7 shadow-brand-soft"
-            >
-              <div className={`absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r ${role.accent}`} />
-              <p className="text-xs font-black uppercase tracking-wider text-brand-purple">Pro {role.title.toLowerCase()}a</p>
-              <h2 className="mt-1 text-3xl font-black text-brand-ink">{role.title}</h2>
-              <ul className="mt-5 space-y-3">
-                {role.bullets.map((bullet) => (
-                  <li key={bullet} className="flex items-start gap-3">
-                    <span className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-purple-light text-brand-purple">
-                      <Check size={14} strokeWidth={3} />
-                    </span>
-                    <span className="text-sm font-bold text-brand-ink-soft">{bullet}</span>
-                  </li>
-                ))}
-              </ul>
-            </motion.div>
-          ))}
-        </div>
-      </section>
-
-      <section className="section-shell py-16">
-        <div className="rounded-brand-lg border border-brand-purple/12 bg-gradient-to-br from-white via-white to-brand-purple-light p-8 md:p-12 shadow-brand-soft">
-          <div className="grid gap-8 md:grid-cols-[1.4fr_1fr] md:items-center">
-            <div>
+            <div className="rounded-brand-lg border border-brand-purple/12 bg-white p-8 shadow-brand-soft md:p-10">
               <h2 className="text-3xl font-black text-brand-ink md:text-4xl">Jak to funguje?</h2>
               <ol className="mt-5 space-y-4 text-sm font-bold text-brand-ink-soft md:text-base">
                 <li className="flex gap-3">
@@ -202,30 +129,25 @@ export default function AplikacePage() {
                   Účastník vidí progres a náramky, trenér řeší docházku, QR potvrzení triků a svůj přehled.
                 </li>
               </ol>
-            </div>
-            <div className="space-y-3">
-              <Link
-                href="/app/sign-in"
-                className="flex items-center justify-between gap-4 rounded-brand bg-brand-ink px-5 py-4 text-white shadow-brand-soft transition-transform hover:-translate-y-px"
-              >
-                <span>
-                  <span className="block text-[10px] font-black uppercase tracking-wider opacity-70">Aktuální verze</span>
-                  <span className="text-base font-black">Účastník + trenér · živá data</span>
-                </span>
-                <RefreshCw size={22} />
-              </Link>
-              <div className="rounded-brand border border-brand-purple/12 bg-white p-4 shadow-brand-soft">
-                <div className="flex items-start gap-3">
-                  <span className="rounded-[14px] bg-brand-purple-light p-2 text-brand-purple"><ShieldCheck size={18} /></span>
-                  <p className="text-xs font-bold leading-6 text-brand-ink-soft">
-                    Aplikace necachuje API odpovědi. Docházka, QR triky a progres se berou z aktuálního backendu.
-                  </p>
-                </div>
+              <div className="mt-6 flex items-start gap-3 rounded-brand bg-brand-purple-light p-4">
+                <span className="rounded-[14px] bg-white p-2 text-brand-purple"><ShieldCheck size={18} /></span>
+                <p className="text-xs font-bold leading-6 text-brand-ink-soft">
+                  Aplikace necachuje API odpovědi. Docházka, QR triky a progres se berou z aktuálního backendu.
+                </p>
               </div>
-              <p className="text-xs font-bold text-brand-ink-soft">
-                Rodičovský a admin profil zůstává na webu, aplikace je určená pro tréninkový provoz.
-              </p>
             </div>
+          </div>
+
+          <div className="pointer-events-none relative mx-auto w-full max-w-[360px] lg:sticky lg:top-24 lg:max-w-[420px] lg:self-start lg:pt-3">
+            <Image
+              src="/telefon-mockup.png"
+              alt="Ukázka aplikace TeamVYS v iPhonu"
+              width={760}
+              height={960}
+              priority
+              sizes="(min-width: 1024px) 420px, 90vw"
+              className="w-full drop-shadow-[0_40px_80px_rgba(139,29,255,0.28)]"
+            />
           </div>
         </div>
       </section>

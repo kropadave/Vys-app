@@ -6,7 +6,6 @@ import { JourneySection } from '@/components/sections/journey';
 import { PillarsSection } from '@/components/sections/pillars';
 import { ProgramsSection } from '@/components/sections/programs';
 import { StatsSection } from '@/components/sections/stats';
-import { TestimonialsSection } from '@/components/sections/testimonials';
 import { TrustMarquee } from '@/components/sections/trust-marquee';
 
 export default function HomePage() {
@@ -19,7 +18,6 @@ export default function HomePage() {
       <JourneySection />
       <GallerySection />
       <PillarsSection />
-      <TestimonialsSection />
       <FaqSection />
       <FinalCta />
     </>

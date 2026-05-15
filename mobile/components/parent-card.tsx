@@ -11,9 +11,9 @@ export function ParentCard({ title, children }: { title?: string; children: Reac
   );
 }
 
-export function StatusPill({ label, tone = 'neutral' }: { label: string; tone?: 'neutral' | 'success' | 'warning' | 'danger' }) {
+export function StatusPill({ label, tone = 'neutral' }: { label: string; tone?: 'neutral' | 'success' | 'warning' | 'danger' | 'info' }) {
   return (
-    <View style={[styles.pill, tone === 'success' && styles.success, tone === 'warning' && styles.warning, tone === 'danger' && styles.danger]}>
+    <View style={[styles.pill, tone === 'success' && styles.success, tone === 'warning' && styles.warning, tone === 'danger' && styles.danger, tone === 'info' && styles.info]}>
       <Text style={styles.pillText}>{label}</Text>
     </View>
   );
@@ -39,8 +39,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
   },
-  success: { backgroundColor: '#163629', borderColor: '#235D46' },
-  warning: { backgroundColor: Palette.accentSoft, borderColor: '#6B5117' },
-  danger: { backgroundColor: '#3B1720', borderColor: '#70283A' },
+  success: { backgroundColor: Palette.successSoft, borderColor: 'rgba(49,217,139,0.34)' },
+  warning: { backgroundColor: Palette.accentSoft, borderColor: 'rgba(255,178,26,0.34)' },
+  danger: { backgroundColor: Palette.dangerSoft, borderColor: 'rgba(255,91,110,0.34)' },
+  info: { backgroundColor: Palette.cyanSoft, borderColor: 'rgba(20,200,255,0.34)' },
   pillText: { color: Palette.text, fontSize: 12, fontWeight: '900' },
 });

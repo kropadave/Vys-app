@@ -16,14 +16,14 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: '#140E26',
+  themeColor: '#FFF9F0',
   width: 'device-width',
   initialScale: 1,
 };
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-dvh bg-[#140E26] text-white">
+    <div className="min-h-dvh bg-brand-paper text-brand-ink">
       <PwaRegister />
       {children}
     </div>

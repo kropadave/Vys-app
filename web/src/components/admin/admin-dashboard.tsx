@@ -3222,6 +3222,7 @@ function GroupedCourseCard({ group, coaches, isCreated, onRemove, onEdit, onCoac
   const [capacityTotal, setCapacityTotal] = useState(String(base.capacityTotal));
   const [photos, setPhotos] = useState<string[]>([]);
   const [photoCount, setPhotoCount] = useState(0);
+  const [heroIndex, setHeroIndex] = useState(0);
   const photoInputRef = useRef<HTMLInputElement>(null);
 
   async function handlePhotoFiles(files: FileList) {
@@ -3231,12 +3232,13 @@ function GroupedCourseCard({ group, coaches, isCreated, onRemove, onEdit, onCoac
     }
     setPhotos(results);
     setPhotoCount(results.length);
+    setHeroIndex(0);
   }
 
   function handleSave() {
     const edits: ProductEdits = { title, place, primaryMeta, capacityTotal: Number(capacityTotal) };
     if (photos.length > 0) {
-      edits.heroImage = photos[0];
+      edits.heroImage = photos[heroIndex] ?? photos[0];
       edits.gallery = photos;
     }
     onEdit(edits);
@@ -3319,9 +3321,20 @@ function GroupedCourseCard({ group, coaches, isCreated, onRemove, onEdit, onCoac
                     </label>
                     {photos.length > 0 ? (
                       <div className="mt-1 flex flex-wrap gap-2">
-                        {photos.map((src, index) => <img key={index} src={src} alt={`Náhled ${index + 1}`} className="h-14 w-14 rounded-[10px] object-cover shadow-sm" />)}
+                        {photos.map((src, index) => (
+                          <button key={index} type="button" onClick={() => setHeroIndex(index)}
+                            className={`relative h-14 w-14 rounded-[10px] overflow-hidden shadow-sm ring-2 transition ${
+                              heroIndex === index ? 'ring-brand-purple' : 'ring-transparent hover:ring-brand-purple/40'
+                            }`}>
+                            <img src={src} alt={`Náhled ${index + 1}`} className="h-full w-full object-cover" />
+                            {heroIndex === index && (
+                              <span className="absolute bottom-0.5 right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-brand-purple text-white text-[9px] font-black">✓</span>
+                            )}
+                          </button>
+                        ))}
                       </div>
                     ) : null}
+                    {photos.length > 1 ? <p className="text-[10px] font-bold text-brand-ink-soft">Klikni na fotku pro výběr hlavní fotky webu.</p> : null}
                   </div>
                   <div className="flex gap-2">
                     <button type="button" onClick={handleSave} className="flex-1 rounded-[14px] bg-brand-purple py-2.5 text-sm font-black text-white transition hover:opacity-80">Uložit</button>
@@ -3347,6 +3360,7 @@ function AdminProductCard({ product, coaches, isCreated, onRemove, onEdit, onCoa
   const [capacityTotal, setCapacityTotal] = useState(String(product.capacityTotal));
   const [photos, setPhotos] = useState<string[]>([]);
   const [photoCount, setPhotoCount] = useState(0);
+  const [heroIndex, setHeroIndex] = useState(0);
   const [clearImage, setClearImage] = useState(false);
   const photoInputRef = useRef<HTMLInputElement>(null);
 
@@ -3357,6 +3371,7 @@ function AdminProductCard({ product, coaches, isCreated, onRemove, onEdit, onCoa
     }
     setPhotos(results);
     setPhotoCount(results.length);
+    setHeroIndex(0);
     setClearImage(false);
   }
 
@@ -3364,7 +3379,7 @@ function AdminProductCard({ product, coaches, isCreated, onRemove, onEdit, onCoa
     const priceNum = Number(price);
     const edits: ProductEdits = { title, place, primaryMeta, price: priceNum, priceLabel: `${priceNum.toLocaleString('cs-CZ')} Kč`, capacityTotal: Number(capacityTotal) };
     if (photos.length > 0) {
-      edits.heroImage = photos[0];
+      edits.heroImage = photos[heroIndex] ?? photos[0];
       edits.gallery = photos;
     } else if (clearImage) {
       edits.heroImage = '';
@@ -3455,9 +3470,20 @@ function AdminProductCard({ product, coaches, isCreated, onRemove, onEdit, onCoa
                     </label>
                     {photos.length > 0 ? (
                       <div className="mt-1 flex flex-wrap gap-2">
-                        {photos.map((src, index) => <img key={index} src={src} alt={`Náhled ${index + 1}`} className="h-14 w-14 rounded-[10px] object-cover shadow-sm" />)}
+                        {photos.map((src, index) => (
+                          <button key={index} type="button" onClick={() => setHeroIndex(index)}
+                            className={`relative h-14 w-14 rounded-[10px] overflow-hidden shadow-sm ring-2 transition ${
+                              heroIndex === index ? 'ring-brand-purple' : 'ring-transparent hover:ring-brand-purple/40'
+                            }`}>
+                            <img src={src} alt={`Náhled ${index + 1}`} className="h-full w-full object-cover" />
+                            {heroIndex === index && (
+                              <span className="absolute bottom-0.5 right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-brand-purple text-white text-[9px] font-black">✓</span>
+                            )}
+                          </button>
+                        ))}
                       </div>
                     ) : null}
+                    {photos.length > 1 ? <p className="text-[10px] font-bold text-brand-ink-soft">Klikni na fotku pro výběr hlavní fotky webu.</p> : null}
                   </div>
                   <div className="flex gap-2">
                     <button type="button" onClick={handleSave} className="flex-1 rounded-[14px] bg-brand-purple py-2.5 text-sm font-black text-white transition hover:opacity-80">Uložit</button>

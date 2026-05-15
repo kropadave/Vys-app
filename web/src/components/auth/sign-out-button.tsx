@@ -5,13 +5,13 @@ import { useRouter } from 'next/navigation';
 
 import { createBrowserSupabaseClient } from '@/lib/supabase/browser';
 
-export function SignOutButton() {
+export function SignOutButton({ redirectTo = '/sign-in' }: { redirectTo?: string }) {
   const router = useRouter();
 
   async function signOut() {
     const supabase = createBrowserSupabaseClient();
     await supabase.auth.signOut();
-    router.replace('/sign-in');
+    router.replace(redirectTo);
     router.refresh();
   }
 

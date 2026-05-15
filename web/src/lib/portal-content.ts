@@ -83,7 +83,12 @@ export type AdminCoachSummary = {
   phone: string;
   bankAccount: string;
   iban?: string;
+  payoutAccountHolder?: string;
+  payoutNote?: string;
+  approvalStatus?: 'pending' | 'approved' | 'rejected' | 'suspended';
   status: 'Aktivni' | 'Ceka na klic' | 'Pozastaveny';
+  level: number;
+  xp: number;
   locations: string[];
   loggedHours: number;
   baseAmount: number;
@@ -95,6 +100,18 @@ export type AdminCoachSummary = {
   qrTricksApproved: number;
   profilePhotoUrl?: string;
   stripeAccountId?: string;
+};
+
+export type AdminCoachAccessRequest = {
+  id: string;
+  coachId?: string;
+  name: string;
+  email: string;
+  phone: string;
+  requestedLocation: string;
+  requestedAt: string;
+  note: string;
+  approvalStatus?: 'pending' | 'approved' | 'rejected' | 'suspended';
 };
 
 export type ParentProductTrainer = {
@@ -308,9 +325,9 @@ export type AdminProductTemplate = {
 };
 
 export const parentProfile = {
-  name: 'David Kropac',
+  name: 'Testovací rodič',
   email: 'rodic@example.cz',
-  phone: '+420 605 324 417',
+  phone: '+420 000 000 000',
 };
 
 export const linkedParticipants: ParentParticipant[] = [
@@ -420,14 +437,14 @@ export const parentProducts: ParentProduct[] = [
       capacityCurrent: Math.ceil(camp.capacityCurrent / terms.length),
       primaryMeta: `${term.label} · ${term.dates}`,
       secondaryMeta: 'Jídlo a tričko v ceně',
-      description: `Týden pohybu, her a parkouru v lokalitě ${camp.place}. Tábor má denní režim, trenérský dohled, dokumenty pro rodiče a QR ticket pro první den.`,
+      description: `Týden pohybu, her a parkouru v lokalitě ${camp.place}. Tábor má denní režim, trenérský dohled a dokumenty pro rodiče. První den stačí přijít a nahlásit jméno.`,
       badge: 'Táborový turnus',
       heroImage: camp.place === 'Vyškov' ? '/courses/nadrazka_ZS-Nadrazka-Foto3.webp' : '/courses/brandys_BR4.webp',
       gallery: camp.place === 'Vyškov' ? ['/courses/nadrazka_ZS-Nadrazka-Foto3.webp', '/courses/nadrazka_ZS-Nadrazka-Foto1.webp', '/courses/nadrazka_ZS-Nadrazka-Foto2.webp'] : ['/courses/brandys_BR4.webp', '/courses/brandys_BR5.webp', '/courses/brandys_BR6.webp'],
       importantInfo: [
         { label: 'Turnus', value: `${term.label} · ${term.dates}` },
         { label: 'Dokumenty', value: 'GDPR, souhlas, anamnéza, bezinfekčnost, vyzvedávání a věci s sebou' },
-        { label: 'Nástup', value: 'QR ticket se odemkne až po zaplacení a kompletních dokumentech' },
+        { label: 'Nástup', value: '1. den nahlaste jméno u vstupu — trenér zkontroluje přihlášku v systému' },
         { label: 'V ceně', value: 'jídlo, pitný režim a táborové tričko' },
       ],
       trainingFocus: ['parkour základy', 'týmové hry', 'venkovní výzvy', 'bezpečný režim dne'],
@@ -494,14 +511,14 @@ export const reviewableCoaches = [
 ];
 
 export const coachReviews = [
-  { id: 'review-1', coachId: 'coach-demo', coachName: 'Filip Trenér', parentName: 'David Kropáč', participantName: 'Eliška Nováková', rating: 5, comment: 'Bezpečný přístup a dobrá komunikace po tréninku.', createdAt: '28. 4. 2026' },
+  { id: 'review-1', coachId: 'coach-demo', coachName: 'Filip Trenér', parentName: 'Testovací rodič', participantName: 'Eliška Nováková', rating: 5, comment: 'Bezpečný přístup a dobrá komunikace po tréninku.', createdAt: '28. 4. 2026' },
 ];
 
 export const adminCoachSummaries: AdminCoachSummary[] = [
-  { id: 'coach-demo', name: 'Filip Trenér', email: 'filip@teamvys.cz', phone: '+420 605 324 417', bankAccount: '2902345671/2010', iban: 'CZ65 2010 0000 0029 0234 5671', status: 'Aktivni', locations: ['Vyskov · ZS Nadrazni', 'Vyskov · ZS Purkynova', 'Prostejov · ZS Melantrichova'], loggedHours: 3, baseAmount: 1500, approvedBonuses: 600, pendingBonuses: 0, nextPayout: '15. 5. 2026', lastAttendance: '24. 4. 2026', childrenLogged: 22, qrTricksApproved: 184, profilePhotoUrl: '/vys-logo-mark.png', stripeAccountId: 'acct_demo_filip' },
-  { id: 'coach-marek', name: 'Marek Hlaváč', email: 'marek@teamvys.cz', phone: '+420 777 904 118', bankAccount: '2201849034/5500', iban: 'CZ28 5500 0000 0022 0184 9034', status: 'Aktivni', locations: ['Blansko · ZS Erbenova', 'Jesenik · Gymnazium Komenskeho'], loggedHours: 7.5, baseAmount: 3750, approvedBonuses: 1000, pendingBonuses: 0, nextPayout: '15. 5. 2026', lastAttendance: '29. 4. 2026', childrenLogged: 38, qrTricksApproved: 126, profilePhotoUrl: '/vys-logo-mark.png' },
-  { id: 'coach-anna', name: 'Anna Králová', email: 'anna@teamvys.cz', phone: '+420 775 441 903', bankAccount: '2500441903/0800', iban: 'CZ40 0800 0000 0025 0044 1903', status: 'Aktivni', locations: ['Brandys · ZS Na Vysluni', 'Praha · Balkan'], loggedHours: 5, baseAmount: 2500, approvedBonuses: 300, pendingBonuses: 0, nextPayout: '15. 5. 2026', lastAttendance: '28. 4. 2026', childrenLogged: 24, qrTricksApproved: 97, profilePhotoUrl: '/vys-logo-mark.png' },
-  { id: 'coach-tereza', name: 'Tereza Novotná', email: 'tereza@teamvys.cz', phone: '+420 733 210 665', bankAccount: '2107330665/2700', iban: 'CZ41 2700 0000 0021 0733 0665', status: 'Ceka na klic', locations: ['Vyskov · Orel jednota Vyskov', 'Veliny · Tabor Mlynek'], loggedHours: 0, baseAmount: 0, approvedBonuses: 0, pendingBonuses: 0, nextPayout: 'Po aktivaci', lastAttendance: 'Zatim netrenovala', childrenLogged: 0, qrTricksApproved: 0, profilePhotoUrl: '/vys-logo-mark.png' },
+  { id: 'coach-demo', name: 'Filip Trenér', email: 'filip@teamvys.cz', phone: '+420 605 324 417', bankAccount: '2902345671/2010', iban: 'CZ65 2010 0000 0029 0234 5671', status: 'Aktivni', level: 5, xp: 1840, locations: ['Vyskov · ZS Nadrazni', 'Vyskov · ZS Purkynova', 'Prostejov · ZS Melantrichova'], loggedHours: 3, baseAmount: 1500, approvedBonuses: 600, pendingBonuses: 0, nextPayout: '15. 5. 2026', lastAttendance: '24. 4. 2026', childrenLogged: 22, qrTricksApproved: 184, profilePhotoUrl: '/vys-logo-mark.png', stripeAccountId: 'acct_demo_filip' },
+  { id: 'coach-marek', name: 'Marek Hlaváč', email: 'marek@teamvys.cz', phone: '+420 777 904 118', bankAccount: '2201849034/5500', iban: 'CZ28 5500 0000 0022 0184 9034', status: 'Aktivni', level: 4, xp: 1260, locations: ['Blansko · ZS Erbenova', 'Jesenik · Gymnazium Komenskeho'], loggedHours: 7.5, baseAmount: 3750, approvedBonuses: 1000, pendingBonuses: 0, nextPayout: '15. 5. 2026', lastAttendance: '29. 4. 2026', childrenLogged: 38, qrTricksApproved: 126, profilePhotoUrl: '/vys-logo-mark.png' },
+  { id: 'coach-anna', name: 'Anna Králová', email: 'anna@teamvys.cz', phone: '+420 775 441 903', bankAccount: '2500441903/0800', iban: 'CZ40 0800 0000 0025 0044 1903', status: 'Aktivni', level: 3, xp: 970, locations: ['Brandys · ZS Na Vysluni', 'Praha · Balkan'], loggedHours: 5, baseAmount: 2500, approvedBonuses: 300, pendingBonuses: 0, nextPayout: '15. 5. 2026', lastAttendance: '28. 4. 2026', childrenLogged: 24, qrTricksApproved: 97, profilePhotoUrl: '/vys-logo-mark.png' },
+  { id: 'coach-tereza', name: 'Tereza Novotná', email: 'tereza@teamvys.cz', phone: '+420 733 210 665', bankAccount: '2107330665/2700', iban: 'CZ41 2700 0000 0021 0733 0665', status: 'Ceka na klic', level: 1, xp: 0, locations: ['Vyskov · Orel jednota Vyskov', 'Veliny · Tabor Mlynek'], loggedHours: 0, baseAmount: 0, approvedBonuses: 0, pendingBonuses: 0, nextPayout: 'Po aktivaci', lastAttendance: 'Zatim netrenovala', childrenLogged: 0, qrTricksApproved: 0, profilePhotoUrl: '/vys-logo-mark.png' },
 ];
 
 export const sharedTrainingCalendar: SharedTrainingSlot[] = [
@@ -622,7 +639,7 @@ function normalizeLocation(value: string) {
     .trim();
 }
 
-export const adminCoachAccessRequests = [
+export const adminCoachAccessRequests: AdminCoachAccessRequest[] = [
   { id: 'request-tereza-vyskov', name: 'Tereza Novotna', email: 'tereza@teamvys.cz', phone: '+420 733 210 665', requestedLocation: 'Vyskov · Orel jednota Vyskov', requestedAt: '30. 4. 2026 · 09:20', note: 'Chce pomahat u primestskych taboru a pozdeji prevzit pondelni skupinu.' },
   { id: 'request-daniel-brandys', name: 'Daniel Svetlik', email: 'daniel@teamvys.cz', phone: '+420 724 511 809', requestedLocation: 'Brandys · ZS Na Vysluni', requestedAt: '29. 4. 2026 · 18:42', note: 'Doporuceni od Marka, ceka na kontrolu dokumentu a vydani klice.' },
 ];
@@ -630,7 +647,7 @@ export const adminCoachAccessRequests = [
 export const adminProductTemplates: AdminProductTemplate[] = [
   { type: 'Krouzek', title: 'Novy krouzek / permanentka', description: 'Pravidelny tydenni krouzek s NFC permanentkou a kapacitou skupiny.', defaults: [{ label: 'Kapacita', value: '25 deti' }, { label: 'Vstupy', value: '10 nebo 15' }, { label: 'Dokumenty', value: 'GDPR, souhlas, zdravi' }], checklist: ['Mesto a telocvicna', 'Den a cas', 'Trener', 'Cena', 'Kapacita'] },
   { type: 'Workshop', title: 'Jednorazovy workshop', description: 'Workshop s QR ticketem, mistem a platnosti ticketu.', defaults: [{ label: 'Kapacita', value: '40 ucastniku' }, { label: 'Ticket', value: 'QR po zaplaceni' }, { label: 'Platnost', value: 'Do dne po akci' }], checklist: ['Datum a cas', 'Misto', 'Cena', 'Platnost QR', 'Seznam triku'] },
-  { type: 'Tabor', title: 'Primestsky tabor', description: 'Taborovy turnus s dokumenty, anamnezou a prvnim QR skenem u vstupu.', defaults: [{ label: 'Kapacita', value: '30 deti' }, { label: 'Dokumenty', value: 'GDPR, anamneza, bezinfekcnost' }, { label: 'Strava', value: 'Svaciny, obed, pitny rezim' }], checklist: ['Terminy', 'Adresa', 'Vek', 'Cena', 'Strava', 'Treneri'] },
+  { type: 'Tabor', title: 'Primestsky tabor', description: 'Taborovy turnus s dokumenty, anamnezou a prezencni listinou pro prvni den.', defaults: [{ label: 'Kapacita', value: '30 deti' }, { label: 'Dokumenty', value: 'GDPR, anamneza, bezinfekcnost' }, { label: 'Strava', value: 'Svaciny, obed, pitny rezim' }], checklist: ['Terminy', 'Adresa', 'Vek', 'Cena', 'Strava', 'Treneri'] },
 ];
 
 export const adminAttendanceAdjustments = [

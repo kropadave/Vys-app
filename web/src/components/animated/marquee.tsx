@@ -1,6 +1,6 @@
 'use client';
 
-import { type ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 
 import { cn } from '@/lib/utils';
 
@@ -13,17 +13,14 @@ type Props = {
 
 /**
  * Pure-CSS infinite horizontal marquee. Renders children twice for seamless loop.
- * The animation is defined as `marquee` keyframe in tailwind.config.
+ * The animation is defined as the `scroll` keyframe in globals.css.
  */
 export function Marquee({ children, speed = 32, className, reverse = false }: Props) {
   return (
     <div className={cn('overflow-hidden marquee-mask', className)}>
       <div
-        className="flex w-max gap-8"
-        style={{
-          animation: `marquee ${speed}s linear infinite`,
-          animationDirection: reverse ? 'reverse' : 'normal',
-        }}
+        className={cn('badge-marquee-track flex w-max gap-8', reverse && 'badge-marquee-track-reverse')}
+        style={{ '--marquee-duration': `${speed}s` } as CSSProperties}
       >
         <div className="flex gap-8 shrink-0">{children}</div>
         <div className="flex gap-8 shrink-0" aria-hidden="true">

@@ -1,4 +1,6 @@
-const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+import { createBrowserSupabaseClient, hasSupabaseBrowserConfig } from '@/lib/supabase/browser';
+
+const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://server-psi-ochre-40.vercel.app';
 
 type CheckoutPayload = {
   productId: string;
@@ -92,6 +94,23 @@ type CreateManualParticipantResponse = {
   };
 };
 
+type LinkParticipantPayload = {
+  parentProfileId?: string;
+  firstName: string;
+  lastName: string;
+  birthNumber: string;
+};
+
+type LinkParticipantResponse = {
+  participant: {
+    id: string;
+    first_name: string;
+    last_name: string;
+    active_course: string | null;
+    parent_profile_id: string | null;
+  };
+};
+
 type ConfirmResponse = {
   purchase: {
     id: string;
@@ -111,6 +130,8 @@ export type SaveCoachAttendancePayload = {
   present: string;
   durationHours: number;
   hourlyRate: number;
+  latitude?: number;
+  longitude?: number;
 };
 
 export type SaveCoachAttendanceResponse = {
@@ -170,7 +191,7 @@ export async function createCheckoutSession(payload: CheckoutPayload): Promise<C
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
-  });
+  }, { auth: true });
 }
 
 export async function createEmbeddedPaymentIntent(payload: EmbeddedPaymentIntentPayload): Promise<EmbeddedPaymentIntentResponse> {
@@ -178,7 +199,7 @@ export async function createEmbeddedPaymentIntent(payload: EmbeddedPaymentIntent
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
-  });
+  }, { auth: true });
 }
 
 export async function confirmEmbeddedPaymentIntent(paymentIntentId: string): Promise<ConfirmResponse> {
@@ -186,7 +207,7 @@ export async function confirmEmbeddedPaymentIntent(paymentIntentId: string): Pro
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ paymentIntentId }),
-  });
+  }, { auth: true });
 }
 
 export async function saveCourseDocuments(payload: SaveCourseDocumentsPayload): Promise<SaveCourseDocumentsResponse> {
@@ -194,7 +215,7 @@ export async function saveCourseDocuments(payload: SaveCourseDocumentsPayload): 
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
-  });
+  }, { auth: true });
 }
 
 export async function createManualParticipantProfile(payload: CreateManualParticipantPayload): Promise<CreateManualParticipantResponse> {
@@ -202,7 +223,20 @@ export async function createManualParticipantProfile(payload: CreateManualPartic
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
+  }, { auth: true });
+}
+
+export async function linkParticipantByBirthNumber(payload: LinkParticipantPayload): Promise<LinkParticipantResponse> {
+  // This route lives in the Next.js app itself — use a relative fetch, NOT the external apiUrl
+  const init = await withAuthHeader({
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
   });
+  const response = await fetch('/api/participants/link', init);
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+  return data as LinkParticipantResponse;
 }
 
 export async function confirmCheckoutSession(sessionId: string): Promise<ConfirmResponse> {
@@ -210,7 +244,7 @@ export async function confirmCheckoutSession(sessionId: string): Promise<Confirm
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ sessionId }),
-  });
+  }, { auth: true });
 }
 
 export async function saveCoachAttendance(payload: SaveCoachAttendancePayload): Promise<SaveCoachAttendanceResponse> {
@@ -218,7 +252,7 @@ export async function saveCoachAttendance(payload: SaveCoachAttendancePayload): 
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
-  });
+  }, { auth: true });
 }
 
 export async function createCoachStripeOnboarding(coachId: string, returnUrl: string, refreshUrl: string): Promise<{ accountId: string; onboardingUrl: string }> {
@@ -226,7 +260,7 @@ export async function createCoachStripeOnboarding(coachId: string, returnUrl: st
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ returnUrl, refreshUrl }),
-  });
+  }, { auth: true });
 }
 
 export async function sendTrainerPayout(payload: TrainerPayoutPayload): Promise<{ transfer: TrainerPayoutTransfer }> {
@@ -234,13 +268,14 @@ export async function sendTrainerPayout(payload: TrainerPayoutPayload): Promise<
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
-  });
+  }, { auth: true });
 
   return { transfer: normalizeTrainerPayoutTransfer(result.transfer, payload) };
 }
 
-async function requestJson<T>(path: string, init: RequestInit): Promise<T> {
-  const response = await fetch(`${apiUrl}${path}`, init);
+async function requestJson<T>(path: string, init: RequestInit, options: { auth?: boolean } = {}): Promise<T> {
+  const requestInit = options.auth ? await withAuthHeader(init) : init;
+  const response = await fetch(`${apiUrl}${path}`, requestInit);
   const payload = await response.json().catch(() => ({}));
 
   if (!response.ok) {
@@ -248,6 +283,23 @@ async function requestJson<T>(path: string, init: RequestInit): Promise<T> {
   }
 
   return payload as T;
+}
+
+async function withAuthHeader(init: RequestInit): Promise<RequestInit> {
+  if (!hasSupabaseBrowserConfig()) return init;
+
+  const supabase = createBrowserSupabaseClient();
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  if (!token) return init;
+
+  return {
+    ...init,
+    headers: {
+      ...(init.headers ?? {}),
+      Authorization: `Bearer ${token}`,
+    },
+  };
 }
 
 function normalizeTrainerPayoutTransfer(transfer: RawTrainerPayoutTransfer, fallback: TrainerPayoutPayload): TrainerPayoutTransfer {
@@ -273,6 +325,7 @@ export type AdminProductRow = {
   place: string;
   venue: string;
   price: number;
+  original_price?: number;
   price_label: string;
   entries_total?: number;
   primary_meta: string;
@@ -292,8 +345,24 @@ export type AdminProductRow = {
 };
 
 export async function loadAdminProducts(): Promise<AdminProductRow[]> {
-  const result = await requestJson<{ products: AdminProductRow[] }>('/api/admin/products', { method: 'GET' });
+  const result = await requestJson<{ products: AdminProductRow[] }>('/api/admin/products', { method: 'GET' }, { auth: true });
   return result.products;
+}
+
+export async function loadPublicProducts(): Promise<AdminProductRow[]> {
+  const result = await requestJson<{ products: AdminProductRow[] }>('/api/public/products', { method: 'GET', cache: 'no-store' });
+  return result.products;
+}
+
+export type PublicCoachSummary = {
+  id: string;
+  name: string;
+  photoUrl: string;
+};
+
+export async function loadPublicCoaches(): Promise<PublicCoachSummary[]> {
+  const result = await requestJson<{ coaches: PublicCoachSummary[] }>('/api/public/coaches', { method: 'GET', cache: 'no-store' });
+  return result.coaches;
 }
 
 export async function saveAdminProduct(product: AdminProductRow): Promise<{ id: string }> {
@@ -301,9 +370,64 @@ export async function saveAdminProduct(product: AdminProductRow): Promise<{ id: 
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ product }),
-  });
+  }, { auth: true });
 }
 
 export async function deleteAdminProduct(productId: string): Promise<void> {
-  await requestJson(`/api/admin/products/${encodeURIComponent(productId)}`, { method: 'DELETE' });
+  await requestJson(`/api/admin/products/${encodeURIComponent(productId)}`, { method: 'DELETE' }, { auth: true });
+}
+
+// ─── Admin invoices ──────────────────────────────────────────────────────────
+
+export type AdminInvoiceRow = {
+  id: number | string;
+  dodavatel: string | null;
+  castka: string | null;
+  mena: string | null;
+  datum_vystaveni: string | null;
+  datum_splatnosti: string | null;
+  cislo_faktury: string | null;
+  popis: string | null;
+  file_url: string | null;
+  zaplaceno: boolean;
+  datum_zaplaceni: string | null;
+  odeslal: string | null;
+  created_at: string | null;
+};
+
+export type AdminInvoiceInput = {
+  supplier: string;
+  description: string;
+  amount: number;
+  issuedDate: string;
+  dueDate: string;
+  paid?: boolean;
+  paidDate?: string;
+};
+
+export async function loadAdminInvoices(): Promise<AdminInvoiceRow[]> {
+  const result = await requestJson<{ invoices: AdminInvoiceRow[] }>('/api/admin/invoices', { method: 'GET' }, { auth: true });
+  return result.invoices;
+}
+
+export async function createAdminInvoice(invoice: AdminInvoiceInput): Promise<AdminInvoiceRow> {
+  const result = await requestJson<{ invoice: AdminInvoiceRow }>('/api/admin/invoices', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ invoice }),
+  }, { auth: true });
+  return result.invoice;
+}
+
+export async function updateAdminInvoicePayment(invoiceId: string, paid: boolean): Promise<AdminInvoiceRow> {
+  const result = await requestJson<{ invoice: AdminInvoiceRow }>(`/api/admin/invoices/${encodeURIComponent(invoiceId)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ paid }),
+  }, { auth: true });
+  return result.invoice;
+}
+
+export async function deleteAdminInvoice(invoiceId: string): Promise<void> {
+  await requestJson(`/api/admin/invoices/${encodeURIComponent(invoiceId)}`, { method: 'DELETE' }, { auth: true });
 }

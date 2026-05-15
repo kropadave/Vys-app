@@ -1,5 +1,7 @@
 import { camps, courses, workshops } from '@shared/content';
 
+const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://server-psi-ochre-40.vercel.app';
+
 export type WebProduct = {
   id: string;
   type: 'Kroužek' | 'Tábor' | 'Workshop';
@@ -11,7 +13,74 @@ export type WebProduct = {
   description: string;
 };
 
-export function findWebProduct(productId: string): WebProduct | null {
+type PublicProductRow = {
+  id: string;
+  type: string;
+  title?: string | null;
+  city?: string | null;
+  place?: string | null;
+  venue?: string | null;
+  price?: number | null;
+  price_label?: string | null;
+  primary_meta?: string | null;
+  secondary_meta?: string | null;
+  description?: string | null;
+  event_date?: string | null;
+  expires_at?: string | null;
+};
+
+export async function findWebProduct(productId: string): Promise<WebProduct | null> {
+  const liveProduct = await findLiveWebProduct(productId);
+  if (liveProduct) return liveProduct;
+  return findStaticWebProduct(productId);
+}
+
+async function findLiveWebProduct(productId: string): Promise<WebProduct | null> {
+  try {
+    const response = await fetch(`${apiUrl}/api/public/products`, { cache: 'no-store' });
+    if (!response.ok) return null;
+    const payload = await response.json() as { products?: PublicProductRow[] };
+    const row = payload.products?.find((item) => item.id === productId);
+    return row ? rowToWebProduct(row) : null;
+  } catch {
+    return null;
+  }
+}
+
+function rowToWebProduct(row: PublicProductRow): WebProduct {
+  const type = normalizeProductType(row.type);
+  const amount = Math.max(0, Math.round(Number(row.price || 0)));
+
+  return {
+    id: row.id,
+    type,
+    title: text(row.title, productTypeFallbackTitle(type)),
+    place: text(row.place, text(row.venue, text(row.city, 'TeamVYS'))),
+    priceLabel: text(row.price_label, `${amount.toLocaleString('cs-CZ')} Kč`),
+    priceAmount: amount,
+    meta: text(row.primary_meta, text(row.event_date, text(row.expires_at, 'Termín doplníme'))),
+    description: text(row.description, text(row.secondary_meta, 'Rezervace a platba TeamVYS.')),
+  };
+}
+
+function normalizeProductType(value: string): WebProduct['type'] {
+  const normalized = value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  if (normalized.includes('tabor')) return 'Tábor';
+  if (normalized.includes('workshop')) return 'Workshop';
+  return 'Kroužek';
+}
+
+function productTypeFallbackTitle(type: WebProduct['type']) {
+  if (type === 'Tábor') return 'Příměstský tábor';
+  if (type === 'Workshop') return 'Workshop';
+  return 'Kroužek';
+}
+
+function text(value: unknown, fallback = '') {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : fallback;
+}
+
+function findStaticWebProduct(productId: string): WebProduct | null {
   const course = courses.find((item) => item.id === productId || `${item.id}-15` === productId);
   if (course) {
     const isFifteenEntries = productId.endsWith('-15');

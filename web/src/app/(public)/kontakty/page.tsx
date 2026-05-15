@@ -18,9 +18,7 @@ export default function ContactsPage() {
         title="Napiš nám, zavolej nebo se rovnou přihlas"
         body="Potřebuješ vybrat kroužek, tábor nebo řešíš platbu? Ozvi se. Rodičům i trenérům odpovídáme co nejrychleji."
         mascot={false}
-        image="/courses/blansko_ZS-Erbenova-Foto1.webp"
       />
-
       <section className="section-shell grid gap-4 py-10 lg:grid-cols-[0.85fr_1.15fr]">
         <Reveal>
           <div className="rounded-brand border border-brand-purple/12 bg-white p-6 shadow-brand md:p-7">

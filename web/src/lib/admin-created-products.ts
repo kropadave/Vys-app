@@ -2,11 +2,26 @@
 
 import { useCallback, useEffect, useState } from 'react';
 
-import { deleteAdminProduct, loadAdminProducts, saveAdminProduct, type AdminProductRow } from '@/lib/api-client';
+import { deleteAdminProduct, loadPublicProducts, saveAdminProduct, type AdminProductRow } from '@/lib/api-client';
 import type { ActivityType, ParentProduct } from '@/lib/portal-content';
 
-const STORAGE_KEY = 'teamvys-admin-created-products-v1';
-const CHANGE_EVENT = 'teamvys-admin-created-products-changed';
+type ProductState = { products: ParentProduct[]; error: string | null; loading: boolean };
+
+let cachedProducts: ParentProduct[] | null = null;
+let cachedError: string | null = null;
+let pendingProductsLoad: Promise<ParentProduct[]> | null = null;
+const productListeners = new Set<(state: ProductState) => void>();
+
+function emitProductState(state: ProductState) {
+  cachedProducts = state.products;
+  cachedError = state.error;
+  for (const listener of productListeners) listener(state);
+}
+
+async function loadProductRows() {
+  const rows = await loadPublicProducts();
+  return rows.map(rowToProduct);
+}
 
 export type AdminProductInput = {
   type: ActivityType;
@@ -15,6 +30,8 @@ export type AdminProductInput = {
   venue: string;
   primaryMeta: string;
   price: number;
+  /** Cena 15vstupové varianty (jen pro Kroužek) */
+  price15?: number;
   capacityTotal: number;
   capacityCurrent: number;
   description: string;
@@ -55,6 +72,7 @@ function productToRow(product: ParentProduct): AdminProductRow {
     place: product.place,
     venue: product.venue,
     price: product.price,
+    original_price: product.originalPrice,
     price_label: product.priceLabel,
     entries_total: product.entriesTotal,
     primary_meta: product.primaryMeta,
@@ -76,6 +94,7 @@ function productToRow(product: ParentProduct): AdminProductRow {
 
 function rowToProduct(row: AdminProductRow): ParentProduct {
   const type = activityTypeFromDb(row.type);
+  const heroImage = productHeroImage(row, type);
   return {
     id: row.id,
     type,
@@ -84,83 +103,145 @@ function rowToProduct(row: AdminProductRow): ParentProduct {
     place: row.place,
     venue: row.venue,
     price: row.price,
+    originalPrice: row.original_price,
     priceLabel: row.price_label,
     entriesTotal: row.entries_total,
     primaryMeta: row.primary_meta,
     secondaryMeta: row.secondary_meta,
     description: row.description,
     badge: row.badge,
-    heroImage: row.hero_image ?? defaultHeroImage(type),
-    gallery: Array.isArray(row.gallery) && row.gallery.length > 0 ? row.gallery : [row.hero_image ?? defaultHeroImage(type)],
+    heroImage,
+    gallery: productGallery(row, type, heroImage),
     coachIds: row.coach_ids ?? [],
     importantInfo: Array.isArray(row.important_info) && row.important_info.length > 0
       ? row.important_info
       : importantInfoFor(type, row.primary_meta, row.capacity_current, row.capacity_total ?? 0),
-    trainingFocus: row.training_focus.length > 0 ? row.training_focus : defaultFocus(type),
+    trainingFocus: Array.isArray(row.training_focus) && row.training_focus.length > 0 ? row.training_focus : defaultFocus(type),
     capacityTotal: row.capacity_total ?? 0,
     capacityCurrent: row.capacity_current,
   };
 }
 
 export function useAdminCreatedProducts() {
-  const [products, setProducts] = useState<ParentProduct[]>(() => readAdminCreatedProducts());
+  const [products, setProducts] = useState<ParentProduct[]>(cachedProducts ?? []);
+  const [loading, setLoading] = useState(cachedProducts === null);
+  const [error, setError] = useState<string | null>(cachedError);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      pendingProductsLoad ??= loadProductRows().finally(() => {
+        pendingProductsLoad = null;
+      });
+      const loadedProducts = await pendingProductsLoad;
+      setProducts(loadedProducts);
+      emitProductState({ products: loadedProducts, error: null, loading: false });
+    } catch (loadError) {
+      setProducts([]);
+      const message = loadError instanceof Error ? loadError.message : 'Produkty se nepodařilo načíst.';
+      setError(message);
+      emitProductState({ products: [], error: message, loading: false });
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    // Load from server, update localStorage as cache
-    loadAdminProducts()
-      .then((rows) => {
-        const serverProducts = rows.map(rowToProduct);
-        writeAdminCreatedProducts(serverProducts);
-        setProducts(serverProducts);
-      })
-      .catch(() => {
-        // Server not available — keep localStorage data
-        setProducts(readAdminCreatedProducts());
-      });
-  }, []);
+    const listener = (state: ProductState) => {
+      setProducts(state.products);
+      setError(state.error);
+      setLoading(state.loading);
+    };
+    productListeners.add(listener);
 
-  const addProduct = useCallback((input: AdminProductInput) => {
+    if (cachedProducts === null) {
+      void refresh();
+    }
+
+    return () => {
+      productListeners.delete(listener);
+    };
+  }, [refresh]);
+
+  const addProduct = useCallback(async (input: AdminProductInput) => {
     const product = createAdminCreatedProduct(input);
-    const next = [product, ...readAdminCreatedProducts()];
-    writeAdminCreatedProducts(next);
-    setProducts(next);
-    // Persist to Supabase in background
-    saveAdminProduct(productToRow(product)).catch(() => undefined);
-    return product;
-  }, []);
+    setError(null);
+    try {
+      const saved = await saveAdminProduct(productToRow(product));
+      const savedProduct = saved.id && saved.id !== product.id ? { ...product, id: saved.id } : product;
 
-  const removeProduct = useCallback((productId: string) => {
-    const next = readAdminCreatedProducts().filter((product) => product.id !== productId);
-    writeAdminCreatedProducts(next);
-    setProducts(next);
-    // Delete from Supabase in background
-    deleteAdminProduct(productId).catch(() => undefined);
-  }, []);
+      // Pro kroužek auto-vytvoř 15vstupovou variantu
+      let variant15: ParentProduct | null = null;
+      if (input.type === 'Krouzek') {
+        const p15 = input.price15 && input.price15 > 0 ? input.price15 : Math.round(savedProduct.price * 1.45);
+        const product15Row: AdminProductRow = {
+          ...productToRow(savedProduct),
+          id: `${savedProduct.id}-15`,
+          price: p15,
+          original_price: undefined,
+          price_label: `15 vstupů · ${p15.toLocaleString('cs-CZ')} Kč`,
+          entries_total: 15,
+          important_info: [
+            { label: 'Permanentka', value: '15 vstupů na vybranou lokalitu' },
+            { label: 'Čas', value: savedProduct.primaryMeta },
+            { label: 'Kapacita', value: `${savedProduct.capacityCurrent}/${savedProduct.capacityTotal} dětí aktuálně přihlášeno` },
+          ],
+        };
+        await saveAdminProduct(product15Row);
+        variant15 = rowToProduct(product15Row);
+      }
 
-  return { products, addProduct, removeProduct };
+      const currentProducts = cachedProducts ?? products;
+      const nextProducts = [
+        savedProduct,
+        ...(variant15 ? [variant15] : []),
+        ...currentProducts.filter((item) => item.id !== savedProduct.id && item.id !== `${savedProduct.id}-15`),
+      ];
+      setProducts(nextProducts);
+      emitProductState({ products: nextProducts, error: null, loading: false });
+      return savedProduct;
+    } catch (saveError) {
+      const message = saveError instanceof Error ? saveError.message : 'Produkt se nepodařilo uložit.';
+      setError(message);
+      throw new Error(message);
+    }
+  }, [products]);
+
+  const removeProduct = useCallback(async (productId: string) => {
+    setError(null);
+    try {
+      await deleteAdminProduct(productId);
+      const nextProducts = (cachedProducts ?? products).filter((product) => product.id !== productId);
+      setProducts(nextProducts);
+      emitProductState({ products: nextProducts, error: null, loading: false });
+    } catch (deleteError) {
+      const message = deleteError instanceof Error ? deleteError.message : 'Produkt se nepodařilo smazat.';
+      setError(message);
+      throw new Error(message);
+    }
+  }, [products]);
+
+  const updateProduct = useCallback(async (product: ParentProduct) => {
+    setError(null);
+    try {
+      await saveAdminProduct(productToRow(product));
+      const nextProducts = [product, ...(cachedProducts ?? products).filter((item) => item.id !== product.id)];
+      setProducts(nextProducts);
+      emitProductState({ products: nextProducts, error: null, loading: false });
+      return product;
+    } catch (saveError) {
+      const message = saveError instanceof Error ? saveError.message : 'Produkt se nepodařilo uložit.';
+      setError(message);
+      throw new Error(message);
+    }
+  }, [products]);
+
+  return { products, loading, error, refresh, addProduct, removeProduct, updateProduct };
 }
 
 export function isAdminCreatedProduct(product: ParentProduct) {
   return product.id.startsWith('admin-created-');
-}
-
-export function readAdminCreatedProducts(): ParentProduct[] {
-  if (typeof window === 'undefined') return [];
-
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.map(sanitizeProduct).filter(Boolean) as ParentProduct[];
-  } catch {
-    return [];
-  }
-}
-
-function writeAdminCreatedProducts(products: ParentProduct[]) {
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(products));
-  window.dispatchEvent(new Event(CHANGE_EVENT));
 }
 
 function createAdminCreatedProduct(input: AdminProductInput): ParentProduct {
@@ -213,21 +294,23 @@ function createAdminCreatedProduct(input: AdminProductInput): ParentProduct {
   };
 }
 
-function sanitizeProduct(value: unknown): ParentProduct | null {
-  if (!value || typeof value !== 'object') return null;
-  const product = value as ParentProduct;
-  if (!product.id || !product.type || !product.title || !product.place) return null;
-  if (!['Krouzek', 'Tabor', 'Workshop'].includes(product.type)) return null;
-  return {
-    ...product,
-    price: Number(product.price || 0),
-    capacityTotal: Number(product.capacityTotal || 1),
-    capacityCurrent: Number(product.capacityCurrent || 0),
-    gallery: Array.isArray(product.gallery) && product.gallery.length ? product.gallery : [product.heroImage || defaultHeroImage(product.type)],
-    coachIds: Array.isArray(product.coachIds) ? product.coachIds : [],
-    importantInfo: Array.isArray(product.importantInfo) ? product.importantInfo : importantInfoFor(product.type, product.primaryMeta, product.capacityCurrent, product.capacityTotal),
-    trainingFocus: Array.isArray(product.trainingFocus) ? product.trainingFocus : defaultFocus(product.type),
-  };
+function productHeroImage(row: AdminProductRow, type: ActivityType) {
+  const fallback = fallbackHeroImage(type, [row.id, row.city, row.venue, row.place].join(' '));
+  const genericFallback = defaultHeroImage(type);
+  const uploadedGallery = Array.isArray(row.gallery) ? row.gallery.filter(Boolean).filter((src) => src !== genericFallback) : [];
+  if (uploadedGallery.length > 0) return uploadedGallery[0];
+  if (!row.hero_image || row.hero_image === genericFallback) return fallback;
+  return row.hero_image;
+}
+
+function productGallery(row: AdminProductRow, type: ActivityType, heroImage: string) {
+  const identity = [row.id, row.city, row.venue, row.place].join(' ');
+  const genericFallback = defaultHeroImage(type);
+  const gallery = Array.isArray(row.gallery) ? row.gallery.filter(Boolean) : [];
+  const cleaned = gallery.filter((src) => src !== genericFallback || src === heroImage);
+  if (cleaned.length > 0) return Array.from(new Set([...(heroImage ? [heroImage] : []), ...cleaned]));
+  if (!heroImage) return [];
+  return fallbackGalleryImages(type, identity, heroImage);
 }
 
 function defaultTitle(type: ActivityType, city: string, venue: string) {
@@ -244,7 +327,7 @@ function priceLabelFor(type: ActivityType, price: number) {
 
 function secondaryMetaFor(type: ActivityType) {
   if (type === 'Krouzek') return 'Digitální permanentka přes NFC čip';
-  if (type === 'Tabor') return 'Dokumenty a QR vstup na první den';
+  if (type === 'Tabor') return 'Dokumenty online, příchod hlášením jména';
   return 'QR ticket po zaplacení';
 }
 
@@ -274,7 +357,7 @@ function defaultPrimaryMeta(type: ActivityType) {
 
 function defaultDescription(type: ActivityType, city: string) {
   if (type === 'Krouzek') return `Nový parkour kroužek v lokalitě ${city} s NFC docházkou, skill tree a rodičovským přehledem.`;
-  if (type === 'Tabor') return `Nový příměstský tábor v lokalitě ${city} s digitálními dokumenty a QR kontrolou u vstupu.`;
+  if (type === 'Tabor') return `Nový příměstský tábor v lokalitě ${city} s digitálními dokumenty a prezenční listinou trenéra.`;
   return `Nový workshop v lokalitě ${city} s QR ticketem a jasným zaměřením na konkrétní triky.`;
 }
 
@@ -282,6 +365,69 @@ function defaultHeroImage(type: ActivityType) {
   if (type === 'Krouzek') return '/courses/prostejov_Prostejov_parkour_main.webp';
   if (type === 'Tabor') return '/courses/nadrazka_ZS-Nadrazka-Foto3.webp';
   return '/courses/brandys_BR4.webp';
+}
+
+function fallbackHeroImage(type: ActivityType, identity: string) {
+  const normalized = normalizeIdentity(identity);
+
+  if (type === 'Krouzek') {
+    if (normalized.includes('blansko') || normalized.includes('erbenova')) return '/courses/blansko_ZS-Erbenova-Main.webp';
+    if (normalized.includes('brandys') || normalized.includes('vysluni')) return '/courses/brandys_BR_main.webp';
+    if (normalized.includes('jesenik') || normalized.includes('komenskeho')) return '/courses/jesenik_JS_Main.webp';
+    if (normalized.includes('prostejov') || normalized.includes('melantrichova')) return '/courses/prostejov_Prostejov_parkour_main.webp';
+    if (normalized.includes('nadrazni') || normalized.includes('nadrazka')) return '/courses/nadrazka_ZS-Nadrazka-Main.webp';
+    if (normalized.includes('purkynova') || normalized.includes('purkyn')) return '/courses/purkynka_Purkynova_Main.webp';
+    return pickByIdentity(identity, [
+      '/courses/blansko_ZS-Erbenova-Main.webp',
+      '/courses/brandys_BR_main.webp',
+      '/courses/jesenik_JS_Main.webp',
+      '/courses/prostejov_Prostejov_parkour_main.webp',
+      '/courses/nadrazka_ZS-Nadrazka-Main.webp',
+      '/courses/purkynka_Purkynova_Main.webp',
+    ]);
+  }
+
+  if (type === 'Tabor') {
+    // No location-specific fallback for camps — avoid showing photos from unrelated venues
+    return '';
+  }
+
+  // Workshop: no safe generic fallback either
+  return '';
+}
+
+function fallbackGalleryImages(type: ActivityType, identity: string, heroImage: string) {
+  const normalized = normalizeIdentity(identity);
+  const images = fallbackGalleryCandidates(type, normalized);
+  return Array.from(new Set([heroImage, ...images]));
+}
+
+function fallbackGalleryCandidates(type: ActivityType, normalized: string) {
+  if (type === 'Krouzek') {
+    if (normalized.includes('blansko') || normalized.includes('erbenova')) return ['/courses/blansko_ZS-Erbenova-Main.webp', '/courses/blansko_ZS-Erbenova-Foto1.webp', '/courses/blansko_ZS-Erbenova-Foto2.webp'];
+    if (normalized.includes('brandys') || normalized.includes('vysluni')) return ['/courses/brandys_BR_main.webp', '/courses/brandys_BR1.webp', '/courses/brandys_BR2.webp', '/courses/brandys_BR3.webp', '/courses/brandys_BR4.webp', '/courses/brandys_BR5.webp', '/courses/brandys_BR6.webp'];
+    if (normalized.includes('jesenik') || normalized.includes('komenskeho')) return ['/courses/jesenik_JS_Main.webp', '/courses/jesenik_JS1.webp', '/courses/jesenik_JS2.webp', '/courses/jesenik_JS3.webp'];
+    if (normalized.includes('prostejov') || normalized.includes('melantrichova')) return ['/courses/prostejov_Prostejov_parkour_main.webp', '/courses/prostejov_Prostejov_parkour_1.webp', '/courses/prostejov_Prostejov_parkour_2.webp', '/courses/prostejov_Prostejov_parkour_3.webp', '/courses/prostejov_Prostejov_parkour_4.webp'];
+    if (normalized.includes('nadrazni') || normalized.includes('nadrazka')) return ['/courses/nadrazka_ZS-Nadrazka-Main.webp', '/courses/nadrazka_ZS-Nadrazka-Foto1.webp', '/courses/nadrazka_ZS-Nadrazka-Foto2.webp', '/courses/nadrazka_ZS-Nadrazka-Foto3.webp'];
+    if (normalized.includes('purkynova') || normalized.includes('purkyn')) return ['/courses/purkynka_Purkynova_Main.webp'];
+  }
+
+  if (type === 'Tabor') return [];
+  return [];
+}
+
+function normalizeIdentity(value: string) {
+  return value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function pickByIdentity(identity: string, images: string[]) {
+  const hash = Array.from(identity).reduce((sum, char) => sum + char.charCodeAt(0), 0);
+  return images[hash % images.length];
 }
 
 function defaultFocus(type: ActivityType) {

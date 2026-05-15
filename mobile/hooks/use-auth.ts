@@ -12,9 +12,15 @@ export function useAuth() {
   useEffect(() => {
     let mounted = true;
 
-    if (DEV_BYPASS_AUTH || !supabase) {
+    if (DEV_BYPASS_AUTH) {
       // V dev mode neresime opravdu prihlaseni - po vyberu role je uzivatel "in".
       setSession({ userId: 'dev-user' });
+      setLoading(false);
+      return;
+    }
+
+    if (!supabase) {
+      setSession(null);
       setLoading(false);
       return;
     }

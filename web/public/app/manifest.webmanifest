@@ -6,8 +6,8 @@
   "scope": "/app/",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#140E26",
-  "theme_color": "#140E26",
+  "background_color": "#FFF9F0",
+  "theme_color": "#FFF9F0",
   "icons": [
     {
       "src": "/vys-logo-mark.png",

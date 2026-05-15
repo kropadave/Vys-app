@@ -1,4 +1,4 @@
-const CACHE_NAME = 'teamvys-role-app-v1';
+const CACHE_NAME = 'teamvys-role-app-v2';
 const SHELL_ASSETS = ['/app/sign-in', '/app/ucastnik', '/app/trener', '/app/manifest.webmanifest', '/vys-logo-mark.png', '/vys-logo.png'];
 
 self.addEventListener('install', (event) => {

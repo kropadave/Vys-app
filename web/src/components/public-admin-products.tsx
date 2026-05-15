@@ -6,26 +6,57 @@ import { useEffect, useState } from 'react';
 
 import { Reveal } from '@/components/animated/reveal';
 import { useAdminCreatedProducts } from '@/lib/admin-created-products';
-import { adminCoachSummaries, type AdminCoachSummary, type ParentProduct } from '@/lib/portal-content';
+import { type ParentProduct } from '@/lib/portal-content';
+import { usePublicCoaches, type PublicCoachSummary } from '@/lib/use-public-coaches';
 
 export function AdminCreatedWorkshopCards({ startDelay = 0 }: { startDelay?: number }) {
-  const { products } = useAdminCreatedProducts();
+  const { products, loading, error } = useAdminCreatedProducts();
+  const { coachesForIds } = usePublicCoaches();
   const workshops = products.filter((product) => product.type === 'Workshop');
+
+  if (loading) {
+    return <CatalogInlineState label="Načítám aktuální workshopy..." />;
+  }
+
+  if (error) {
+    return <CatalogInlineState label="Aktuální workshopy se nepodařilo načíst." />;
+  }
+
+  if (workshops.length === 0) {
+    return (
+      <div className="col-span-full rounded-brand border border-brand-purple/12 bg-white p-8 shadow-brand-soft">
+        <p className="text-xs font-black uppercase text-brand-orange">Brzy</p>
+        <h3 className="mt-2 text-xl font-black text-brand-ink">Žádné aktuální workshopy</h3>
+        <p className="mt-2 text-sm font-bold leading-6 text-brand-ink-soft">Nové workshopy přidáváme průběžně. Sleduj nás na sociálních sítích nebo se přihlas do portálu a dostaneš upozornění, jakmile vypíšeme termín.</p>
+      </div>
+    );
+  }
 
   return (
     <>
       {workshops.map((workshop, index) => (
         <Reveal key={workshop.id} delay={startDelay + index * 80}>
-          <WorkshopPublicCard product={workshop} />
+          <WorkshopPublicCard product={workshop} coaches={coachesForIds(workshop.coachIds ?? [])} />
         </Reveal>
       ))}
     </>
   );
 }
 
+function CatalogInlineState({ label }: { label: string }) {
+  return (
+    <div className="col-span-full rounded-brand border border-brand-purple/12 bg-white p-8 text-sm font-black text-brand-ink-soft shadow-brand-soft">
+      {label}
+    </div>
+  );
+}
+
 export function AdminCreatedCourseCards({ startDelay = 0 }: { startDelay?: number }) {
   const { products } = useAdminCreatedProducts();
-  const courses = products.filter((product) => product.type === 'Krouzek').sort((a, b) => a.city.localeCompare(b.city, 'cs') || a.venue.localeCompare(b.venue, 'cs'));
+  // Filtruj 15vstupové varianty — zobrazujeme jen 10vstupovou kartu, cena "od X Kč" zahrnuje obě
+  const courses = products
+    .filter((product) => product.type === 'Krouzek' && !product.id.endsWith('-15'))
+    .sort((a, b) => a.city.localeCompare(b.city, 'cs') || a.venue.localeCompare(b.venue, 'cs'));
 
   return (
     <>
@@ -36,8 +67,113 @@ export function AdminCreatedCourseCards({ startDelay = 0 }: { startDelay?: numbe
   );
 }
 
+export function PublicCourseCatalog() {
+  const { products, loading, error } = useAdminCreatedProducts();
+  const courses = publicProductsByType(products, 'Krouzek');
+  const totalCapacity = courses.reduce((sum, course) => sum + course.capacityTotal, 0);
+  const registered = courses.reduce((sum, course) => sum + course.capacityCurrent, 0);
+
+  return (
+    <section className="section-shell py-10">
+      <Reveal>
+        <div className="relative flex flex-col gap-4 rounded-[34px] border border-brand-purple/12 bg-white p-6 shadow-brand-soft lg:flex-row lg:items-end lg:justify-between">
+          <div className="max-w-[720px]">
+            <p className="text-xs font-black uppercase text-brand-cyan">Aktuální lokality</p>
+            <h2 className="mt-2 text-2xl font-black leading-tight text-brand-ink md:text-4xl">Kroužky přehledně na jedné stránce</h2>
+            <p className="mt-3 text-sm font-bold leading-6 text-brand-ink-soft md:text-base">
+              Vyber konkrétní tělocvičnu, zkontroluj čas, kapacitu podle zaplacených rezervací a po rozkliknutí uvidíš i trenéry pro danou lokaci.
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:min-w-[390px]">
+            <CatalogSummaryTile value={loading ? '...' : `${courses.length}`} label="lokalit" />
+            <CatalogSummaryTile value={loading ? '...' : `${registered}/${totalCapacity}`} label="dětí" />
+            <CatalogSummaryTile value="10 / 15" label="vstupů" />
+          </div>
+        </div>
+      </Reveal>
+
+      <CatalogState loading={loading} error={error} empty={!loading && courses.length === 0} emptyTitle="Žádné kroužky nejsou aktuálně vypsané" emptyText="Jakmile admin zveřejní lokalitu v databázi, objeví se tady s aktuální kapacitou." />
+
+      {courses.length > 0 ? (
+        <div className="mt-6 grid auto-rows-fr gap-4 sm:gap-5 sm:grid-cols-2 xl:grid-cols-3">
+          {courses.map((course, index) => (
+            <CoursePublicCard key={course.id} product={course} delay={index * 55} />
+          ))}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+export function PublicCampCatalog() {
+  const { products, loading, error } = useAdminCreatedProducts();
+  const { coachesForIds } = usePublicCoaches();
+  const camps = publicProductsByType(products, 'Tabor');
+
+  return (
+    <section className="section-shell py-10">
+      <Reveal>
+        <div className="max-w-[760px]">
+          <p className="text-xs font-black uppercase text-brand-cyan">Aktuální turnusy</p>
+          <h2 className="mt-2 text-2xl font-black text-brand-ink md:text-4xl">Vyber místo a rezervuj dítěti místo</h2>
+        </div>
+      </Reveal>
+
+      <CatalogState loading={loading} error={error} empty={!loading && camps.length === 0} emptyTitle="Žádné tábory nejsou aktuálně vypsané" emptyText="Turnusy se zobrazují až z publikovaných produktů v administraci." />
+
+      {camps.length > 0 ? (
+        <div className="mt-7 grid gap-4 md:grid-cols-2">
+          {camps.map((camp, index) => (
+            <Reveal key={camp.id} delay={index * 80}>
+              <CampPublicCard product={camp} coaches={coachesForIds(camp.coachIds ?? [])} />
+            </Reveal>
+          ))}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function publicProductsByType(products: ParentProduct[], type: ParentProduct['type']) {
+  return products
+    .filter((product) => product.type === type && (type !== 'Krouzek' || !product.id.endsWith('-15')))
+    .sort((a, b) => a.city.localeCompare(b.city, 'cs') || a.venue.localeCompare(b.venue, 'cs'));
+}
+
+function CatalogSummaryTile({ value, label }: { value: string; label: string }) {
+  return (
+    <div className="rounded-[22px] border border-brand-purple/10 bg-white px-4 py-3 text-center shadow-brand-soft">
+      <p className="text-xl font-black text-brand-ink">{value}</p>
+      <p className="mt-1 text-[11px] font-black uppercase text-brand-ink-soft">{label}</p>
+    </div>
+  );
+}
+
+function CatalogState({ loading, error, empty, emptyTitle, emptyText }: { loading: boolean; error: string | null; empty: boolean; emptyTitle: string; emptyText: string }) {
+  if (loading) {
+    return <div className="mt-6 rounded-brand border border-brand-purple/12 bg-white p-5 text-sm font-black text-brand-ink-soft shadow-brand-soft">Načítám aktuální nabídku...</div>;
+  }
+
+  if (error) {
+    return <div className="mt-6 rounded-brand border border-brand-orange/25 bg-white p-5 text-sm font-black text-brand-ink-soft shadow-brand-soft">Nabídku se nepodařilo načíst: {error}</div>;
+  }
+
+  if (empty) {
+    return (
+      <div className="mt-6 rounded-brand border border-brand-purple/12 bg-white p-6 shadow-brand-soft">
+        <p className="text-xs font-black uppercase text-brand-orange">Brzy</p>
+        <h3 className="mt-2 text-xl font-black text-brand-ink">{emptyTitle}</h3>
+        <p className="mt-2 text-sm font-bold leading-6 text-brand-ink-soft">{emptyText}</p>
+      </div>
+    );
+  }
+
+  return null;
+}
+
 export function AdminCreatedCourseDetail({ productId }: { productId: string }) {
   const { products } = useAdminCreatedProducts();
+  const { coachesForIds } = usePublicCoaches();
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => setLoaded(true), []);
@@ -60,8 +196,8 @@ export function AdminCreatedCourseDetail({ productId }: { productId: string }) {
           Všechny kroužky
         </Link>
         <div className="mt-7 rounded-brand border border-brand-purple/12 bg-white p-6 shadow-brand-soft">
-          <h1 className="text-2xl font-black text-brand-ink">Kroužek není v tomto prohlížeči uložený</h1>
-          <p className="mt-2 text-sm font-bold leading-6 text-brand-ink-soft">Adminem vytvořené položky jsou zatím lokální demo data. Po napojení databáze se detail zobrazí všem stejně.</p>
+          <h1 className="text-2xl font-black text-brand-ink">Kroužek není aktuálně zveřejněný</h1>
+          <p className="mt-2 text-sm font-bold leading-6 text-brand-ink-soft">Detail se zobrazuje jen pro publikované produkty z databáze.</p>
         </div>
       </article>
     );
@@ -70,7 +206,7 @@ export function AdminCreatedCourseDetail({ productId }: { productId: string }) {
   const gallery = product.gallery.length ? product.gallery : [product.heroImage];
   const [hero, ...rest] = gallery;
   const { day, time } = splitCourseMeta(product.primaryMeta);
-  const coaches = coachesForProduct(product);
+  const coaches = coachesForIds(product.coachIds ?? []);
 
   return (
     <article className="section-shell py-10">
@@ -125,7 +261,7 @@ export function AdminCreatedCourseDetail({ productId }: { productId: string }) {
             <div className="mt-5 border-t border-black/10 pt-5">
               <p className="text-xs font-black uppercase text-slate-400">Trenéři na lokaci</p>
               <div className="mt-3 grid gap-2">
-                {coaches.length > 0 ? coaches.map((coach) => <CoachCompact key={coach.id} coach={coach} />) : <p className="rounded-brand bg-brand-paper p-3 text-sm font-bold leading-6 text-brand-ink-soft">Trenér se pro tuto lokaci doplní v administraci.</p>}
+                {coaches.length > 0 ? coaches.map((coach) => <CoachCompact key={coach.id} name={coach.name} photoUrl={coach.photoUrl} />) : <p className="rounded-brand bg-brand-paper p-3 text-sm font-bold leading-6 text-brand-ink-soft">Trenér se pro tuto lokaci doplní v administraci.</p>}
               </div>
             </div>
 
@@ -154,9 +290,74 @@ export function AdminCreatedCourseDetail({ productId }: { productId: string }) {
   );
 }
 
-function WorkshopPublicCard({ product }: { product: ParentProduct }) {
+function CampPublicCard({ product, coaches = [] }: { product: ParentProduct; coaches?: PublicCoachSummary[] }) {
+  const hasImage = Boolean(product.heroImage);
+  return (
+    <article className="group h-full overflow-hidden rounded-[30px] border border-brand-purple/12 bg-white shadow-brand transition-all duration-300 hover:-translate-y-1 hover:shadow-brand-float">
+      <div className={`relative h-56 overflow-hidden ${hasImage ? '' : 'bg-[radial-gradient(ellipse_at_top_left,#a855f7_0%,#7c3aed_45%,#5b21b6_100%)]'}`}>
+        {hasImage ? (
+          <ProductImage src={product.heroImage} alt={product.venue} className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105" />
+        ) : (
+          <div aria-hidden className="absolute inset-0 diagonal-rails opacity-[0.07]" />
+        )}
+        <div aria-hidden className={`absolute inset-0 bg-gradient-to-t ${hasImage ? 'from-black/70 via-black/20 to-transparent' : 'from-black/30 via-transparent to-transparent'}`} />
+        <span className="absolute left-4 top-4 inline-flex items-center gap-1.5 rounded-[16px] bg-white/95 px-3 py-1.5 text-xs font-black uppercase text-brand-ink shadow-sm backdrop-blur-sm">
+          <CalendarDays size={13} className="text-brand-orange" />
+          {product.primaryMeta}
+        </span>
+        <div className="absolute bottom-4 left-4 pr-4">
+          <h3 className="text-2xl font-black text-white drop-shadow-sm">{product.venue}</h3>
+          <p className="mt-0.5 text-sm font-bold text-white/80">{product.place}</p>
+        </div>
+      </div>
+      <div className="p-6">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-black uppercase text-slate-400">Cena</p>
+            <p className="mt-1 text-2xl font-black text-brand-ink">{product.priceLabel}</p>
+          </div>
+          <div className="text-right">
+            <p className="text-xs font-black uppercase text-slate-400">Kapacita</p>
+            <p className="mt-1 text-lg font-black text-brand-ink">{product.capacityCurrent}/{product.capacityTotal} dětí</p>
+          </div>
+        </div>
+        <CourseCapacityMeter current={product.capacityCurrent} total={product.capacityTotal} />
+        <p className="mt-5 text-sm font-bold leading-6 text-brand-ink-soft">{product.description}</p>
+        {product.trainingFocus.length > 0 ? (
+          <div className="mt-4 flex flex-wrap gap-2">
+            {product.trainingFocus.slice(0, 5).map((focus) => (
+              <span key={focus} className="rounded-[14px] bg-brand-cyan/10 px-3 py-1.5 text-xs font-black text-brand-cyan">{focus}</span>
+            ))}
+          </div>
+        ) : null}
+        {coaches.length > 0 ? (
+          <div className="mt-5 border-t border-black/10 pt-4">
+            <p className="text-xs font-black uppercase text-slate-400">Trenéři tábora</p>
+            <div className="mt-3 grid gap-2">
+              {coaches.map((coach) => <CoachCompact key={coach.id} name={coach.name} photoUrl={coach.photoUrl} />)}
+            </div>
+          </div>
+        ) : null}
+        <Link href={`/sign-in?next=/checkout/${product.id}`} className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-brand bg-gradient-brand px-6 py-4 text-sm font-black text-white shadow-brand-soft transition-transform hover:-translate-y-0.5">
+          Rezervovat a zaplatit
+          <ArrowRight size={18} />
+        </Link>
+      </div>
+    </article>
+  );
+}
+
+function WorkshopPublicCard({ product, coaches = [] }: { product: ParentProduct; coaches?: PublicCoachSummary[] }) {
   return (
     <article className="h-full overflow-hidden rounded-brand border border-brand-purple/12 bg-white shadow-brand">
+      <div className="relative h-48 overflow-hidden bg-brand-paper">
+        <ProductImage src={product.heroImage} alt={product.venue} className="h-full w-full object-cover transition-transform duration-500 hover:scale-105" />
+        <div aria-hidden className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/15 to-transparent" />
+        <div className="absolute bottom-4 left-4 pr-4">
+          <p className="text-xs font-black uppercase text-brand-lime">{product.city}</p>
+          <h3 className="mt-1 text-2xl font-black text-white">{product.venue}</h3>
+        </div>
+      </div>
       <div className="p-6 md:p-7">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -174,7 +375,22 @@ function WorkshopPublicCard({ product }: { product: ParentProduct }) {
         </div>
         <WorkshopCapacityMeter current={product.capacityCurrent} total={product.capacityTotal} />
         <p className="mt-5 text-sm leading-6 text-slate-600">{product.description}</p>
+        {product.trainingFocus.length > 0 ? (
+          <div className="mt-4 flex flex-wrap gap-2">
+            {product.trainingFocus.map((focus) => (
+              <span key={focus} className="rounded-[14px] bg-brand-cyan/10 px-3 py-1.5 text-xs font-black text-brand-cyan">{focus}</span>
+            ))}
+          </div>
+        ) : null}
         <p className="mt-4 inline-flex gap-2 text-sm font-bold text-brand-ink"><CheckCircle2 size={18} className="text-brand-cyan" /> QR ticket po zaplacení</p>
+        {coaches.length > 0 ? (
+          <div className="mt-5 border-t border-black/10 pt-4">
+            <p className="text-xs font-black uppercase text-slate-400">Trenéři workshopu</p>
+            <div className="mt-3 grid gap-2">
+              {coaches.map((coach) => <CoachCompact key={coach.id} name={coach.name} photoUrl={coach.photoUrl} />)}
+            </div>
+          </div>
+        ) : null}
         <Link href={`/sign-in?next=/checkout/${product.id}`} className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-brand bg-gradient-brand px-6 py-4 text-sm font-black text-white shadow-brand-soft transition-transform hover:-translate-y-0.5">
           Koupit ticket
           <ArrowRight size={18} />
@@ -236,16 +452,17 @@ function CoursePublicCard({ product, delay }: { product: ParentProduct; delay: n
 }
 
 function ProductImage({ src, alt, className }: { src: string; alt: string; className: string }) {
+  if (!src) return null;
   return <img src={src} alt={alt} className={className} />;
 }
 
-function CoachCompact({ coach }: { coach: AdminCoachSummary }) {
+function CoachCompact({ name, photoUrl }: { name: string; photoUrl: string }) {
   return (
     <div className="flex items-center gap-3 rounded-brand bg-brand-paper p-3">
-      <ProductImage src={coach.profilePhotoUrl ?? '/vys-logo-mark.png'} alt={coach.name} className="h-10 w-10 rounded-brand bg-white object-contain p-1.5" />
+      <ProductImage src={photoUrl} alt={name} className="h-10 w-10 rounded-brand bg-white object-contain p-1.5" />
       <div className="min-w-0">
-        <p className="truncate text-sm font-black text-brand-ink">{coach.name}</p>
-        <p className="mt-0.5 text-xs font-bold text-brand-ink-soft">{coach.qrTricksApproved} potvrzených QR triků</p>
+        <p className="truncate text-sm font-black text-brand-ink">{name}</p>
+        <p className="mt-0.5 text-xs font-bold text-brand-ink-soft">Trenér TeamVYS</p>
       </div>
     </div>
   );
@@ -313,10 +530,4 @@ function splitCourseMeta(primaryMeta: string) {
 
 function coursePriceLabel(product: ParentProduct) {
   return `od ${product.price.toLocaleString('cs-CZ')} Kč`;
-}
-
-function coachesForProduct(product: ParentProduct) {
-  return (product.coachIds ?? [])
-    .map((coachId) => adminCoachSummaries.find((coach) => coach.id === coachId))
-    .filter(Boolean) as AdminCoachSummary[];
 }

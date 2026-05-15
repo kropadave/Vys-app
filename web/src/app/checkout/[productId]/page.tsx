@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 
 import { CheckoutForm } from '@/components/checkout/checkout-form';
+import { NavigationExitGuard } from '@/components/navigation-exit-guard';
 import { DEV_BYPASS_AUTH } from '@/lib/dev-config';
 import { findWebProduct } from '@/lib/products';
 import { createServerSupabaseClient, hasSupabaseServerConfig } from '@/lib/supabase/server';
@@ -11,14 +12,14 @@ type Props = { params: Promise<{ productId: string }> };
 
 export async function generateMetadata({ params }: Props) {
   const { productId } = await params;
-  const product = findWebProduct(productId);
+  const product = await findWebProduct(productId);
   if (!product) return { title: 'Checkout' };
   return { title: `Platba · ${product.title}` };
 }
 
 export default async function CheckoutPage({ params }: Props) {
   const { productId } = await params;
-  const product = findWebProduct(productId);
+  const product = await findWebProduct(productId);
   if (!product) notFound();
 
   let checkoutUser = {
@@ -36,6 +37,12 @@ export default async function CheckoutPage({ params }: Props) {
     if (!user) redirect(`/sign-in?next=/checkout/${product.id}`);
 
     const { data: profile } = await supabase.from('app_profiles').select('role,name,email').eq('id', user.id).maybeSingle();
+    if (profile?.role !== 'parent' && profile?.role !== 'admin') {
+      if (profile?.role === 'participant') redirect('/app/ucastnik');
+      if (profile?.role === 'coach') redirect('/app/trener');
+      redirect(`/sign-in?next=/checkout/${product.id}`);
+    }
+
     checkoutUser = {
       id: user.id,
       email: user.email || profile?.email || '',
@@ -45,6 +52,7 @@ export default async function CheckoutPage({ params }: Props) {
 
   return (
     <main className="min-h-dvh bg-brand-paper px-6 py-8 texture-grid">
+      <NavigationExitGuard message="Chceš opustit rozpracovanou platbu?" />
       <div className="mx-auto max-w-[980px] space-y-6">
         <Link href={product.type === 'Kroužek' ? '/krouzky' : product.type === 'Tábor' ? '/tabory' : '/workshopy'} className="inline-flex items-center gap-2 text-sm font-black text-brand-ink-soft hover:text-brand-purple">
           <ArrowLeft size={17} />
@@ -70,7 +78,7 @@ export default async function CheckoutPage({ params }: Props) {
             {DEV_BYPASS_AUTH ? <p className="mt-4 text-xs font-bold text-brand-ink-soft">Testovací checkout bez Supabase přihlášení.</p> : null}
           </aside>
 
-          <CheckoutForm product={product} userId={checkoutUser.id} userEmail={checkoutUser.email} defaultName={checkoutUser.name} />
+          <CheckoutForm product={product} userId={checkoutUser.id} userEmail={checkoutUser.email} parentProfileId={DEV_BYPASS_AUTH ? undefined : checkoutUser.id} defaultName={checkoutUser.name} />
         </div>
       </div>
     </main>

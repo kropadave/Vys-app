@@ -20,7 +20,7 @@ export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'),
   openGraph: {
     title: 'TeamVYS — parkour kroužky pro děti',
-    description: 'Skill tree, NFC docházka, 500+ dětí, 6 měst, profi trenéři.',
+    description: 'Parkour kroužky, příměstské tábory, workshopy, skill tree, NFC docházka a profi trenéři.',
     type: 'website',
     locale: 'cs_CZ',
   },

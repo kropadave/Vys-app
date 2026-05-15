@@ -1,10 +1,15 @@
+'use client';
+
 import { Marquee } from '@/components/animated/marquee';
-import { courses } from '@shared/content';
+import { useAdminCreatedProducts } from '@/lib/admin-created-products';
+import { publicMarqueeItems } from '@/lib/public-product-summary';
 
 const coreItems = ['NFC docházka', 'Stripe platby', 'Skill tree', 'Rodičovský profil', 'QR workshopy'];
 
 export function TrustMarquee() {
-  const items = [...courses.map((course) => `${course.city} · ${course.venue}`), ...coreItems];
+  const { products } = useAdminCreatedProducts();
+  const liveItems = publicMarqueeItems(products);
+  const items = [...liveItems, ...coreItems];
 
   return (
     <section className="overflow-hidden py-5">

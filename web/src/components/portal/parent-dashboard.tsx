@@ -3,6 +3,7 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import {
     ArrowRight,
+    BadgePercent,
     Bell,
     Camera,
     Check,
@@ -28,14 +29,24 @@ import {
     X,
 } from 'lucide-react';
 import Image from 'next/image';
-import { useMemo, useState } from 'react';
+import { createContext, useContext, useMemo, useState } from 'react';
 
 import { TeamVysLogo } from '@/components/brand/team-vys-logo';
-import { VysMaskotImage } from '@/components/brand/vys-maskot';
-import { isAdminCreatedProduct, useAdminCreatedProducts } from '@/lib/admin-created-products';
-import { createCheckoutSession, createManualParticipantProfile, saveCourseDocuments } from '@/lib/api-client';
+import { EmbeddedPaymentForm } from '@/components/checkout/embedded-payment-form';
+import { useAdminCreatedProducts } from '@/lib/admin-created-products';
+import { confirmEmbeddedPaymentIntent, createEmbeddedPaymentIntent, createManualParticipantProfile, linkParticipantByBirthNumber, saveCourseDocuments } from '@/lib/api-client';
+import {
+    applyRewardDiscount,
+    findRewardDiscountByCode,
+    markRewardDiscountUsed,
+    readUsedRewardDiscountIds,
+    rewardDiscountCodesForParticipant,
+    rewardDiscountCodesForParticipants,
+    type RewardDiscountCode,
+} from '@/lib/monthly-rewards';
 import {
     activityLabel,
+    adminCoachSummaries,
     coachReviews,
     linkedParticipants,
     parentAttendanceHistory,
@@ -83,10 +94,17 @@ type ProductGroup = {
 type DocumentFormValues = {
   parentName: string;
   emergencyPhone: string;
+  emergencyPhone2Name: string;
+  emergencyPhone2: string;
   insuranceCompany: string;
+  insuranceNumber: string;
+  chronicDiseases: string;
   healthLimits: string;
   allergies: string;
   medication: string;
+  medicationSchedule: string;
+  canSwim: string;
+  tetanus: string;
   pickupPeople: string;
   notes: string;
   gdprConsent: boolean;
@@ -104,7 +122,12 @@ type PurchaseFlow = {
   group: ProductGroup;
   selectedProductId: string;
   participantId: string;
+  discountCode: string;
   documentValues: DocumentFormValues;
+  paymentClientSecret?: string;
+  paymentIntentId?: string;
+  paymentAmountLabel?: string;
+  appliedRewardCodeId?: string;
   isSubmitting: boolean;
   message: string | null;
 };
@@ -112,7 +135,47 @@ type PurchaseFlow = {
 type ParentPortalDashboardProps = {
   displayName: string;
   displayEmail: string;
+  parentProfileId?: string;
+  initialData?: ParentPortalData | null;
 };
+
+export type ParentPortalData = {
+  participants: ParentParticipant[];
+  products: ParentProduct[];
+  payments: ParentPayment[];
+  documents: ParentDocument[];
+  digitalPasses: typeof parentDigitalPasses;
+  notifications: typeof parentNotifications;
+  attendanceHistory: typeof parentAttendanceHistory;
+  coachReviews: typeof coachReviews;
+  coaches: ParentProductTrainer[];
+};
+
+export const fallbackParentPortalData: ParentPortalData = {
+  participants: linkedParticipants,
+  products: parentProducts,
+  payments: parentPayments,
+  documents: parentDocuments,
+  digitalPasses: parentDigitalPasses,
+  notifications: parentNotifications,
+  attendanceHistory: parentAttendanceHistory,
+  coachReviews,
+  coaches: adminCoachSummaries.map((coach) => ({
+    id: coach.id,
+    name: coach.name,
+    email: coach.email,
+    phone: coach.phone,
+    locations: coach.locations,
+    qrTricksApproved: coach.qrTricksApproved,
+    profilePhotoUrl: coach.profilePhotoUrl ?? '/vys-logo-mark.png',
+  })),
+};
+
+const ParentPortalDataContext = createContext<ParentPortalData>(fallbackParentPortalData);
+
+function useParentPortalData() {
+  return useContext(ParentPortalDataContext);
+}
 
 const sections: Array<{ key: SectionKey; label: string; icon: React.ReactNode; description: string }> = [
   { key: 'overview', label: 'Přehled', icon: <LayoutDashboard size={18} />, description: 'stav rodiny' },
@@ -128,27 +191,40 @@ const paymentTypes: Array<{ key: ActivityType; label: string }> = [
   { key: 'Workshop', label: 'Workshopy' },
 ];
 
-export function ParentPortalDashboard({ displayName, displayEmail }: ParentPortalDashboardProps) {
+export function ParentPortalDashboard({ displayName, displayEmail, parentProfileId, initialData }: ParentPortalDashboardProps) {
+  const basePortalData = initialData ?? fallbackParentPortalData;
   const [activeSection, setActiveSection] = useState<SectionKey>('overview');
-  const [selectedParticipantId, setSelectedParticipantId] = useState(linkedParticipants[0]?.id ?? '');
+  const [selectedParticipantId, setSelectedParticipantId] = useState(basePortalData.participants[0]?.id ?? '');
   const [activeProductType, setActiveProductType] = useState<ActivityType>('Krouzek');
   const [purchaseFlow, setPurchaseFlow] = useState<PurchaseFlow | null>(null);
+  const [usedRewardCodeIds, setUsedRewardCodeIds] = useState<string[]>(readUsedRewardDiscountIds);
   const { products: adminCreatedProducts } = useAdminCreatedProducts();
 
-  const availableProducts = useMemo(() => [...parentProducts, ...adminCreatedProducts], [adminCreatedProducts]);
+  const portalData = useMemo<ParentPortalData>(() => ({
+    ...basePortalData,
+    products: mergeProducts(basePortalData.products, adminCreatedProducts),
+  }), [basePortalData, adminCreatedProducts]);
+  const participants = portalData.participants;
+  const availableProducts = portalData.products;
   const productGroups = useMemo(() => buildProductGroups(availableProducts), [availableProducts]);
-  const selectedParticipant = linkedParticipants.find((participant) => participant.id === selectedParticipantId) ?? linkedParticipants[0];
+  const earnedRewardCodes = useMemo(() => rewardDiscountCodesForParticipants(participants, usedRewardCodeIds), [participants, usedRewardCodeIds]);
+  const selectedParticipant = participants.find((participant) => participant.id === selectedParticipantId) ?? participants[0];
   const activeParticipantName = selectedParticipant ? `${selectedParticipant.firstName} ${selectedParticipant.lastName}` : 'účastník';
+
+  function markCodeUsed(codeId: string) {
+    setUsedRewardCodeIds(markRewardDiscountUsed(codeId));
+  }
 
   function openPurchaseFlow(group: ProductGroup) {
     const defaultProduct = group.variants.find((variant) => variant.entriesTotal === 10) ?? group.variants[0];
-    const defaultParticipant = selectedParticipant?.id ?? linkedParticipants[0]?.id ?? '';
+    const defaultParticipant = selectedParticipant?.id ?? participants[0]?.id ?? '';
 
     setPurchaseFlow({
       mode: 'purchase',
       group,
       selectedProductId: defaultProduct.id,
       participantId: defaultParticipant,
+      discountCode: '',
       documentValues: defaultDocumentValues(displayName),
       isSubmitting: false,
       message: null,
@@ -156,7 +232,7 @@ export function ParentPortalDashboard({ displayName, displayEmail }: ParentPorta
   }
 
   function openDocumentFlow(document: ParentDocument) {
-    const target = findDocumentTarget(document, productGroups);
+    const target = findDocumentTarget(document, productGroups, participants);
     if (!target) {
       setActiveSection('payments');
       return;
@@ -168,6 +244,7 @@ export function ParentPortalDashboard({ displayName, displayEmail }: ParentPorta
       group: target.group,
       selectedProductId: target.product.id,
       participantId: target.participant.id,
+      discountCode: '',
       documentValues: defaultDocumentValues(displayName),
       isSubmitting: false,
       message: null,
@@ -178,7 +255,7 @@ export function ParentPortalDashboard({ displayName, displayEmail }: ParentPorta
     if (!purchaseFlow) return;
 
     const selectedProduct = purchaseFlow.group.variants.find((variant) => variant.id === purchaseFlow.selectedProductId);
-    const participant = linkedParticipants.find((item) => item.id === purchaseFlow.participantId);
+    const participant = participants.find((item) => item.id === purchaseFlow.participantId);
 
     if (!selectedProduct || !participant) {
       setPurchaseFlow({ ...purchaseFlow, message: 'Vyber prosím variantu i účastníka.' });
@@ -192,10 +269,19 @@ export function ParentPortalDashboard({ displayName, displayEmail }: ParentPorta
       return;
     }
 
+    const appliedDiscount = purchaseFlow.discountCode.trim()
+      ? findRewardDiscountByCode(purchaseFlow.discountCode, selectedProduct.type, participant, usedRewardCodeIds)
+      : null;
+
+    if (purchaseFlow.discountCode.trim() && !appliedDiscount) {
+      setPurchaseFlow({ ...purchaseFlow, message: 'Tenhle slevový kód nejde použít pro vybraný produkt nebo už byl použitý.' });
+      return;
+    }
+
     setPurchaseFlow({ ...purchaseFlow, isSubmitting: true, message: null });
 
     try {
-      await saveRequiredDocuments(selectedProduct, participant, purchaseFlow.documentValues, requiredDocuments);
+      await saveRequiredDocuments(selectedProduct, participant, purchaseFlow.documentValues, requiredDocuments, parentProfileId);
 
       if (purchaseFlow.mode === 'documents') {
         setPurchaseFlow({
@@ -206,26 +292,24 @@ export function ParentPortalDashboard({ displayName, displayEmail }: ParentPorta
         return;
       }
 
-      if (isAdminCreatedProduct(selectedProduct)) {
-        setPurchaseFlow({
-          ...purchaseFlow,
-          isSubmitting: false,
-          message: 'Produkt vytvořený adminem je v rodičovské nabídce. Živý Stripe checkout se k němu připojí po uložení produktů do backendu/Supabase.',
-        });
-        return;
-      }
-
-      const origin = window.location.origin;
-      const session = await createCheckoutSession({
+      const paymentIntent = await createEmbeddedPaymentIntent({
+        parentProfileId,
         productId: selectedProduct.id,
         participantId: participant.id,
         participantName: `${participant.firstName} ${participant.lastName}`,
-        successUrl: `${origin}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
-        cancelUrl: `${origin}/rodic?checkout=cancelled`,
+        receiptEmail: displayEmail,
+        discountCode: appliedDiscount?.code,
       });
 
-      if (!session.url) throw new Error('Stripe nevrátil URL checkoutu.');
-      window.location.assign(session.url);
+      setPurchaseFlow({
+        ...purchaseFlow,
+        isSubmitting: false,
+        paymentClientSecret: paymentIntent.clientSecret,
+        paymentIntentId: paymentIntent.paymentIntentId,
+        paymentAmountLabel: formatCurrency(paymentIntent.amount),
+        appliedRewardCodeId: appliedDiscount?.id,
+        message: 'Dokumenty jsou uložené. Teď potvrď kartu přímo tady na webu.',
+      });
     } catch (error) {
       setPurchaseFlow({
         ...purchaseFlow,
@@ -235,15 +319,30 @@ export function ParentPortalDashboard({ displayName, displayEmail }: ParentPorta
     }
   }
 
+  async function handleEmbeddedPaymentPaid(paymentIntentId: string) {
+    const result = await confirmEmbeddedPaymentIntent(paymentIntentId);
+    setPurchaseFlow((current) => current ? {
+      ...current,
+      isSubmitting: false,
+      paymentClientSecret: undefined,
+      paymentIntentId: undefined,
+      appliedRewardCodeId: undefined,
+      message: `${result.purchase.title} pro ${result.purchase.participantName} je zaplacené a uložené v Supabase.`,
+    } : current);
+    if (purchaseFlow?.appliedRewardCodeId) markCodeUsed(purchaseFlow.appliedRewardCodeId);
+    if (typeof window !== 'undefined') window.setTimeout(() => window.location.reload(), 900);
+  }
+
   return (
+    <ParentPortalDataContext.Provider value={portalData}>
     <div className="grid gap-5 xl:grid-cols-[220px_minmax(0,1fr)]">
-      <section className="fixed inset-x-2 bottom-2 z-50 self-start rounded-[22px] border border-brand-purple/12 bg-white/72 p-1.5 shadow-brand ring-1 ring-white/55 backdrop-blur-2xl xl:sticky xl:inset-x-auto xl:bottom-auto xl:top-3 xl:p-2 xl:self-start">
+      <section className="fixed inset-x-2 bottom-2 z-50 self-start rounded-[22px] border border-brand-purple/20 bg-[#2B1247]/95 p-1.5 shadow-brand ring-1 ring-brand-purple/20 backdrop-blur-2xl xl:sticky xl:inset-x-auto xl:bottom-auto xl:top-3 xl:p-2 xl:self-start">
         <div className="flex items-center gap-2 xl:block">
-          <div className="hidden h-16 w-full shrink-0 items-center gap-3 rounded-[18px] bg-brand-purple-light px-3 xl:flex">
+          <div className="hidden h-16 w-full shrink-0 items-center gap-3 rounded-[18px] bg-white/10 px-3 ring-1 ring-white/10 xl:flex">
             <TeamVysLogo size={36} priority />
             <div className="min-w-0">
-              <p className="text-[9px] font-black uppercase leading-none text-brand-purple-deep">Rodičovský portál</p>
-              <p className="mt-0.5 truncate text-[13px] font-black leading-tight text-brand-ink">{displayName}</p>
+              <p className="text-[9px] font-black uppercase leading-none text-brand-cyan">Rodičovský portál</p>
+              <p className="mt-0.5 truncate text-[13px] font-black leading-tight text-white">{displayName}</p>
             </div>
           </div>
 
@@ -260,10 +359,10 @@ export function ParentPortalDashboard({ displayName, displayEmail }: ParentPorta
                 className={`flex h-10 min-w-0 items-center justify-center gap-1.5 rounded-[16px] border px-1.5 text-left transition-all duration-300 sm:h-12 sm:gap-2 sm:px-2.5 xl:h-11 xl:justify-start xl:px-3 ${
                   isActive
                     ? 'border-brand-purple bg-brand-purple text-white shadow-brand'
-                    : 'border-brand-purple/10 bg-white/68 text-brand-ink shadow-sm backdrop-blur-xl hover:border-brand-purple/24 hover:bg-white hover:shadow-brand-soft'
+                    : 'border-brand-purple/20 bg-white/10 text-white/80 shadow-sm backdrop-blur-xl hover:border-brand-purple/30 hover:bg-white/20 hover:text-white'
                 }`}
               >
-                <span className={`shrink-0 ${isActive ? 'text-white' : 'text-brand-purple'}`}>{section.icon}</span>
+                <span className={`shrink-0 ${isActive ? 'text-white' : 'text-brand-cyan'}`}>{section.icon}</span>
                 <span className="hidden min-w-0 sm:block">
                   <span className="block truncate text-[11px] font-black sm:text-xs lg:text-[13px]">{section.label}</span>
                 </span>
@@ -274,14 +373,15 @@ export function ParentPortalDashboard({ displayName, displayEmail }: ParentPorta
         </div>
       </section>
 
-      <main className="min-w-0 space-y-5 pb-36 xl:pb-0">
+      <main className="min-w-0 space-y-4 pb-36 xl:pb-0">
         <Header activeSection={activeSection} />
 
-        {activeSection === 'overview' ? <OverviewSection onNavigate={setActiveSection} /> : null}
+        {activeSection === 'overview' ? <OverviewSection rewardDiscounts={earnedRewardCodes} onNavigate={setActiveSection} /> : null}
         {activeSection === 'participants' ? (
           <ParticipantsSection
             selectedParticipantId={selectedParticipantId}
             displayName={displayName}
+            parentProfileId={parentProfileId}
             availableProducts={availableProducts}
             onSelectParticipant={setSelectedParticipantId}
             onOpenDocument={openDocumentFlow}
@@ -292,6 +392,7 @@ export function ParentPortalDashboard({ displayName, displayEmail }: ParentPorta
             activeProductType={activeProductType}
             productGroups={productGroups}
             selectedParticipant={selectedParticipant}
+            rewardDiscounts={earnedRewardCodes}
             onProductTypeChange={setActiveProductType}
             onStartPurchase={openPurchaseFlow}
           />
@@ -303,56 +404,73 @@ export function ParentPortalDashboard({ displayName, displayEmail }: ParentPorta
       {purchaseFlow ? (
         <PurchaseWizard
           flow={purchaseFlow}
+          usedRewardCodeIds={usedRewardCodeIds}
           onChange={setPurchaseFlow}
           onClose={() => setPurchaseFlow(null)}
           onCheckout={handleCheckout}
+          onPaymentPaid={handleEmbeddedPaymentPaid}
         />
       ) : null}
     </div>
+    </ParentPortalDataContext.Provider>
   );
 }
 
 function Header({ activeSection }: { activeSection: SectionKey }) {
+  const { participants, documents, digitalPasses } = useParentPortalData();
   const section = sections.find((item) => item.key === activeSection) ?? sections[0];
-  const signedDocuments = parentDocuments.filter((document) => document.status === 'signed').length;
+  const signedDocuments = documents.filter((document) => document.status === 'signed').length;
+  const missingDocuments = documents.length - signedDocuments;
+  const attendanceDone = participants.reduce((sum, participant) => sum + participant.attendanceDone, 0);
+  const attendanceTotal = participants.reduce((sum, participant) => sum + participant.attendanceTotal, 0);
+  const activePasses = digitalPasses.length;
 
   return (
-    <div className="relative overflow-hidden rounded-[22px] border border-brand-purple/12 bg-white px-4 py-4 shadow-brand-soft sm:px-5">
-      <div className="flex items-center justify-between gap-3">
+    <div className="relative overflow-hidden rounded-[22px] border border-brand-purple/20 bg-gradient-to-br from-[#331650] via-[#27113D] to-[#4A1D78] px-4 py-3 text-white shadow-brand sm:px-5">
+      <div className="absolute inset-x-0 top-0 h-1 bg-gradient-brand" />
+      <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
         <div className="flex min-w-0 items-center gap-3">
-          <div className="relative flex h-14 w-14 shrink-0 items-center justify-center rounded-[18px] bg-brand-purple-light">
-            <TeamVysLogo size={38} priority />
-            <span className="absolute -right-1 -top-1 inline-flex h-6 w-6 items-center justify-center rounded-full bg-brand-cyan text-white shadow-sm">
-              {section.icon}
-            </span>
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[15px] bg-white/10 ring-1 ring-white/10">
+            <span className="text-brand-cyan">{section.icon}</span>
           </div>
           <div className="min-w-0">
-            <p className="text-[10px] font-black uppercase text-brand-cyan">{section.label}</p>
-            <h1 className="truncate text-base font-black text-brand-ink md:text-lg">{headlineForSection(activeSection)}</h1>
+            <p className="text-[10px] font-black uppercase tracking-[0.14em] text-brand-cyan">{section.label}</p>
+            <h1 className="mt-0.5 text-lg font-black leading-tight md:text-xl">{headlineForSection(activeSection)}</h1>
+            <p className="mt-0.5 max-w-[560px] text-xs font-bold leading-5 text-white/60 md:text-sm">Rychle vidíš, co je hotové a kam pokračovat.</p>
           </div>
         </div>
-        <div className="flex h-24 w-20 shrink-0 items-center justify-end sm:h-28 sm:w-24">
-          <VysMaskotImage className="h-24 w-16 sm:h-28 sm:w-[76px]" priority sizes="76px" />
+        <div className="grid grid-cols-3 gap-2 text-right">
+          <HeroSignal value={`${participants.length}`} label="děti" tone="cyan" />
+          <HeroSignal value={missingDocuments === 0 ? 'OK' : `${missingDocuments}`} label="dokumenty" tone={missingDocuments === 0 ? 'mint' : 'orange'} />
+          <HeroSignal value={`${activePasses}`} label="passy" tone="purple" />
         </div>
       </div>
-      <div className="mt-3 hidden grid-cols-3 gap-2 text-center sm:grid">
-        <Metric value={`${linkedParticipants.length}`} label="účastníci" />
-        <Metric value={`${signedDocuments}/${parentDocuments.length}`} label="dokumenty" />
-        <Metric value={`${parentDigitalPasses.length}`} label="aktivní passy" />
+      <div className="mt-3 rounded-[16px] bg-white/10 p-2.5 ring-1 ring-white/10">
+        <div className="flex items-center justify-between gap-3 text-xs font-black uppercase text-white/70">
+          <span>Docházka rodiny</span>
+          <span className="text-white">{attendanceDone}/{attendanceTotal}</span>
+        </div>
+        <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/12">
+          <div className="h-full rounded-full bg-brand-cyan" style={{ width: `${attendanceTotal ? Math.round((attendanceDone / attendanceTotal) * 100) : 0}%` }} />
+        </div>
       </div>
     </div>
   );
 }
 
-function OverviewSection({ onNavigate }: { onNavigate: (section: SectionKey) => void }) {
-  const missingDocuments = parentDocuments.filter((document) => document.status !== 'signed');
+function OverviewSection({ rewardDiscounts, onNavigate }: { rewardDiscounts: RewardDiscountCode[]; onNavigate: (section: SectionKey) => void }) {
+  const { participants, documents, notifications } = useParentPortalData();
+  const missingDocuments = documents.filter((document) => document.status !== 'signed');
 
   return (
-    <div className="grid items-start gap-5 xl:grid-cols-[1.1fr_0.9fr]">
-      <div className="space-y-5">
-        <Panel className="p-5">
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <ActionTile icon={<Users size={18} />} label="Účastníci" value={`${linkedParticipants.length} profily`} onClick={() => onNavigate('participants')} />
+    <div className="grid items-start gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+      <div className="space-y-4">
+        <Panel className="overflow-hidden p-0">
+          <div className="border-b border-brand-purple/10 bg-white px-4 py-2.5">
+            <p className="text-xs font-black uppercase tracking-[0.14em] text-brand-purple">Co řešit nejdřív</p>
+          </div>
+          <div className="grid gap-2 p-3 sm:grid-cols-2 xl:grid-cols-4">
+            <ActionTile icon={<Users size={18} />} label="Účastníci" value={`${participants.length} profily`} onClick={() => onNavigate('participants')} />
             <ActionTile icon={<WalletCards size={18} />} label="Platby" value="historie + nový nákup" onClick={() => onNavigate('payments')} />
             <ActionTile icon={<FileCheck2 size={18} />} label="Dokumenty" value={`${missingDocuments.length} chybí`} onClick={() => onNavigate('documents')} />
             <ActionTile icon={<MessageSquareText size={18} />} label="Hodnocení" value="hvězdičky" onClick={() => onNavigate('profile')} />
@@ -362,7 +480,7 @@ function OverviewSection({ onNavigate }: { onNavigate: (section: SectionKey) => 
         <Panel className="p-5">
           <SectionTitle icon={<Users size={18} />} title="Děti v rodině" subtitle="rychlý stav produktů, QR a docházky" />
           <div className="mt-4 grid gap-3 md:grid-cols-2">
-            {linkedParticipants.map((participant) => (
+            {participants.map((participant) => (
               <div key={participant.id} className="rounded-[16px] border border-brand-purple/10 bg-brand-paper p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -378,21 +496,27 @@ function OverviewSection({ onNavigate }: { onNavigate: (section: SectionKey) => 
                 </div>
               </div>
             ))}
+            {participants.length === 0 ? <EmptyState text="Zatím není připojený žádný účastník. Přidej dítě v sekci Účastníci." /> : null}
           </div>
         </Panel>
       </div>
 
-      <Panel className="p-5">
-        <SectionTitle icon={<Bell size={18} />} title="Upozornění" subtitle="poslední příchody zapsané přes NFC" />
-        <div className="mt-4 space-y-3">
-          {parentNotifications.map((notification) => (
-            <div key={notification.id} className="rounded-[16px] border border-brand-purple/10 bg-white p-4">
-              <p className="text-sm font-black leading-6 text-brand-ink">{notification.text}</p>
-              <p className="mt-1 text-xs font-bold text-brand-ink-soft">{notification.createdAt} · {notification.method}</p>
-            </div>
-          ))}
-        </div>
-      </Panel>
+      <div className="space-y-4">
+        <RewardCodesPanel discounts={rewardDiscounts} />
+
+        <Panel className="p-5">
+          <SectionTitle icon={<Bell size={18} />} title="Upozornění" subtitle="poslední příchody zapsané přes NFC" />
+          <div className="mt-4 space-y-3">
+            {notifications.map((notification) => (
+              <div key={notification.id} className="rounded-[16px] border border-brand-purple/10 bg-white p-4">
+                <p className="text-sm font-black leading-6 text-brand-ink">{notification.text}</p>
+                <p className="mt-1 text-xs font-bold text-brand-ink-soft">{notification.createdAt} · {notification.method}</p>
+              </div>
+            ))}
+            {notifications.length === 0 ? <EmptyState text="Zatím tu nejsou žádná upozornění z docházky." /> : null}
+          </div>
+        </Panel>
+      </div>
     </div>
   );
 }
@@ -400,33 +524,48 @@ function OverviewSection({ onNavigate }: { onNavigate: (section: SectionKey) => 
 function ParticipantsSection({
   selectedParticipantId,
   displayName,
+  parentProfileId,
   availableProducts,
   onSelectParticipant,
   onOpenDocument,
 }: {
   selectedParticipantId: string;
   displayName: string;
+  parentProfileId?: string;
   availableProducts: ParentProduct[];
   onSelectParticipant: (id: string) => void;
   onOpenDocument: (document: ParentDocument) => void;
 }) {
-  const participant = linkedParticipants.find((item) => item.id === selectedParticipantId) ?? linkedParticipants[0];
+  const { participants, documents, payments, digitalPasses, attendanceHistory } = useParentPortalData();
+  const participant = participants.find((item) => item.id === selectedParticipantId) ?? participants[0];
+
+  if (!participant) {
+    return (
+      <div className="space-y-5">
+        <AddParticipantPanel displayName={displayName} parentProfileId={parentProfileId} products={availableProducts} />
+        <Panel className="p-5">
+          <EmptyState text="Zatím tu není žádný účastník. Přidej dítě ručně nebo ho připoj k rodičovskému účtu." />
+        </Panel>
+      </div>
+    );
+  }
+
   const participantName = `${participant.firstName} ${participant.lastName}`;
   const normalizedParticipantName = normalizePersonName(participantName);
-  const participantDocuments = parentDocuments.filter((document) => normalizePersonName(document.participantName) === normalizedParticipantName);
-  const participantPayments = parentPayments.filter((payment) => normalizePersonName(payment.participantName) === normalizedParticipantName);
-  const participantPasses = parentDigitalPasses.filter((pass) => pass.participantId === participant.id);
-  const participantAttendance = parentAttendanceHistory.filter((record) => normalizePersonName(record.participantName) === normalizedParticipantName);
+  const participantDocuments = documents.filter((document) => normalizePersonName(document.participantName) === normalizedParticipantName);
+  const participantPayments = payments.filter((payment) => normalizePersonName(payment.participantName) === normalizedParticipantName);
+  const participantPasses = digitalPasses.filter((pass) => pass.participantId === participant.id);
+  const participantAttendance = attendanceHistory.filter((record) => normalizePersonName(record.participantName) === normalizedParticipantName);
 
   return (
     <div className="space-y-5">
-      <AddParticipantPanel displayName={displayName} products={availableProducts} />
+      <AddParticipantPanel displayName={displayName} parentProfileId={parentProfileId} products={availableProducts} />
 
       <div className="grid items-stretch gap-5 xl:grid-cols-[300px_minmax(0,1fr)]">
         <Panel className="p-4">
           <SectionTitle icon={<Users size={18} />} title="Účastník" subtitle="vyber dítě" />
           <div className="mt-4 grid gap-2">
-            {linkedParticipants.map((item) => {
+            {participants.map((item) => {
               const active = item.id === participant.id;
               return (
                 <button
@@ -513,7 +652,7 @@ function ParticipantsSection({
   );
 }
 
-function AddParticipantPanel({ displayName, products }: { displayName: string; products: ParentProduct[] }) {
+function AddParticipantPanel({ displayName, parentProfileId, products }: { displayName: string; parentProfileId?: string; products: ParentProduct[] }) {
   const [isOpen, setIsOpen] = useState(false);
   const [mode, setMode] = useState<'link' | 'manual'>('link');
   const [firstName, setFirstName] = useState('');
@@ -522,10 +661,10 @@ function AddParticipantPanel({ displayName, products }: { displayName: string; p
   const [dateOfBirth, setDateOfBirth] = useState('');
   const [schoolYear, setSchoolYear] = useState('');
   const courseOptions = useMemo(() => Array.from(new Set(products.filter((product) => product.type === 'Krouzek').map((product) => product.place))), [products]);
-  const [preferredCourse, setPreferredCourse] = useState(courseOptions[0] ?? 'Vyškov · ZŠ Nádražní');
+  const [preferredCourse, setPreferredCourse] = useState(courseOptions[0] ?? '');
   const [parentName, setParentName] = useState(displayName);
-  const [parentPhone, setParentPhone] = useState('+420 605 324 417');
-  const [emergencyPhone, setEmergencyPhone] = useState('+420 605 324 417');
+  const [parentPhone, setParentPhone] = useState('');
+  const [emergencyPhone, setEmergencyPhone] = useState('');
   const [address, setAddress] = useState('');
   const [departureMode, setDepartureMode] = useState('parent');
   const [authorizedPeople, setAuthorizedPeople] = useState('');
@@ -536,21 +675,25 @@ function AddParticipantPanel({ displayName, products }: { displayName: string; p
   const [message, setMessage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  function lookupParticipant() {
-    const normalizedName = normalizePersonName(`${firstName} ${lastName}`);
-    const birthSuffix = birthNumber.replace(/\D/g, '').slice(-4);
-    const found = linkedParticipants.find((participant) => {
-      const participantName = normalizePersonName(`${participant.firstName} ${participant.lastName}`);
-      const birthMatches = birthSuffix.length >= 4 && participant.birthNumberMasked.endsWith(birthSuffix);
-      return participantName === normalizedName && birthMatches;
-    });
-
-    if (found) {
-      setMessage(`${found.firstName} ${found.lastName} je v demo databázi nalezený účastník. V produkci se po ověření bezpečně připojí k rodiči.`);
+  async function lookupParticipant() {
+    if (!firstName.trim() || !lastName.trim()) {
+      setMessage('Zadej jméno a příjmení účastníka.');
       return;
     }
 
-    setMessage('Účastník se podle jména, příjmení a rodného čísla nenašel. Pokud dítě ještě nemá účet v aplikaci, použij režim bez telefonu a doplň údaje ručně.');
+    setSaving(true);
+    setMessage(null);
+    try {
+      const result = await linkParticipantByBirthNumber({ parentProfileId, firstName, lastName, birthNumber });
+      setMessage(`${result.participant.first_name} ${result.participant.last_name} je připojený k rodičovskému účtu. Obnovuji přehled, aby šly rovnou nakupovat produkty na jeho profil.`);
+      if (typeof window !== 'undefined') window.setTimeout(() => window.location.reload(), 900);
+      return;
+    } catch (error) {
+      const backendMessage = error instanceof Error ? friendlyBackendError(error.message) : 'Účastníka se nepodařilo připojit.';
+      setMessage(backendMessage);
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function submitManualParticipant() {
@@ -580,6 +723,7 @@ function AddParticipantPanel({ displayName, products }: { displayName: string; p
     setMessage(null);
     try {
       const result = await createManualParticipantProfile({
+        parentProfileId,
         firstName,
         lastName,
         birthNumberMasked: birthNumber,
@@ -642,13 +786,31 @@ function AddParticipantPanel({ displayName, products }: { displayName: string; p
           <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             <MiniInput label="Jméno" value={firstName} onChange={setFirstName} placeholder="Eliška" />
             <MiniInput label="Příjmení" value={lastName} onChange={setLastName} placeholder="Nováková" />
-            <MiniInput label={mode === 'manual' ? 'Rodné číslo / identifikátor' : 'Rodné číslo'} value={birthNumber} onChange={setBirthNumber} placeholder="****** / 1234" />
+            {mode === 'link' ? (
+              <label className="grid gap-2 text-sm font-black text-brand-ink">
+                Rodné číslo
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={birthNumber}
+                  onChange={(e) => {
+                    const digits = e.target.value.replace(/\D/g, '');
+                    if (digits.length <= 6) setBirthNumber(digits);
+                    else setBirthNumber(`${digits.slice(0, 6)}/${digits.slice(6, 10)}`);
+                  }}
+                  placeholder="060609/7338"
+                  maxLength={11}
+                  className="rounded-[16px] border border-brand-purple/15 bg-white px-3 py-2.5 text-sm font-bold outline-none transition focus:border-brand-purple"
+                />
+              </label>
+            ) : null}
+            {mode === 'manual' ? <MiniInput label="Rodné číslo / identifikátor" value={birthNumber} onChange={setBirthNumber} placeholder="****** / 1234" /> : null}
             {mode === 'manual' ? <MiniInput label="Datum narození" type="date" value={dateOfBirth} onChange={setDateOfBirth} placeholder="" /> : null}
             {mode === 'manual' ? <MiniInput label="Školní ročník" value={schoolYear} onChange={setSchoolYear} placeholder="5. třída" /> : null}
             {mode === 'manual' ? <MiniSelect label="Preferovaná lokalita" value={preferredCourse} onChange={setPreferredCourse} options={courseOptions.map((course) => ({ value: course, label: course }))} /> : null}
-            {mode === 'manual' ? <MiniInput label="Jméno rodiče" value={parentName} onChange={setParentName} placeholder="David Kropáč" /> : null}
-            {mode === 'manual' ? <MiniInput label="Telefon rodiče" type="tel" value={parentPhone} onChange={setParentPhone} placeholder="+420 605 324 417" /> : null}
-            {mode === 'manual' ? <MiniInput label="Nouzový telefon" type="tel" value={emergencyPhone} onChange={setEmergencyPhone} placeholder="+420 605 324 417" /> : null}
+            {mode === 'manual' ? <MiniInput label="Jméno rodiče" value={parentName} onChange={setParentName} placeholder="Jméno a příjmení rodiče" /> : null}
+            {mode === 'manual' ? <MiniInput label="Telefon rodiče" type="tel" value={parentPhone} onChange={setParentPhone} placeholder="+420 ..." /> : null}
+            {mode === 'manual' ? <MiniInput label="Nouzový telefon" type="tel" value={emergencyPhone} onChange={setEmergencyPhone} placeholder="+420 ..." /> : null}
             {mode === 'manual' ? <MiniInput label="Adresa" value={address} onChange={setAddress} placeholder="Ulice, město" /> : null}
             {mode === 'manual' ? <MiniSelect label="Odchod po tréninku" value={departureMode} onChange={setDepartureMode} options={[{ value: 'parent', label: 'Pouze s rodičem' }, { value: 'alone', label: 'Může odejít samo' }, { value: 'authorized', label: 'Jen s pověřenou osobou' }]} /> : null}
             {mode === 'manual' && departureMode === 'authorized' ? <MiniInput label="Pověřené osoby" value={authorizedPeople} onChange={setAuthorizedPeople} placeholder="Jména a telefon" /> : null}
@@ -665,7 +827,7 @@ function AddParticipantPanel({ displayName, products }: { displayName: string; p
 
           <button type="button" disabled={saving} onClick={mode === 'link' ? lookupParticipant : submitManualParticipant} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-[16px] bg-brand-purple px-4 py-3 text-sm font-black text-white shadow-brand transition hover:bg-brand-purple-deep disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto">
             {mode === 'link' ? <Search size={17} /> : <UserPlus size={17} />}
-            {mode === 'link' ? 'Vyhledat v databázi' : saving ? 'Ukládám profil...' : 'Uložit profil bez telefonu'}
+            {mode === 'link' ? (saving ? 'Připojuji účastníka...' : 'Vyhledat a připojit') : saving ? 'Ukládám profil...' : 'Uložit profil bez telefonu'}
           </button>
           {message ? <p className="mt-3 rounded-[16px] bg-brand-paper p-3 text-sm font-bold leading-6 text-brand-ink-soft">{message}</p> : null}
         </div>
@@ -674,7 +836,7 @@ function AddParticipantPanel({ displayName, products }: { displayName: string; p
           <div className="rounded-[16px] border border-brand-cyan/20 bg-brand-cyan/10 p-4">
             <p className="text-xs font-black uppercase text-brand-cyan">Doporučený postup</p>
             <h3 className="mt-2 text-lg font-black text-brand-ink">Nejdřív aplikace, potom propojení</h3>
-            <p className="mt-2 text-sm font-bold leading-6 text-brand-ink-soft">Dítě musí mít staženou aplikaci a vlastní registraci. Rodič ho potom dohledá podle jména, příjmení a rodného čísla; pokud záznam existuje, účastník se připojí do rodiny.</p>
+            <p className="mt-2 text-sm font-bold leading-6 text-brand-ink-soft">Dítě musí mít staženou aplikaci a vlastní registraci. Zadej jméno, příjmení a rodné číslo — shodné s tím, které dítě zapsalo při registraci.</p>
           </div>
         ) : (
           <div className="rounded-[16px] border border-brand-pink/20 bg-brand-pink/10 p-4">
@@ -699,19 +861,22 @@ function PaymentsSection({
   activeProductType,
   productGroups,
   selectedParticipant,
+  rewardDiscounts,
   onProductTypeChange,
   onStartPurchase,
 }: {
   activeProductType: ActivityType;
   productGroups: ProductGroup[];
   selectedParticipant?: ParentParticipant;
+  rewardDiscounts: RewardDiscountCode[];
   onProductTypeChange: (type: ActivityType) => void;
   onStartPurchase: (group: ProductGroup) => void;
 }) {
+  const { payments } = useParentPortalData();
   const visibleGroups = productGroups
     .filter((group) => group.type === activeProductType)
     .sort((a, b) => productSortScore(a, selectedParticipant) - productSortScore(b, selectedParticipant) || a.place.localeCompare(b.place, 'cs'));
-  const totalPaid = parentPayments.reduce((sum, payment) => sum + payment.amount, 0);
+  const totalPaid = payments.reduce((sum, payment) => sum + payment.amount, 0);
 
   return (
     <div className="space-y-5">
@@ -733,6 +898,8 @@ function PaymentsSection({
         </div>
       </Panel>
 
+      <RewardCodesPanel discounts={rewardDiscounts} compact />
+
       <div className="grid items-start gap-4 xl:grid-cols-2">
         {visibleGroups.map((group) => (
           <ProductGroupCard key={group.id} group={group} onStartPurchase={() => onStartPurchase(group)} />
@@ -744,7 +911,61 @@ function PaymentsSection({
   );
 }
 
+function RewardCodesPanel({ discounts, compact = false }: { discounts: RewardDiscountCode[]; compact?: boolean }) {
+  const [isOpen, setIsOpen] = useState(false);
+
+  return (
+    <Panel className={compact ? 'px-4 py-3 shadow-brand-soft' : 'px-4 py-3'}>
+      <button
+        type="button"
+        aria-expanded={isOpen}
+        onClick={() => setIsOpen((v) => !v)}
+        className="flex w-full cursor-pointer items-center justify-between gap-3 text-left"
+      >
+        <div className="flex items-center gap-2">
+          <BadgePercent size={15} className="shrink-0 text-brand-purple" />
+          <span className="text-sm font-black text-brand-ink">Slevové kódy</span>
+          {discounts.length > 0 && (
+            <span className="rounded-full bg-brand-purple-light px-2 py-0.5 text-[11px] font-black text-brand-purple">{discounts.length}</span>
+          )}
+        </div>
+        <ChevronDown className={`text-brand-purple transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`} size={15} />
+      </button>
+
+      <AnimatePresence initial={false}>
+        {isOpen && (
+          <motion.div
+            key="reward-codes-body"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.28, ease: [0.4, 0, 0.2, 1] }}
+            style={{ overflow: 'hidden' }}
+          >
+            <div className="mt-2 flex flex-col gap-1.5">
+              {discounts.length > 0 ? discounts.map((discount) => (
+                <div key={discount.id} className="flex items-center justify-between gap-2 rounded-[12px] bg-brand-paper px-3 py-2">
+                  <div className="min-w-0">
+                    <span className="text-[11px] font-black uppercase text-brand-purple">{discount.participantName}</span>
+                    <span className="mx-1.5 text-brand-ink-soft/40">·</span>
+                    <span className="text-xs font-bold text-brand-ink-soft">{discount.title}</span>
+                    <code className="ml-2 text-xs font-bold text-brand-ink">{discount.code}</code>
+                  </div>
+                  <span className="shrink-0 rounded-[10px] bg-white px-2.5 py-1 text-xs font-black text-brand-purple shadow-sm">-{discount.percent} %</span>
+                </div>
+              )) : (
+                <p className="py-1 text-xs font-bold text-brand-ink-soft">Zatím žádný aktivní kód.</p>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </Panel>
+  );
+}
+
 function PaymentHistoryPanel({ totalPaid }: { totalPaid: number }) {
+  const { payments } = useParentPortalData();
   const [isOpen, setIsOpen] = useState(true);
 
   return (
@@ -752,19 +973,20 @@ function PaymentHistoryPanel({ totalPaid }: { totalPaid: number }) {
       <button type="button" aria-expanded={isOpen} onClick={() => setIsOpen((current) => !current)} className="flex w-full cursor-pointer flex-wrap items-center justify-between gap-4 rounded-[16px] text-left transition-colors hover:bg-brand-paper/60">
         <SectionTitle icon={<History size={18} />} title="Historie plateb" subtitle="úplně dole, můžeš ji kdykoliv skrýt" />
         <div className="flex flex-wrap items-center gap-2">
-          <span className="rounded-[16px] bg-brand-paper px-3 py-2 text-xs font-black text-brand-ink">{parentPayments.length} platby</span>
+          <span className="rounded-[16px] bg-brand-paper px-3 py-2 text-xs font-black text-brand-ink">{payments.length} platby</span>
           <span className="rounded-[16px] bg-brand-paper px-3 py-2 text-xs font-black text-brand-ink">{formatCurrency(totalPaid)}</span>
           <ChevronDown className={`text-brand-purple transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`} size={19} />
         </div>
       </button>
       <CollapsibleContent open={isOpen} className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_260px] xl:items-start">
         <div className="grid gap-2">
-          {parentPayments.map((payment) => (
+          {payments.map((payment) => (
             <PaymentHistoryRow key={payment.id} payment={payment} />
           ))}
+          {payments.length === 0 ? <EmptyState text="Zatím tu není žádná uložená platba." /> : null}
         </div>
         <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
-          <Metric value={`${parentPayments.length}`} label="zaplacené platby" />
+          <Metric value={`${payments.length}`} label="zaplacené platby" />
           <Metric value={formatCurrency(totalPaid)} label="celkem uhrazeno" />
         </div>
       </CollapsibleContent>
@@ -802,14 +1024,15 @@ function PaymentHistoryRow({ payment }: { payment: ParentPayment }) {
 }
 
 function DocumentsSection({ onOpenDocument, onGoToPayments }: { onOpenDocument: (document: ParentDocument) => void; onGoToPayments: () => void }) {
-  const missingDocuments = parentDocuments.filter((document) => document.status !== 'signed');
+  const { documents } = useParentPortalData();
+  const missingDocuments = documents.filter((document) => document.status !== 'signed');
 
   return (
     <div className="grid items-start gap-5 xl:grid-cols-[1fr_0.9fr]">
       <Panel className="p-5">
         <SectionTitle icon={<FileCheck2 size={18} />} title="Povinné dokumenty" subtitle="souhlasy, zdraví, vyzvedávání a táborová potvrzení" />
         <div className="mt-4 grid gap-3">
-          {parentDocuments.map((document) => (
+          {documents.map((document) => (
             <button
               key={document.id}
               type="button"
@@ -827,6 +1050,7 @@ function DocumentsSection({ onOpenDocument, onGoToPayments }: { onOpenDocument: 
               </div>
             </button>
           ))}
+          {documents.length === 0 ? <EmptyState text="Dokumenty se objeví po první registraci nebo uloženém nákupu." /> : null}
         </div>
       </Panel>
 
@@ -853,12 +1077,16 @@ function DocumentsSection({ onOpenDocument, onGoToPayments }: { onOpenDocument: 
 }
 
 function ProfileSection({ displayName, displayEmail, participantName }: { displayName: string; displayEmail: string; participantName: string }) {
-  const [selectedCoachId, setSelectedCoachId] = useState(coachReviews[0]?.coachId ?? 'coach-demo');
+  const { coachReviews: reviews, coaches: portalCoaches, products } = useParentPortalData();
+  const [selectedCoachId, setSelectedCoachId] = useState(reviews[0]?.coachId ?? '');
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState('');
   const [message, setMessage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const reviewableCoaches = useMemo(() => uniqueCoachesFromProducts(), []);
+  const reviewableCoaches = useMemo(() => {
+    if (portalCoaches.length > 0) return portalCoaches;
+    return uniqueCoachesFromProducts(products);
+  }, [portalCoaches, products]);
   const selectedCoach = reviewableCoaches.find((coach) => coach.id === selectedCoachId) ?? reviewableCoaches[0];
 
   async function submitReview() {
@@ -900,8 +1128,8 @@ function ProfileSection({ displayName, displayEmail, participantName }: { displa
         <div className="mt-5 space-y-3">
           <ProfileRow label="Jméno" value={displayName} />
           <ProfileRow label="E-mail" value={displayEmail} />
-          <ProfileRow label="Telefon" value="+420 605 324 417" />
-          <ProfileRow label="Adresa" value="Vyškov, Brněnská 12" />
+          <ProfileRow label="Telefon" value="Doplní se z přihlášky účastníka" />
+          <ProfileRow label="Adresa" value="Doplní se z přihlášky účastníka" />
         </div>
       </Panel>
 
@@ -1050,11 +1278,14 @@ function ProductGroupCard({ group, onStartPurchase }: { group: ProductGroup; onS
   );
 }
 
-function PurchaseWizard({ flow, onChange, onClose, onCheckout }: { flow: PurchaseFlow; onChange: (flow: PurchaseFlow) => void; onClose: () => void; onCheckout: () => void }) {
+function PurchaseWizard({ flow, usedRewardCodeIds, onChange, onClose, onCheckout, onPaymentPaid }: { flow: PurchaseFlow; usedRewardCodeIds: string[]; onChange: (flow: PurchaseFlow) => void; onClose: () => void; onCheckout: () => void; onPaymentPaid: (paymentIntentId: string) => Promise<void> }) {
+  const { participants } = useParentPortalData();
   const selectedProduct = flow.group.variants.find((variant) => variant.id === flow.selectedProductId) ?? flow.group.variants[0];
-  const participant = linkedParticipants.find((item) => item.id === flow.participantId) ?? linkedParticipants[0];
+  const participant = participants.find((item) => item.id === flow.participantId) ?? participants[0];
   const requiredDocuments = requiredDocumentsForProduct(selectedProduct);
   const isDocumentOnly = flow.mode === 'documents';
+  const appliedDiscount = participant ? findRewardDiscountByCode(flow.discountCode, selectedProduct.type, participant, usedRewardCodeIds) : null;
+  const discountPreview = applyRewardDiscount(selectedProduct.price, appliedDiscount);
 
   function updateDocuments(values: Partial<DocumentFormValues>) {
     onChange({ ...flow, documentValues: { ...flow.documentValues, ...values }, message: null });
@@ -1106,7 +1337,7 @@ function PurchaseWizard({ flow, onChange, onClose, onCheckout }: { flow: Purchas
 
             <WizardBlock number="2" title="Účastník">
               <div className="grid gap-3 sm:grid-cols-2">
-                {linkedParticipants.map((item) => {
+                {participants.map((item) => {
                   const selected = item.id === flow.participantId;
                   return (
                     <button
@@ -1120,45 +1351,124 @@ function PurchaseWizard({ flow, onChange, onClose, onCheckout }: { flow: Purchas
                     </button>
                   );
                 })}
+                {participants.length === 0 ? <EmptyState text="Nejdřív přidej účastníka v sekci Účastníci." /> : null}
               </div>
             </WizardBlock>
 
-            <WizardBlock number="3" title="Dokumenty">
-              {requiredDocuments.length > 0 ? (
-                <div className="space-y-4">
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    {requiredDocuments.map((document) => (
-                      <div key={document.kind} className="rounded-[16px] border border-brand-purple/10 bg-white p-3">
-                        <p className="text-xs font-black text-brand-ink">{document.title}</p>
-                        <p className="mt-1 text-[11px] leading-4 text-brand-ink-soft">{document.description}</p>
+            {!isDocumentOnly ? (
+              <WizardBlock number="3" title="Slevový kód">
+                <RewardDiscountPicker
+                  product={selectedProduct}
+                  participant={participant}
+                  code={flow.discountCode}
+                  usedRewardCodeIds={usedRewardCodeIds}
+                  onCodeChange={(discountCode) => onChange({ ...flow, discountCode, message: null })}
+                />
+              </WizardBlock>
+            ) : null}
+
+            {requiredDocuments.length > 0 ? requiredDocuments.map((doc, idx) => {
+              const blockNum = String((isDocumentOnly ? 3 : 4) + idx);
+              return (
+                <WizardBlock key={doc.kind} number={blockNum} title={doc.title}>
+                  {doc.kind === 'gdpr' && (
+                    <div className="space-y-3">
+                      <p className="rounded-[16px] bg-white p-4 text-sm leading-6 text-brand-ink-soft">
+                        Správce osobních údajů: <span className="font-bold text-brand-ink">TeamVYS</span>. Zpracováváme jméno, datum narození, zdravotní informace a kontaktní údaje dítěte a zákonného zástupce za účelem organizace sportovní aktivity, vedení docházky a zajištění bezpečnosti. Uchování: po dobu aktivity a 1 rok poté. Máte právo na přístup, opravu a výmaz dle nařízení GDPR (EU) 2016/679.
+                      </p>
+                      <CheckboxRow label="Souhlasím se zpracováním osobních údajů dítěte a zákonného zástupce dle výše uvedených podmínek." checked={flow.documentValues.gdprConsent} onChange={(checked) => updateDocuments({ gdprConsent: checked })} />
+                    </div>
+                  )}
+                  {doc.kind === 'guardian-consent' && (
+                    <div className="space-y-4">
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <TextField label="Jméno zákonného zástupce" value={flow.documentValues.parentName} onChange={(value) => updateDocuments({ parentName: value })} />
+                        <TextField label="Telefon zákonného zástupce" type="tel" value={flow.documentValues.emergencyPhone} onChange={(value) => updateDocuments({ emergencyPhone: value })} placeholder="+420 ..." />
+                        <TextField label="Druhý nouzový kontakt – jméno" value={flow.documentValues.emergencyPhone2Name} onChange={(value) => updateDocuments({ emergencyPhone2Name: value })} placeholder="Jméno a příjmení" />
+                        <TextField label="Druhý nouzový kontakt – telefon" type="tel" value={flow.documentValues.emergencyPhone2} onChange={(value) => updateDocuments({ emergencyPhone2: value })} placeholder="+420 ..." />
                       </div>
-                    ))}
-                  </div>
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <TextField label="Jméno rodiče" value={flow.documentValues.parentName} onChange={(value) => updateDocuments({ parentName: value })} />
-                    <TextField label="Nouzový telefon" value={flow.documentValues.emergencyPhone} onChange={(value) => updateDocuments({ emergencyPhone: value })} />
-                    {selectedProduct.type !== 'Workshop' ? <TextField label="Zdravotní pojišťovna" value={flow.documentValues.insuranceCompany} onChange={(value) => updateDocuments({ insuranceCompany: value })} /> : null}
-                    <TextField label="Alergie" value={flow.documentValues.allergies} onChange={(value) => updateDocuments({ allergies: value })} />
-                    <TextField label="Léky" value={flow.documentValues.medication} onChange={(value) => updateDocuments({ medication: value })} />
-                  </div>
-                  <TextareaField label="Zdravotní omezení" value={flow.documentValues.healthLimits} onChange={(value) => updateDocuments({ healthLimits: value })} />
-                  {selectedProduct.type !== 'Workshop' ? <TextareaField label="Vyzvedávání a samostatný odchod" value={flow.documentValues.pickupPeople} onChange={(value) => updateDocuments({ pickupPeople: value })} /> : null}
-                  <TextareaField label="Poznámka" value={flow.documentValues.notes} onChange={(value) => updateDocuments({ notes: value })} />
-                  <div className="grid gap-3">
-                    <CheckboxRow label="Potvrzuji GDPR souhlas se zpracováním osobních údajů dítěte a zákonného zástupce." checked={flow.documentValues.gdprConsent} onChange={(checked) => updateDocuments({ gdprConsent: checked })} />
-                    {selectedProduct.type !== 'Workshop' ? <CheckboxRow label="Souhlasím jako zákonný zástupce s pravidly, účastí a odpovědností TeamVYS." checked={flow.documentValues.guardianConsent} onChange={(checked) => updateDocuments({ guardianConsent: checked })} /> : null}
-                    <CheckboxRow label="Potvrzuji, že zdravotní informace, alergie, léky a nouzový kontakt jsou pravdivé a aktuální." checked={flow.documentValues.healthAccuracy} onChange={(checked) => updateDocuments({ healthAccuracy: checked })} />
-                    {selectedProduct.type !== 'Workshop' ? <CheckboxRow label="Potvrzuji pravidla vyzvedávání a případného samostatného odchodu dítěte." checked={flow.documentValues.departureConsent} onChange={(checked) => updateDocuments({ departureConsent: checked })} /> : null}
-                    {selectedProduct.type === 'Workshop' ? <CheckboxRow label="Jako zákonný zástupce souhlasím s účastí dítěte na fyzicky náročné aktivitě, s pravidly TeamVYS a storno podmínkami Parkour school." checked={flow.documentValues.workshopTermsAccepted} onChange={(checked) => updateDocuments({ workshopTermsAccepted: checked })} /> : null}
-                    {selectedProduct.type === 'Workshop' ? <CheckboxRow label="Zákonný zástupce souhlasí se zveřejněním fotografii a záznamů dítěte z lekcí na internetu a v propagačních materiálech TeamVYS Parkour school." checked={flow.documentValues.photoConsent} onChange={(checked) => updateDocuments({ photoConsent: checked })} /> : null}
-                    {selectedProduct.type === 'Tabor' ? <CheckboxRow label="Potvrzuji bezinfekčnost dítěte pro táborový turnus." checked={flow.documentValues.infectionFree} onChange={(checked) => updateDocuments({ infectionFree: checked })} /> : null}
-                    {selectedProduct.type === 'Tabor' ? <CheckboxRow label="Potvrzuji, že dítě má táborové věci, kartičku pojišťovny a všechny pokyny jsou přečtené." checked={flow.documentValues.packingConfirmed} onChange={(checked) => updateDocuments({ packingConfirmed: checked })} /> : null}
-                  </div>
-                </div>
-              ) : (
+                      <CheckboxRow label="Potvrzuji jako zákonný zástupce účast dítěte na aktivitě TeamVYS, souhlasím s řádem a přijímám zodpovědnost za správnost údajů uvedených v přihlášce." checked={flow.documentValues.guardianConsent} onChange={(checked) => updateDocuments({ guardianConsent: checked })} />
+                    </div>
+                  )}
+                  {doc.kind === 'health' && (
+                    <div className="space-y-4">
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <TextField label="Zdravotní pojišťovna" value={flow.documentValues.insuranceCompany} onChange={(value) => updateDocuments({ insuranceCompany: value })} placeholder="např. VZP, ČPZP, OZP" />
+                        <TextField label="Číslo pojistky" value={flow.documentValues.insuranceNumber} onChange={(value) => updateDocuments({ insuranceNumber: value })} placeholder="123 456 7890" />
+                      </div>
+                      <TextareaField label="Chronická onemocnění (epilepsie, astma, diabetes, jiné)" value={flow.documentValues.chronicDiseases} onChange={(value) => updateDocuments({ chronicDiseases: value })} placeholder="Žádná / uveďte konkrétně" rows={2} />
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <TextField label="Alergie (léky, potraviny, prostředí)" value={flow.documentValues.allergies} onChange={(value) => updateDocuments({ allergies: value })} placeholder="Žádné / uveďte konkrétně" />
+                        <TextField label="Pravidelné léky – název a dávka" value={flow.documentValues.medication} onChange={(value) => updateDocuments({ medication: value })} placeholder="Bez pravidelných léků" />
+                      </div>
+                      {flow.documentValues.medication.trim() !== '' && flow.documentValues.medication !== 'Bez pravidelných léků' && (
+                        <TextField label="Kdy a jak léky podávat" value={flow.documentValues.medicationSchedule} onChange={(value) => updateDocuments({ medicationSchedule: value })} placeholder="např. 1 tableta ráno po snídani" />
+                      )}
+                      <TextareaField label="Zdravotní omezení pro pohybovou aktivitu" value={flow.documentValues.healthLimits} onChange={(value) => updateDocuments({ healthLimits: value })} placeholder="Bez omezení / uveďte konkrétně" rows={2} />
+                      {selectedProduct.type === 'Tabor' && (
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <TextField label="Plavecká způsobilost" value={flow.documentValues.canSwim} onChange={(value) => updateDocuments({ canSwim: value })} placeholder="Ano / Ne / Pouze s dohledem" />
+                          <TextField label="Tetanus – rok přeočkování" value={flow.documentValues.tetanus} onChange={(value) => updateDocuments({ tetanus: value })} placeholder="např. 2022 nebo Nevím" />
+                        </div>
+                      )}
+                      {!requiredDocuments.some((d) => d.kind === 'guardian-consent') && (
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <TextField label="Jméno zákonného zástupce" value={flow.documentValues.parentName} onChange={(value) => updateDocuments({ parentName: value })} />
+                          <TextField label="Nouzový telefon" type="tel" value={flow.documentValues.emergencyPhone} onChange={(value) => updateDocuments({ emergencyPhone: value })} placeholder="+420 ..." />
+                        </div>
+                      )}
+                      <TextareaField label="Poznámka pro organizátory" value={flow.documentValues.notes} onChange={(value) => updateDocuments({ notes: value })} placeholder="Libovolné informace navíc..." rows={2} />
+                      <CheckboxRow label="Potvrzuji, že veškeré zdravotní informace, alergie, léky a nouzové kontakty jsou pravdivé a aktuální." checked={flow.documentValues.healthAccuracy} onChange={(checked) => updateDocuments({ healthAccuracy: checked })} />
+                    </div>
+                  )}
+                  {doc.kind === 'departure' && (
+                    <div className="space-y-4">
+                      <TextareaField label="Osoby oprávněné k vyzvednutí (jméno, příjmení, vztah k dítěti)" value={flow.documentValues.pickupPeople} onChange={(value) => updateDocuments({ pickupPeople: value })} placeholder="např. Jana Nováková (matka), Pavel Novák (otec)" rows={2} />
+                      <CheckboxRow label="Souhlasím s pravidly vyzvedávání a s případným samostatným odchodem dítěte po skončení aktivity." checked={flow.documentValues.departureConsent} onChange={(checked) => updateDocuments({ departureConsent: checked })} />
+                    </div>
+                  )}
+                  {doc.kind === 'infection-free' && (
+                    <div className="space-y-3">
+                      <p className="rounded-[16px] bg-white p-4 text-sm leading-6 text-brand-ink-soft">
+                        Dle §9 vyhl. č. 106/2001 Sb. o hygienických požadavcích na zotavovací akce pro děti je zákonný zástupce povinen před nástupem doložit prohlášení o bezinfekčnosti.
+                      </p>
+                      <CheckboxRow label="Prohlašuji, že dítě nebylo ve 14 dnech před nástupem v kontaktu s osobou nemocnou infekčním onemocněním ani mu nebylo nařízeno karanténní opatření. Dítě je v den nástupu zdravé." checked={flow.documentValues.infectionFree} onChange={(checked) => updateDocuments({ infectionFree: checked })} />
+                    </div>
+                  )}
+                  {doc.kind === 'packing' && (
+                    <div className="space-y-4">
+                      <ul className="rounded-[16px] bg-white p-4 space-y-1.5 text-sm text-brand-ink-soft">
+                        <li>• Oblečení na pohyb (min. 3 sady), náhradní obuv</li>
+                        <li>• Pyžamo, ručník, hygienické potřeby</li>
+                        <li>• Spací pytel nebo deka a polštář</li>
+                        <li>• Láhev na vodu (min. 0,5 l)</li>
+                        <li>• Kartička zdravotní pojišťovny</li>
+                        <li>• Léky v originálním balení s návodem k podávání</li>
+                        <li>• Kapesné dle vlastního uvážení</li>
+                      </ul>
+                      <CheckboxRow label="Potvrzuji, že jsem se seznámil/a s táborovým řádem, dítě má potřebné vybavení, kartičku pojišťovny a případné léky v originálním balení s pokyny k podávání." checked={flow.documentValues.packingConfirmed} onChange={(checked) => updateDocuments({ packingConfirmed: checked })} />
+                    </div>
+                  )}
+                  {doc.kind === 'workshop-terms' && (
+                    <div className="space-y-3">
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <TextField label="Jméno zákonného zástupce" value={flow.documentValues.parentName} onChange={(value) => updateDocuments({ parentName: value })} />
+                        <TextField label="Nouzový telefon" type="tel" value={flow.documentValues.emergencyPhone} onChange={(value) => updateDocuments({ emergencyPhone: value })} placeholder="+420 ..." />
+                      </div>
+                      <p className="rounded-[16px] bg-white p-4 text-sm leading-6 text-brand-ink-soft">
+                        <span className="font-bold text-brand-ink">Storno podmínky: </span>Více než 14 dní před zahájením – plná náhrada. 7–14 dní – 50 % ceny. Méně než 7 dní nebo nenastoupení – bez náhrady.
+                      </p>
+                      <CheckboxRow label="Jako zákonný zástupce souhlasím s účastí dítěte na fyzicky náročné aktivitě, s řádem TeamVYS a storno podmínkami Parkour school." checked={flow.documentValues.workshopTermsAccepted} onChange={(checked) => updateDocuments({ workshopTermsAccepted: checked })} />
+                      <CheckboxRow label="Souhlasím se zveřejněním fotografií a videozáznamů dítěte z aktivit na webu a v propagačních materiálech TeamVYS Parkour school." checked={flow.documentValues.photoConsent} onChange={(checked) => updateDocuments({ photoConsent: checked })} />
+                    </div>
+                  )}
+                </WizardBlock>
+              );
+            }) : (
+              <WizardBlock number={String(isDocumentOnly ? 3 : 4)} title="Dokumenty">
                 <p className="rounded-[16px] bg-brand-paper p-4 text-sm font-bold text-brand-ink-soft">Tento produkt nemá před platbou povinný dokumentový balíček. Po zaplacení se vytvoří QR ticket.</p>
-              )}
-            </WizardBlock>
+              </WizardBlock>
+            )}
           </div>
 
           <aside className="self-start rounded-[16px] border border-brand-purple/10 bg-brand-paper p-4">
@@ -1166,8 +1476,10 @@ function PurchaseWizard({ flow, onChange, onClose, onCheckout }: { flow: Purchas
             <div className="mt-4 space-y-3">
               <SummaryRow label="Produkt" value={selectedProduct.title} />
               <SummaryRow label="Varianta" value={selectedProduct.priceLabel} />
-              <SummaryRow label="Účastník" value={`${participant.firstName} ${participant.lastName}`} />
+              <SummaryRow label="Účastník" value={participant ? `${participant.firstName} ${participant.lastName}` : 'Nezvolen'} />
               <SummaryRow label="Dokumenty" value={requiredDocuments.length ? `${requiredDocuments.length} povinné` : 'bez povinných'} />
+              {appliedDiscount ? <SummaryRow label="Sleva" value={`-${appliedDiscount.percent} % · ${appliedDiscount.code}`} /> : null}
+              {!isDocumentOnly ? <SummaryRow label="K zaplacení" value={formatCurrency(discountPreview.finalAmount)} /> : null}
             </div>
             {requiredDocuments.length > 0 ? (
               <div className="mt-5 space-y-2">
@@ -1182,14 +1494,84 @@ function PurchaseWizard({ flow, onChange, onClose, onCheckout }: { flow: Purchas
                 ))}
               </div>
             ) : null}
-            {flow.message ? <p className="mt-4 rounded-[16px] bg-brand-pink/10 p-3 text-sm font-bold text-brand-pink">{flow.message}</p> : null}
-            <button type="button" disabled={flow.isSubmitting} onClick={onCheckout} className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-[16px] bg-brand-purple px-5 py-3 text-sm font-black text-white shadow-brand transition hover:bg-brand-purple-deep disabled:cursor-not-allowed disabled:opacity-60">
-              {isDocumentOnly ? <FileCheck2 size={17} /> : <CreditCard size={17} />}
-              {flow.isSubmitting ? (isDocumentOnly ? 'Ukládám dokumenty...' : 'Připravuji platbu...') : (isDocumentOnly ? 'Uložit dokumenty' : 'Uložit dokumenty a zaplatit')}
-            </button>
+            {flow.message ? <p className="mt-4 rounded-[16px] bg-brand-paper p-3 text-sm font-bold text-brand-ink-soft">{flow.message}</p> : null}
+            {flow.paymentClientSecret && flow.paymentIntentId && !isDocumentOnly ? (
+              <div className="mt-5">
+                <EmbeddedPaymentForm
+                  clientSecret={flow.paymentClientSecret}
+                  amountLabel={flow.paymentAmountLabel ?? formatCurrency(discountPreview.finalAmount)}
+                  submitLabel="Potvrdit platbu"
+                  onPaid={() => onPaymentPaid(flow.paymentIntentId as string)}
+                  onError={(message) => onChange({ ...flow, message })}
+                />
+              </div>
+            ) : (
+              <button type="button" disabled={flow.isSubmitting} onClick={onCheckout} className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-[16px] bg-brand-purple px-5 py-3 text-sm font-black text-white shadow-brand transition hover:bg-brand-purple-deep disabled:cursor-not-allowed disabled:opacity-60">
+                {isDocumentOnly ? <FileCheck2 size={17} /> : <CreditCard size={17} />}
+                {flow.isSubmitting ? (isDocumentOnly ? 'Ukládám dokumenty...' : 'Připravuji platbu...') : (isDocumentOnly ? 'Uložit dokumenty' : `Uložit dokumenty a zaplatit ${formatCurrency(discountPreview.finalAmount)}`)}
+              </button>
+            )}
           </aside>
         </div>
       </div>
+    </div>
+  );
+}
+
+function RewardDiscountPicker({
+  product,
+  participant,
+  code,
+  usedRewardCodeIds,
+  onCodeChange,
+}: {
+  product: ParentProduct;
+  participant?: ParentParticipant;
+  code: string;
+  usedRewardCodeIds: string[];
+  onCodeChange: (code: string) => void;
+}) {
+  const eligibleDiscounts = rewardDiscountCodesForParticipant(participant, usedRewardCodeIds).filter((discount) => discount.appliesTo === product.type);
+  const appliedDiscount = findRewardDiscountByCode(code, product.type, participant, usedRewardCodeIds);
+  const discountPreview = applyRewardDiscount(product.price, appliedDiscount);
+
+  return (
+    <div className="space-y-3">
+      <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+        <input
+          value={code}
+          onChange={(event) => onCodeChange(event.target.value.toUpperCase())}
+          className="rounded-[16px] border border-brand-purple/15 bg-white px-4 py-3 text-sm font-black text-brand-ink outline-none transition focus:border-brand-purple"
+          placeholder="Např. ELISKA-KROUZEK-5"
+        />
+        <button
+          type="button"
+          disabled={eligibleDiscounts.length === 0}
+          onClick={() => onCodeChange(eligibleDiscounts[0]?.code ?? code)}
+          className="rounded-[16px] bg-white px-4 py-3 text-sm font-black text-brand-purple shadow-sm transition hover:bg-brand-purple-light disabled:cursor-not-allowed disabled:opacity-55"
+        >
+          Vložit dosažený
+        </button>
+      </div>
+      {eligibleDiscounts.length > 0 ? (
+        <div className="flex flex-wrap gap-2">
+          {eligibleDiscounts.map((discount) => (
+            <button key={discount.id} type="button" onClick={() => onCodeChange(discount.code)} className="rounded-[16px] bg-white px-3 py-2 text-xs font-black text-brand-ink shadow-sm transition hover:text-brand-purple">
+              {discount.code} · {discount.percent} %
+            </button>
+          ))}
+        </div>
+      ) : (
+        <p className="rounded-[16px] bg-white p-3 text-xs font-bold leading-5 text-brand-ink-soft">Pro tenhle typ produktu zatím dítě nemá aktivní slevu. Slevy se odemykají v měsíční cestě podle XP.</p>
+      )}
+      {appliedDiscount ? (
+        <div className="grid gap-2 rounded-[16px] border border-brand-cyan/20 bg-brand-cyan/10 p-3 text-sm font-black text-brand-ink sm:grid-cols-2">
+          <span>Sleva {appliedDiscount.percent} %: <span className="text-brand-cyan">-{formatCurrency(discountPreview.discountAmount)}</span></span>
+          <span className="sm:text-right">K zaplacení: {formatCurrency(discountPreview.finalAmount)}</span>
+        </div>
+      ) : code.trim() ? (
+        <p className="rounded-[16px] bg-brand-pink/10 p-3 text-xs font-bold leading-5 text-brand-pink">Kód nejde použít pro vybraný produkt nebo už byl použitý.</p>
+      ) : null}
     </div>
   );
 }
@@ -1219,12 +1601,30 @@ function Metric({ value, label }: { value: string; label: string }) {
   );
 }
 
+function HeroSignal({ value, label, tone }: { value: string; label: string; tone: 'cyan' | 'mint' | 'orange' | 'purple' }) {
+  const toneClass = {
+    cyan: 'text-brand-cyan',
+    mint: 'text-brand-mint',
+    orange: 'text-brand-orange',
+    purple: 'text-brand-purple-light',
+  }[tone];
+
+  return (
+    <div className="min-w-[68px] rounded-[14px] bg-white/10 px-2.5 py-2 ring-1 ring-white/10">
+      <p className={`text-sm font-black leading-none ${toneClass}`}>{value}</p>
+      <p className="mt-1 text-[10px] font-black uppercase text-white/60">{label}</p>
+    </div>
+  );
+}
+
 function ActionTile({ icon, label, value, onClick }: { icon: React.ReactNode; label: string; value: string; onClick: () => void }) {
   return (
-    <button type="button" onClick={onClick} className="rounded-[18px] border border-brand-purple/10 bg-brand-paper p-4 text-left transition hover:border-brand-purple/30 hover:bg-white">
-      <span className="inline-flex rounded-[14px] bg-white p-2 text-brand-purple">{icon}</span>
-      <span className="mt-3 block text-sm font-black text-brand-ink">{label}</span>
-      <span className="mt-1 block text-xs font-bold text-brand-ink-soft">{value}</span>
+    <button type="button" onClick={onClick} className="group flex min-w-0 items-center gap-3 rounded-[16px] border border-brand-purple/10 bg-brand-paper p-3 text-left transition hover:-translate-y-0.5 hover:border-brand-purple/28 hover:bg-white hover:shadow-brand-soft">
+      <span className="inline-flex shrink-0 rounded-[12px] bg-white p-2 text-brand-purple shadow-sm transition group-hover:bg-brand-purple group-hover:text-white">{icon}</span>
+      <span className="min-w-0">
+        <span className="block truncate text-sm font-black text-brand-ink">{label}</span>
+        <span className="mt-0.5 block truncate text-xs font-bold text-brand-ink-soft">{value}</span>
+      </span>
     </button>
   );
 }
@@ -1411,7 +1811,8 @@ function StatusBadge({ status }: { status: DocumentStatus }) {
 }
 
 function DocumentChecklist({ title, productType }: { title: string; productType: ActivityType }) {
-  const sampleProduct = parentProducts.find((product) => product.type === productType);
+  const { products } = useParentPortalData();
+  const sampleProduct = products.find((product) => product.type === productType);
   const documents = sampleProduct ? requiredDocumentsForProduct(sampleProduct) : [];
 
   return (
@@ -1474,20 +1875,20 @@ function WizardBlock({ number, title, children }: { number: string; title: strin
   );
 }
 
-function TextField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+function TextField({ label, value, onChange, placeholder, type = 'text' }: { label: string; value: string; onChange: (value: string) => void; placeholder?: string; type?: string }) {
   return (
     <label className="grid gap-2 text-sm font-black text-brand-ink">
       {label}
-      <input value={value} onChange={(event) => onChange(event.target.value)} className="rounded-[16px] border border-brand-purple/15 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-brand-purple" />
+      <input type={type} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} className="rounded-[16px] border border-brand-purple/15 bg-white px-4 py-3 text-sm font-bold outline-none placeholder:font-normal placeholder:text-brand-ink-soft/70 focus:border-brand-purple" />
     </label>
   );
 }
 
-function TextareaField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+function TextareaField({ label, value, onChange, placeholder, rows = 3 }: { label: string; value: string; onChange: (value: string) => void; placeholder?: string; rows?: number }) {
   return (
     <label className="grid gap-2 text-sm font-black text-brand-ink">
       {label}
-      <textarea value={value} onChange={(event) => onChange(event.target.value)} rows={3} className="rounded-[16px] border border-brand-purple/15 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-brand-purple" />
+      <textarea value={value} onChange={(event) => onChange(event.target.value)} rows={rows} placeholder={placeholder} className="rounded-[16px] border border-brand-purple/15 bg-white px-4 py-3 text-sm font-bold outline-none placeholder:font-normal placeholder:text-brand-ink-soft/70 focus:border-brand-purple" />
     </label>
   );
 }
@@ -1532,6 +1933,13 @@ function ProfileRow({ label, value }: { label: string; value: string }) {
       <p className="mt-1 text-sm font-black text-brand-ink">{value}</p>
     </div>
   );
+}
+
+function mergeProducts(baseProducts: ParentProduct[], extraProducts: ParentProduct[]) {
+  const products = new Map<string, ParentProduct>();
+  for (const product of baseProducts) products.set(product.id, product);
+  for (const product of extraProducts) products.set(product.id, product);
+  return Array.from(products.values());
 }
 
 function buildProductGroups(products: ParentProduct[]): ProductGroup[] {
@@ -1588,8 +1996,9 @@ function productSortScore(group: ProductGroup, participant?: ParentParticipant) 
   return 3;
 }
 
-function findDocumentTarget(document: ParentDocument, groups: ProductGroup[]) {
-  const participant = linkedParticipants.find((item) => normalizePersonName(`${item.firstName} ${item.lastName}`) === normalizePersonName(document.participantName)) ?? linkedParticipants[0];
+function findDocumentTarget(document: ParentDocument, groups: ProductGroup[], participants: ParentParticipant[]) {
+  const participant = participants.find((item) => normalizePersonName(`${item.firstName} ${item.lastName}`) === normalizePersonName(document.participantName)) ?? participants[0];
+  if (!participant) return null;
   const participantCourse = normalizeLocation(participant.activeCourse);
   const activityTitle = normalizeLocation(document.activityTitle);
 
@@ -1613,18 +2022,18 @@ function findDocumentTarget(document: ParentDocument, groups: ProductGroup[]) {
   return { group: matchingGroup, product, participant };
 }
 
-async function saveRequiredDocuments(product: ParentProduct, participant: { id: string; firstName: string; lastName: string }, values: DocumentFormValues, documents: RequiredDocumentTemplate[]) {
+async function saveRequiredDocuments(product: ParentProduct, participant: ParentParticipant, values: DocumentFormValues, documents: RequiredDocumentTemplate[], parentProfileId?: string) {
   if (documents.length === 0) return;
-  if (isAdminCreatedProduct(product)) return;
 
   const participantName = `${participant.firstName} ${participant.lastName}`;
   await saveCourseDocuments({
+    parentProfileId,
     productId: product.id,
     participantId: participant.id,
     participantName,
     participantFirstName: participant.firstName,
     participantLastName: participant.lastName,
-    birthNumberMasked: linkedParticipants.find((item) => item.id === participant.id)?.birthNumberMasked,
+    birthNumberMasked: participant.birthNumberMasked,
     documents: documents.map((document) => ({
       kind: document.kind,
       title: document.title,
@@ -1696,6 +2105,8 @@ function documentPayload(document: RequiredDocumentTemplate, product: ParentProd
   if (document.kind === 'guardian-consent') {
     return {
       ...common,
+      emergencyPhone2Name: values.emergencyPhone2Name,
+      emergencyPhone2: values.emergencyPhone2,
       guardianConsent: values.guardianConsent,
       rulesAccepted: values.guardianConsent,
       activityConsent: values.guardianConsent,
@@ -1706,9 +2117,14 @@ function documentPayload(document: RequiredDocumentTemplate, product: ParentProd
     return {
       ...common,
       insuranceCompany: values.insuranceCompany,
+      insuranceNumber: values.insuranceNumber,
+      chronicDiseases: values.chronicDiseases,
       healthLimits: values.healthLimits,
       allergies: values.allergies,
       medication: values.medication,
+      medicationSchedule: values.medicationSchedule,
+      canSwim: values.canSwim,
+      tetanus: values.tetanus,
       healthAccuracy: values.healthAccuracy,
     };
   }
@@ -1734,7 +2150,9 @@ function documentPayload(document: RequiredDocumentTemplate, product: ParentProd
       ...common,
       packingConfirmed: values.packingConfirmed,
       medication: values.medication,
+      medicationSchedule: values.medicationSchedule,
       insuranceCompany: values.insuranceCompany,
+      insuranceNumber: values.insuranceNumber,
     };
   }
 
@@ -1754,11 +2172,18 @@ function documentPayload(document: RequiredDocumentTemplate, product: ParentProd
 function defaultDocumentValues(displayName: string): DocumentFormValues {
   return {
     parentName: displayName,
-    emergencyPhone: '+420 605 324 417',
-    insuranceCompany: 'VZP 111',
+    emergencyPhone: '',
+    emergencyPhone2Name: '',
+    emergencyPhone2: '',
+    insuranceCompany: '',
+    insuranceNumber: '',
+    chronicDiseases: 'Žádná',
     healthLimits: 'Bez omezení',
-    allergies: 'Žádné známé alergie',
+    allergies: 'Žádné',
     medication: 'Bez pravidelných léků',
+    medicationSchedule: '',
+    canSwim: '',
+    tetanus: '',
     pickupPeople: displayName,
     notes: '',
     gdprConsent: false,
@@ -1772,9 +2197,9 @@ function defaultDocumentValues(displayName: string): DocumentFormValues {
   };
 }
 
-function uniqueCoachesFromProducts() {
+function uniqueCoachesFromProducts(products: ParentProduct[]) {
   const coaches = new Map<string, ParentProductTrainer>();
-  for (const product of parentProducts) {
+  for (const product of products) {
     for (const trainer of trainersForProduct(product)) coaches.set(trainer.id, trainer);
   }
   return Array.from(coaches.values());
@@ -1785,8 +2210,8 @@ function parentIdFromEmail(email: string) {
 }
 
 function friendlyBackendError(message: string) {
-  if (message.includes('Missing SUPABASE_URL') || message.includes('SUPABASE_SERVICE_ROLE_KEY')) {
-    return 'Backend nemá nastavené Supabase klíče, takže dokumenty teď nejdou zapsat do databáze. Doplň SUPABASE_URL a SUPABASE_SERVICE_ROLE_KEY v server/.env.';
+  if (message.includes('Missing SUPABASE_URL') || message.includes('SUPABASE_SERVICE_ROLE_KEY') || message.includes('Missing Supabase URL')) {
+    return 'Backend nemá nastavené Supabase klíče, takže zápis do databáze teď nejde dokončit.';
   }
 
   if (message.includes('Missing STRIPE_SECRET_KEY')) {

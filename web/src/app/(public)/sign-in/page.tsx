@@ -10,9 +10,9 @@ export const metadata = {
 
 export default function SignInPage() {
   return (
-    <section className="section-shell grid gap-6 py-12 md:py-16 lg:grid-cols-[0.85fr_1.15fr] lg:items-start">
-      <div className="rounded-brand border border-brand-purple/12 bg-white p-7 text-brand-ink shadow-brand-float md:p-8">
-        <span className="inline-flex rounded-brand bg-brand-purple-light px-3 py-2 text-xs font-black uppercase text-brand-purple-deep">
+    <section className="section-shell grid gap-6 py-10 md:py-14 lg:grid-cols-[0.85fr_1.15fr] lg:items-start">
+      <div className="rounded-[28px] border border-brand-purple/12 bg-white p-6 text-brand-ink shadow-brand-float md:p-8">
+        <span className="inline-flex rounded-[16px] bg-brand-purple-light px-3 py-2 text-xs font-black uppercase text-brand-purple-deep">
           Web profil
         </span>
         <h1 className="mt-5 text-3xl font-black leading-tight md:text-5xl">Přihlášení pro rodiče a admina</h1>
@@ -26,7 +26,7 @@ export default function SignInPage() {
         </div>
       </div>
 
-      <Suspense fallback={<div className="rounded-brand border border-black/10 bg-white p-7 shadow-brand-soft">Načítám přihlášení…</div>}>
+      <Suspense fallback={<div className="rounded-[28px] border border-brand-purple/12 bg-white p-7 shadow-brand-soft">Načítám přihlášení…</div>}>
         <SignInForm />
       </Suspense>
     </section>
@@ -35,8 +35,8 @@ export default function SignInPage() {
 
 function Info({ icon, title, body }: { icon: React.ReactNode; title: string; body: string }) {
   return (
-    <div className="rounded-brand bg-brand-paper p-4">
-      <span className="text-brand-pink">{icon}</span>
+    <div className="rounded-[18px] bg-brand-paper p-4">
+      <span className="text-brand-purple">{icon}</span>
       <h2 className="mt-3 font-black text-brand-ink">{title}</h2>
       <p className="mt-1 text-sm leading-6 text-brand-ink-soft">{body}</p>
     </div>

@@ -1,13 +1,15 @@
 'use client';
 
-import { ArrowRight, CalendarDays, MapPin, Users } from 'lucide-react';
+import { ArrowRight, CalendarDays, CheckCircle2, MapPin, Users } from 'lucide-react';
 import Link from 'next/link';
 
 import { useAdminCreatedProducts } from '@/lib/admin-created-products';
 import { type ActivityType, type ParentProduct } from '@/lib/portal-content';
+import { usePublicCoaches, type PublicCoachSummary } from '@/lib/use-public-coaches';
 
 export function CreatedProductsSection({ type }: { type: ActivityType }) {
   const { products } = useAdminCreatedProducts();
+  const { coachesForIds } = usePublicCoaches();
   const visibleProducts = products.filter((product) => product.type === type);
 
   if (visibleProducts.length === 0) return null;
@@ -24,13 +26,15 @@ export function CreatedProductsSection({ type }: { type: ActivityType }) {
         </p>
       </div>
       <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {visibleProducts.map((product) => <CreatedProductCard key={product.id} product={product} />)}
+        {visibleProducts.map((product) => (
+          <CreatedProductCard key={product.id} product={product} coaches={coachesForIds(product.coachIds ?? [])} />
+        ))}
       </div>
     </section>
   );
 }
 
-function CreatedProductCard({ product }: { product: ParentProduct }) {
+function CreatedProductCard({ product, coaches = [] }: { product: ParentProduct; coaches?: PublicCoachSummary[] }) {
   const remaining = Math.max(product.capacityTotal - product.capacityCurrent, 0);
   const capacityPercent = Math.min(100, Math.round((product.capacityCurrent / product.capacityTotal) * 100));
 
@@ -60,6 +64,31 @@ function CreatedProductCard({ product }: { product: ParentProduct }) {
             <div className="h-full rounded-full bg-brand-cyan" style={{ width: `${capacityPercent}%` }} />
           </div>
         </div>
+        {product.importantInfo.length > 0 && (
+          <div className="mt-4 space-y-1.5">
+            {product.importantInfo.map((item) => (
+              <div key={item.label} className="flex items-start gap-2 text-xs">
+                <CheckCircle2 size={14} className="mt-0.5 shrink-0 text-brand-cyan" />
+                <span className="font-bold text-brand-ink-soft"><span className="font-black text-brand-ink">{item.label}:</span> {item.value}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {coaches.length > 0 && (
+          <div className="mt-4">
+            <p className="text-xs font-black uppercase text-brand-purple">Trenéři</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {coaches.map((coach) => (
+                <div key={coach.id} className="flex items-center gap-2 rounded-[16px] bg-brand-paper px-3 py-1.5">
+                  {coach.photoUrl && (
+                    <img src={coach.photoUrl} alt={coach.name} className="h-6 w-6 rounded-full object-cover" />
+                  )}
+                  <span className="text-xs font-black text-brand-ink">{coach.name}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         <p className="mt-4 text-sm font-bold leading-6 text-brand-ink-soft">{product.description}</p>
         <div className="mt-4 flex flex-wrap gap-2">
           {product.trainingFocus.slice(0, 4).map((focus) => (

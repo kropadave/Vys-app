@@ -1,50 +1,64 @@
-# Welcome to your Expo app 👋
+# TeamVYS
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Parkourová komunita s mobilní aplikací (Expo) a webem (Next.js). Jedna sdílená Supabase databáze.
 
-## Get started
+## Struktura repa
 
-1. Install dependencies
-
-   ```bash
-   npm install
-   ```
-
-2. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
+```
+Vys-app/
+├── web/              Next.js 15 — public web + platby (rodič, admin)
+│   └── Stripe Checkout, Supabase Auth, server actions
+├── mobile/           Expo — mobilní app (účastník, trenér)
+│   └── NFC docházka, skill tree, QR triky — bez plateb
+├── shared/           Sdílený TypeScript kód (content, brand tokens, types)
+├── server/           Express API (Stripe + Supabase service role) — používá mobile
+├── supabase/         DB schéma + migrace + Edge functions
+└── docs/             Dokumentace architektury
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+## Kdo se kde přihlašuje
 
-## Learn more
+| Role         | Web (Next.js)         | Mobile (Expo)             |
+|--------------|------------------------|----------------------------|
+| **Rodič**    | ✅ rezervace + platby Stripe  | ❌ pouze pohled na děti |
+| **Admin**    | ✅ správa produktů, financí   | ❌                       |
+| **Účastník** | ❌                            | ✅ skill tree, XP, triky |
+| **Trenér**   | ❌                            | ✅ docházka, QR, svěřenci |
 
-To learn more about developing your project with Expo, look at the following resources:
+Důvod rozdělení: **App Store / Play Store** berou 30 % poplatek z in-app digital purchases. Stripe v EU bere ~1,4 % + 5 Kč. Platby tedy běží jen přes web.
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+## Rychlý start
 
-## Join the community
+```bash
+# Instalace dependencies pro všechny projekty
+npm run install:all
 
-Join our community of developers creating universal apps.
+# Spustit web (Next.js, port 3000)
+npm run web
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+# Spustit mobile (Expo, port 8081)
+npm run mobile
+
+# Spustit Express API (port 3001)
+npm run server
+```
+
+## Sdílená databáze
+
+Obě klientské aplikace (web i mobile) používají stejný Supabase projekt:
+
+- **Web** se připojuje přímo přes `@supabase/ssr` (server components) a `@supabase/supabase-js` (client).
+- **Mobile** se připojuje přes `@supabase/supabase-js` + `AsyncStorage` pro session.
+- **Server** (`server/`) používá `SUPABASE_SERVICE_ROLE_KEY` pro admin operace (Stripe webhooks, payouts).
+
+Schema migrace jsou v `supabase/migrations/`. Edge functions v `supabase/functions/`.
+
+## Environmenty
+
+`.env` soubory:
+- `.env` — root (sdílené env vars)
+- `web/.env.local` — Next.js public + server vars
+- `mobile/.env` — Expo `EXPO_PUBLIC_*` proměnné
+- `server/.env` — Stripe secret + Supabase service role
+
+Vzorové soubory: `.env.example` (root), `web/.env.example`, `mobile/.env.example`, `server/.env.example`.

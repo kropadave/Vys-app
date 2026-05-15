@@ -2,9 +2,10 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 
 import { SignOutButton } from '@/components/auth/sign-out-button';
-import { ParentPortalDashboard } from '@/components/portal/parent-dashboard';
+import { NavigationExitGuard } from '@/components/navigation-exit-guard';
+import { ParentPortalDashboard, type ParentPortalData } from '@/components/portal/parent-dashboard';
 import { DEV_BYPASS_AUTH } from '@/lib/dev-config';
-import { parentProfile } from '@/lib/portal-content';
+import { parentProducts, type ActivityType, type DocumentStatus, type ParentDocument, type ParentParticipant, type ParentPayment, type ParentProduct, type PaymentStatus } from '@/lib/portal-content';
 import { createServerSupabaseClient, hasSupabaseServerConfig } from '@/lib/supabase/server';
 
 export const metadata = {
@@ -12,8 +13,10 @@ export const metadata = {
 };
 
 export default async function ParentDashboardPage() {
-  let displayName = 'Test rodič';
-  let displayEmail = parentProfile.email;
+  let displayName = DEV_BYPASS_AUTH ? 'Test rodič' : 'Rodič';
+  let displayEmail = DEV_BYPASS_AUTH ? 'rodic@example.cz' : '';
+  let parentProfileId: string | undefined;
+  let initialData: ParentPortalData | null = null;
   let showSignOut = false;
 
   if (!DEV_BYPASS_AUTH) {
@@ -25,34 +28,159 @@ export default async function ParentDashboardPage() {
     if (!user) redirect('/sign-in?next=/rodic');
 
     const { data: profile } = await supabase.from('app_profiles').select('role,name,email').eq('id', user.id).maybeSingle();
-    displayName = profile?.name || user.email || 'Rodič';
-    displayEmail = profile?.email || user.email || parentProfile.email;
+    if (profile?.role !== 'parent' && profile?.role !== 'admin') {
+      if (profile?.role === 'participant') redirect('/app/ucastnik');
+      if (profile?.role === 'coach') redirect('/app/trener');
+      redirect('/sign-in?next=/rodic');
+    }
+
+    const profileName = isDemoParentName(profile?.name) ? '' : profile?.name;
+    displayName = profileName || nameFromEmail(user.email) || 'Rodič';
+    // Prefer the name from auth metadata (what the user typed at registration).
+    // If it differs from app_profiles.name, auto-correct app_profiles so the
+    // greeting is always consistent with what the user actually registered with.
+    const authName = (typeof user.user_metadata?.name === 'string' ? user.user_metadata.name.trim() : '') ||
+      (typeof user.user_metadata?.full_name === 'string' ? user.user_metadata.full_name.trim() : '');
+    if (authName && !isDemoParentName(authName)) {
+      displayName = authName;
+      if (profile?.name !== authName) {
+        await supabase.from('app_profiles').update({ name: authName }).eq('id', user.id);
+      }
+    } else if (isDemoParentName(profile?.name) && displayName !== 'Rodič') {
+      await supabase.from('app_profiles').update({ name: displayName }).eq('id', user.id);
+    }
+    displayEmail = profile?.email || user.email || '';
+    parentProfileId = user.id;
+    initialData = await loadParentPortalData(supabase, user.id);
     showSignOut = true;
   }
 
   return (
-    <main className="min-h-dvh bg-brand-paper px-4 py-6 text-brand-ink texture-grid md:px-6 md:py-8">
-      <div className="mx-auto max-w-[1220px] space-y-6">
-        <header className="overflow-hidden rounded-brand border border-brand-purple/12 bg-white shadow-brand">
-          <div className="h-1.5 bg-gradient-brand" />
-          <div className="flex flex-wrap items-center justify-between gap-4 p-5 md:p-7">
-            <div className="max-w-[720px]">
-              <p className="text-xs font-black uppercase tracking-[0.16em] text-brand-pink">Rodičovský web</p>
-              <h1 className="mt-2 text-3xl font-black leading-tight text-brand-ink md:text-5xl">Ahoj, {displayName}</h1>
-              <p className="mt-2 text-sm font-bold leading-6 text-brand-ink-soft md:text-base">Přehled účastníků, plateb, dokumentů a docházky rozdělený do jednodušších sekcí.</p>
-              {DEV_BYPASS_AUTH ? <p className="mt-2 text-xs font-black uppercase text-brand-purple">Testovací režim bez přihlášení</p> : null}
+    <main className="min-h-dvh bg-brand-paper px-4 py-4 text-brand-ink texture-grid md:px-6 md:py-6">
+      <NavigationExitGuard message="Chceš opustit rodičovský web?" />
+      <div className="mx-auto max-w-[1220px] space-y-4">
+        <header className="rounded-[18px] border border-brand-purple/12 bg-white/86 shadow-brand-soft backdrop-blur-xl">
+          <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 md:px-5">
+            <div className="min-w-0">
+              <p className="text-[10px] font-black uppercase tracking-[0.16em] text-brand-purple">Rodičovský web</p>
+              <div className="mt-0.5 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                <h1 className="text-xl font-black leading-tight text-brand-ink md:text-2xl">Ahoj, {displayName}</h1>
+                <p className="text-xs font-bold text-brand-ink-soft md:text-sm">platby, dokumenty a docházka na jednom místě</p>
+              </div>
             </div>
-            <div className="flex flex-wrap items-center gap-3">
-              <Link href="/" className="rounded-brand border border-brand-purple/12 bg-brand-paper px-4 py-2.5 text-sm font-black text-brand-ink transition-colors hover:bg-brand-purple-light">Web</Link>
+            <div className="flex flex-wrap items-center gap-2">
+              {DEV_BYPASS_AUTH ? <span className="rounded-[12px] bg-[#2B1247] px-3 py-2 text-[10px] font-black uppercase text-brand-lime">Testovací režim</span> : null}
+              <Link href="/" className="rounded-[12px] border border-brand-purple/12 bg-brand-paper px-3 py-2 text-sm font-black text-brand-ink transition-colors hover:bg-brand-purple-light">Web</Link>
               {showSignOut ? <SignOutButton /> : null}
             </div>
           </div>
         </header>
 
-        <ParentPortalDashboard displayName={displayName} displayEmail={displayEmail} />
+        <ParentPortalDashboard displayName={displayName} displayEmail={displayEmail} parentProfileId={parentProfileId} initialData={initialData} />
       </div>
     </main>
   );
+}
+
+type SupabaseClient = Awaited<ReturnType<typeof createServerSupabaseClient>>;
+
+async function loadParentPortalData(supabase: SupabaseClient, parentId: string): Promise<ParentPortalData> {
+  const [{ data: participantRows }, { data: productRows }, { data: purchaseRows }, { data: reviewRows }] = await Promise.all([
+    supabase.from('participants').select('*').eq('parent_profile_id', parentId).order('created_at', { ascending: true }),
+    supabase.from('products').select('*').eq('is_published', true).order('created_at', { ascending: true }),
+    supabase.from('parent_purchases').select('*').eq('parent_profile_id', parentId).order('created_at', { ascending: false }),
+    supabase.from('coach_reviews').select('*').eq('parent_id', parentId).order('created_at', { ascending: false }),
+  ]);
+
+  const participants = (participantRows || []).map(mapParticipantRow);
+  const participantIds = participants.map((participant) => participant.id);
+  const participantNames = new Set(participants.map((participant) => `${participant.firstName} ${participant.lastName}`));
+
+  // Collect unique coach IDs referenced by published products
+  const allCoachIds = [...new Set((productRows || []).flatMap((row) => stringArray(row.coach_ids, [])))];
+
+  const [{ data: documentRows }, { data: passRows }, notificationRows, { data: paymentRows }, { data: coachProfileRows }, { data: coachAppRows }] = await Promise.all([
+    participantIds.length > 0 ? supabase.from('course_documents').select('*').in('participant_id', participantIds).order('updated_at', { ascending: false }) : Promise.resolve({ data: [] }),
+    participantIds.length > 0 ? supabase.from('digital_passes').select('*').in('participant_id', participantIds).order('created_at', { ascending: false }) : Promise.resolve({ data: [] }),
+    loadParentNotifications(supabase, parentId, participantIds),
+    participantIds.length > 0 ? supabase.from('parent_payments').select('*').in('participant_id', participantIds).order('created_at', { ascending: false }) : Promise.resolve({ data: [] }),
+    allCoachIds.length > 0 ? supabase.from('coach_profiles').select('id,qr_tricks_approved,profile_photo_url,assigned_courses').in('id', allCoachIds) : Promise.resolve({ data: [] }),
+    allCoachIds.length > 0 ? supabase.from('app_profiles').select('id,name,email,phone').in('id', allCoachIds).eq('role', 'coach') : Promise.resolve({ data: [] }),
+  ]);
+
+  const notifications = notificationRows
+    .filter((row) => participantNames.size === 0 || Array.from(participantNames).some((name) => String(row.text || '').includes(name)))
+    .map((row) => ({ id: String(row.id), text: String(row.text || ''), createdAt: String(row.created_at_text || formatDateCz(row.created_at)), method: String(row.method || '') }));
+
+  // Build a map of real coach data from DB
+  const coachProfileMap = new Map((coachProfileRows || []).map((row) => [String(row.id), row]));
+  const coaches = (coachAppRows || []).map((row) => {
+    const profile = coachProfileMap.get(String(row.id));
+    return {
+      id: String(row.id),
+      name: String(row.name || ''),
+      email: String(row.email || ''),
+      phone: String(row.phone || ''),
+      locations: stringArray((profile as DbRow | undefined)?.assigned_courses, []),
+      qrTricksApproved: Number((profile as DbRow | undefined)?.qr_tricks_approved || 0),
+      profilePhotoUrl: String((profile as DbRow | undefined)?.profile_photo_url || '/vys-logo-mark.png'),
+    };
+  });
+
+  return {
+    participants,
+    products: (productRows || []).map(mapProductRow),
+    payments: [
+      ...(purchaseRows || []).map(mapPurchaseRow),
+      ...(paymentRows || []).map(mapPaymentRow),
+    ],
+    documents: (documentRows || []).map(mapDocumentRow),
+    digitalPasses: (passRows || []).map((row) => ({
+      id: String(row.id),
+      participantId: String(row.participant_id),
+      title: String(row.title || 'Digitální vstupenka'),
+      location: String(row.location || ''),
+      usedEntries: Number(row.used_entries || 0),
+      totalEntries: Number(row.total_entries || 1),
+      nfcChipId: String(row.nfc_chip_id || ''),
+      lastScanAt: String(row.last_scan_at || 'Zatím bez skenu'),
+    })),
+    notifications,
+    attendanceHistory: notifications.map((notification) => ({
+      id: `att-${notification.id}`,
+      participantName: findParticipantNameInText(notification.text, participantNames) || 'Účastník',
+      date: notification.createdAt,
+      location: notification.text.split(' · ')[1]?.replace('.', '') || 'TeamVYS',
+      time: notification.method,
+      method: 'NFC',
+    })),
+    coachReviews: (reviewRows || []).map((row) => ({
+      id: String(row.id),
+      coachId: String(row.coach_id),
+      coachName: String(row.coach_name),
+      parentName: String(row.parent_name),
+      participantName: String(row.participant_name),
+      rating: Number(row.rating || 5),
+      comment: String(row.comment || ''),
+      createdAt: String(row.created_at_text || formatDateCz(row.created_at)),
+    })),
+    coaches,
+  };
+}
+
+async function loadParentNotifications(supabase: SupabaseClient, parentId: string, participantIds: string[]): Promise<DbRow[]> {
+  const [parentResult, participantResult] = await Promise.all([
+    supabase.from('parent_notifications').select('*').eq('parent_profile_id', parentId).order('created_at', { ascending: false }).limit(40),
+    participantIds.length > 0
+      ? supabase.from('parent_notifications').select('*').in('participant_id', participantIds).order('created_at', { ascending: false }).limit(40)
+      : Promise.resolve({ data: [] }),
+  ]);
+
+  const rows = [...(parentResult.data || []), ...(participantResult.data || [])] as DbRow[];
+  const uniqueRows = new Map(rows.map((row) => [String(row.id), row]));
+  return Array.from(uniqueRows.values())
+    .sort((a, b) => new Date(String(b.created_at || '')).getTime() - new Date(String(a.created_at || '')).getTime())
+    .slice(0, 40);
 }
 
 function ConfigMissing() {
@@ -65,4 +193,188 @@ function ConfigMissing() {
       </div>
     </main>
   );
+}
+
+type DbRow = Record<string, unknown>;
+
+function mapParticipantRow(row: DbRow): ParentParticipant {
+  return {
+    id: text(row.id),
+    firstName: text(row.first_name, 'Účastník'),
+    lastName: text(row.last_name),
+    birthNumberMasked: text(row.birth_number_masked, 'Bez rodného čísla'),
+    level: numberValue(row.level, 1),
+    bracelet: text(row.bracelet, 'bílý'),
+    braceletColor: text(row.bracelet_color, '#8B5CF6'),
+    xp: numberValue(row.xp, 0),
+    nextBraceletXp: numberValue(row.next_bracelet_xp, 100),
+    attendanceDone: numberValue(row.attendance_done, 0),
+    attendanceTotal: numberValue(row.attendance_total, 0),
+    activeCourse: text(row.active_course, 'Bez aktivního kurzu'),
+    nextTraining: text(row.next_training, 'Doplní se po zařazení'),
+    activePurchases: arrayValue(row.active_purchases).map((purchase) => ({
+      type: activityTypeFromDb((purchase as DbRow).type),
+      title: text((purchase as DbRow).title, 'Produkt'),
+      status: text((purchase as DbRow).status, 'Aktivní'),
+    })),
+  };
+}
+
+function mapProductRow(row: DbRow): ParentProduct {
+  const fallback = parentProducts.find((product) => product.id === row.id);
+  const type = activityTypeFromDb(row.type);
+  const title = text(row.title, fallback?.title || 'TeamVYS produkt');
+  const price = numberValue(row.price, fallback?.price || 0);
+
+  return {
+    id: text(row.id),
+    type,
+    title,
+    city: text(row.city, fallback?.city || ''),
+    place: text(row.place, fallback?.place || ''),
+    venue: text(row.venue, fallback?.venue || text(row.place)),
+    price,
+    priceLabel: text(row.price_label, fallback?.priceLabel || `${price} Kč`),
+    originalPrice: optionalNumber(row.original_price, fallback?.originalPrice),
+    entriesTotal: optionalNumber(row.entries_total, fallback?.entriesTotal),
+    capacityTotal: numberValue(row.capacity_total, fallback?.capacityTotal || 0),
+    capacityCurrent: numberValue(row.capacity_current, fallback?.capacityCurrent || 0),
+    primaryMeta: text(row.primary_meta, fallback?.primaryMeta || ''),
+    secondaryMeta: text(row.secondary_meta, fallback?.secondaryMeta || 'QR ticket po zaplacení'),
+    description: text(row.description, fallback?.description || ''),
+    badge: text(row.badge, fallback?.badge || activityTypeLabel(type)),
+    heroImage: text(row.hero_image, fallback?.heroImage || '/vys-logo-mark.png'),
+    gallery: stringArray(row.gallery, fallback?.gallery || ['/vys-logo-mark.png']),
+    coachIds: stringArray(row.coach_ids, fallback?.coachIds || []),
+    importantInfo: typedArray<ParentProduct['importantInfo'][number]>(row.important_info, fallback?.importantInfo || []),
+    trainingFocus: stringArray(row.training_focus, fallback?.trainingFocus || []),
+  };
+}
+
+function mapPurchaseRow(row: DbRow): ParentPayment {
+  const paidAt = text(row.paid_at, formatDateCz(row.created_at));
+  return {
+    id: text(row.id),
+    title: text(row.title, 'Platba TeamVYS'),
+    participantName: text(row.participant_name, 'Účastník'),
+    amount: numberValue(row.amount, 0),
+    dueDate: paidAt,
+    paidAt,
+    method: text(row.stripe_payment_intent_id) ? 'Stripe karta' : 'Supabase',
+    status: paymentStatusFromPurchase(row.status),
+  };
+}
+
+function mapPaymentRow(row: DbRow): ParentPayment {
+  return {
+    id: text(row.id),
+    title: text(row.title, 'Platba TeamVYS'),
+    participantName: text(row.participant_name, 'Účastník'),
+    amount: numberValue(row.amount, 0),
+    dueDate: text(row.due_date, formatDateCz(row.created_at)),
+    paidAt: text(row.status) === 'paid' ? text(row.due_date, formatDateCz(row.created_at)) : 'Čeká na úhradu',
+    method: text(row.stripe_ready) ? 'Stripe karta' : 'Supabase',
+    status: paymentStatusFromDb(row.status),
+  };
+}
+
+function mapDocumentRow(row: DbRow): ParentDocument {
+  return {
+    id: text(row.id),
+    participantName: text(row.participant_name, 'Účastník'),
+    activityTitle: text(row.title, 'Dokument'),
+    activityType: activityTypeFromDb(row.activity_type),
+    title: text(row.title, 'Dokument'),
+    status: documentStatusFromDb(row.status),
+    updatedAt: text(row.updated_at_text, formatDateCz(row.updated_at)),
+  };
+}
+
+function activityTypeFromDb(value: unknown): ActivityType {
+  const normalized = text(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+
+  if (normalized.includes('tabor')) return 'Tabor';
+  if (normalized.includes('workshop')) return 'Workshop';
+  return 'Krouzek';
+}
+
+function activityTypeLabel(type: ActivityType) {
+  if (type === 'Tabor') return 'Tábor';
+  if (type === 'Workshop') return 'Workshop';
+  return 'Kroužek';
+}
+
+function paymentStatusFromDb(value: unknown): PaymentStatus {
+  const status = text(value).toLowerCase();
+  if (status === 'paid') return 'paid';
+  if (status === 'overdue') return 'overdue';
+  return 'due';
+}
+
+function paymentStatusFromPurchase(value: unknown): PaymentStatus {
+  const normalized = text(value).toLowerCase();
+  if (normalized.includes('zaplaceno')) return 'paid';
+  if (normalized.includes('selhala') || normalized.includes('overdue')) return 'overdue';
+  return 'due';
+}
+
+function documentStatusFromDb(value: unknown): DocumentStatus {
+  const status = text(value).toLowerCase();
+  if (status === 'signed') return 'signed';
+  if (status === 'draft') return 'draft';
+  return 'missing';
+}
+
+function findParticipantNameInText(textValue: string, names: Set<string>) {
+  return Array.from(names).find((name) => textValue.includes(name));
+}
+
+function formatDateCz(value: unknown) {
+  const date = value ? new Date(String(value)) : new Date();
+  if (Number.isNaN(date.getTime())) return new Date().toLocaleDateString('cs-CZ');
+  return date.toLocaleDateString('cs-CZ');
+}
+
+function text(value: unknown, fallback = '') {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : fallback;
+}
+
+function numberValue(value: unknown, fallback: number) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function optionalNumber(value: unknown, fallback?: number) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function arrayValue(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function typedArray<T>(value: unknown, fallback: T[]): T[] {
+  return Array.isArray(value) ? value as T[] : fallback;
+}
+
+function stringArray(value: unknown, fallback: string[]) {
+  if (Array.isArray(value)) return value.map((item) => String(item)).filter(Boolean);
+  return fallback;
+}
+
+function nameFromEmail(email?: string | null) {
+  const prefix = email?.split('@')[0]?.replace(/[._-]+/g, ' ').trim();
+  return prefix ? prefix.replace(/\b\w/g, (letter) => letter.toUpperCase()) : '';
+}
+
+function isDemoParentName(value?: string | null) {
+  const normalized = value
+    ?.normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+  return normalized === 'david kropac' || normalized === 'testovaci rodic';
 }

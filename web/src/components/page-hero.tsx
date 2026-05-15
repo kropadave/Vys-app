@@ -18,12 +18,10 @@ type Props = {
   mascotScale?: MascotScale;
   mascotWidthClass?: string;
   mascotDesktopPositionClass?: string;
-  image?: string;
   ctaHref?: string;
   ctaLabel?: string;
 };
 
-const fallbackImage = '/courses/prostejov_Prostejov_parkour_main.webp';
 const mascotPositionClass: Record<MascotPosition, string> = {
   'top-right': 'right-8 top-0 rotate-3',
   'middle-right': 'right-3 top-1/2 -translate-y-1/2 -rotate-2',
@@ -62,10 +60,10 @@ const mobileMascotSizeClass: Record<MascotPosition, string> = {
 };
 // Velikosti pro oversized variantu — `edge-right` (workshopy) je o něco větší, protože jeho asset má kolem postavy víc volného prostoru a opticky působí menší.
 const oversizedMascotSizeClassByPosition: Record<MascotPosition, string> = {
-  'top-right': 'w-[360px] lg:w-[410px] xl:w-[470px]',
-  'middle-right': 'w-[360px] lg:w-[410px] xl:w-[470px]',
-  'bottom-right': 'w-[360px] lg:w-[410px] xl:w-[470px]',
-  'edge-right': 'w-[520px] lg:w-[590px] xl:w-[660px]',
+  'top-right': 'w-[300px] lg:w-[350px] xl:w-[390px]',
+  'middle-right': 'w-[300px] lg:w-[350px] xl:w-[390px]',
+  'bottom-right': 'w-[300px] lg:w-[350px] xl:w-[390px]',
+  'edge-right': 'w-[360px] lg:w-[420px] xl:w-[470px]',
 };
 const oversizedMobileMascotSizeClassByPosition: Record<MascotPosition, string> = {
   'top-right': 'w-[170px] sm:w-[220px] md:w-[300px]',
@@ -74,9 +72,7 @@ const oversizedMobileMascotSizeClassByPosition: Record<MascotPosition, string> =
   'edge-right': 'w-[220px] sm:w-[280px] md:w-[360px]',
 };
 
-export function PageHero({ eyebrow, title, body, mascot = true, mascotSrc = '/vys-maskot-no-logo.png', mascotPosition = 'middle-right', mascotScale = 'default', mascotWidthClass, mascotDesktopPositionClass, image = fallbackImage, ctaHref, ctaLabel }: Props) {
-  void image;
-
+export function PageHero({ eyebrow, title, body, mascot = true, mascotSrc = '/vys-maskot-no-logo.png', mascotPosition = 'middle-right', mascotScale = 'default', mascotWidthClass, mascotDesktopPositionClass, ctaHref, ctaLabel }: Props) {
   const isOversizedMascot = mascotScale === 'oversized';
   const mobileSizeClass = isOversizedMascot ? oversizedMobileMascotSizeClassByPosition[mascotPosition] : mobileMascotSizeClass[mascotPosition];
   const mobilePositionClass = isOversizedMascot ? oversizedMobileMascotPositionClass[mascotPosition] : mobileMascotPositionClass[mascotPosition];
@@ -87,7 +83,7 @@ export function PageHero({ eyebrow, title, body, mascot = true, mascotSrc = '/vy
     : '(max-width: 640px) 170px, (max-width: 1024px) 300px, (max-width: 1280px) 410px, 470px';
   const mascotSizes = isOversizedMascot ? oversizedMascotSizes : mascotPosition === 'edge-right' ? '360px' : '220px';
   const shellClass = cn(
-    'section-shell relative overflow-visible rounded-[34px] border border-brand-purple/12 bg-white text-brand-ink shadow-brand-float',
+    'section-shell relative overflow-hidden rounded-[30px] border border-brand-purple/12 bg-white text-brand-ink shadow-brand-float md:overflow-visible',
     isOversizedMascot ? 'mt-6 mb-14 md:mt-16 md:mb-20 lg:mt-24 lg:mb-24 xl:mb-28' : 'mt-6'
   );
   const gridClass = cn(
@@ -111,10 +107,11 @@ export function PageHero({ eyebrow, title, body, mascot = true, mascotSrc = '/vy
 
   return (
     <section className={shellClass}>
-      <div aria-hidden className="absolute inset-x-0 top-0 h-10 overflow-hidden rounded-t-[34px]">
+      <div aria-hidden className="absolute inset-x-0 top-0 z-10 h-10 overflow-hidden rounded-t-[30px]">
         <div className="h-1.5 bg-gradient-brand" />
       </div>
       <div aria-hidden className="absolute inset-0 diagonal-rails opacity-[0.04]" />
+
       <div className={gridClass}>
         <div className={contentClass}>
           <div className={topRowClass}>
@@ -123,9 +120,10 @@ export function PageHero({ eyebrow, title, body, mascot = true, mascotSrc = '/vy
                 {eyebrow}
               </span>
             </Reveal>
-            {mascot ? (
-              <div className={cn('pointer-events-none z-10 shrink-0 drop-shadow-[0_16px_20px_rgba(83,36,140,0.22)] lg:hidden', isOversizedMascot ? 'relative mx-auto mt-3' : 'relative', mobileSizeClass, mobilePositionClass)}>
-                <VysMaskotImage src={mascotSrc} priority sizes={isOversizedMascot ? mascotSizes : mascotPosition === 'edge-right' ? '130px' : '90px'} />
+            {/* Tablet mascot — only visible between md and lg for oversized variants */}
+            {mascot && isOversizedMascot ? (
+              <div className={cn('pointer-events-none z-20 shrink-0 drop-shadow-[0_16px_20px_rgba(83,36,140,0.22)] hidden md:block lg:hidden', 'relative', mobileSizeClass, mobilePositionClass)}>
+                <VysMaskotImage src={mascotSrc} priority sizes={mascotSizes} />
               </div>
             ) : null}
           </div>
@@ -148,7 +146,7 @@ export function PageHero({ eyebrow, title, body, mascot = true, mascotSrc = '/vy
         </div>
         {mascot ? (
           <div className={mascotColumnClass}>
-            <div className={cn('pointer-events-none absolute drop-shadow-[0_24px_30px_rgba(83,36,140,0.24)]', desktopSizeClass, desktopPositionClass)}>
+            <div className={cn('pointer-events-none absolute z-20 z-20 drop-shadow-[0_24px_30px_rgba(83,36,140,0.24)]', desktopSizeClass, desktopPositionClass)}>
               <VysMaskotImage src={mascotSrc} priority sizes={mascotSizes} />
             </div>
           </div>

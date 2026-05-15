@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useState } from 'react';
 
-export type AppRole = 'participant' | 'parent' | 'coach';
+export type AppRole = 'participant' | 'coach';
 
 const STORAGE_KEY = 'vys.role';
 
@@ -14,7 +14,7 @@ function emit(role: AppRole | null) {
 }
 
 function parseRole(value: string | null): AppRole | null {
-  if (value === 'participant' || value === 'parent' || value === 'coach') return value;
+  if (value === 'participant' || value === 'coach') return value;
   if (value === 'kid') return 'participant';
   return null;
 }
@@ -30,9 +30,10 @@ export async function loadInitialRole(): Promise<AppRole | null> {
   }
 }
 
-export async function setRole(role: AppRole | null) {
+export async function setRole(role: AppRole | null, options: { remember?: boolean } = {}) {
+  const remember = options.remember ?? true;
   try {
-    if (role) await AsyncStorage.setItem(STORAGE_KEY, role);
+    if (role && remember) await AsyncStorage.setItem(STORAGE_KEY, role);
     else await AsyncStorage.removeItem(STORAGE_KEY);
   } catch {
     // ignore
