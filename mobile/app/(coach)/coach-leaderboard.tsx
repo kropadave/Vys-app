@@ -62,14 +62,17 @@ export default function CoachLeaderboard() {
         />
 
         <CoachCard title="Leaderboard trenérů">
+          {coachLeaderboard.length === 0 ? (
+            <Text style={styles.muted}>Načítám žebříček...</Text>
+          ) : null}
           {coachLeaderboard.map((coach) => (
-            <View key={coach.name} style={styles.row}>
-              <Text style={styles.rank}>{coach.rank}</Text>
+            <View key={`${coach.name}-${coach.rank}`} style={[styles.row, coach.isMe && styles.rowMe]}>
+              <Text style={[styles.rank, coach.isMe && styles.rankMe]}>{coach.rank}</Text>
               <View style={[styles.avatar, { backgroundColor: coach.avatarColor }]}>
                 <Text style={styles.avatarText}>{coach.initials}</Text>
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.cardTitle}>{coach.name}</Text>
+                <Text style={[styles.cardTitle, coach.isMe && styles.cardTitleMe]}>{coach.name}{coach.isMe ? ' (já)' : ''}</Text>
                 <Text style={styles.muted}>{coach.qr} potvrzení · {coach.xp} XP</Text>
               </View>
               <StatusPill label={coach.bonus} tone={coach.isMe ? 'success' : 'neutral'} />
@@ -175,11 +178,14 @@ export default function CoachLeaderboard() {
 const styles = StyleSheet.create({
   page: { backgroundColor: CoachColors.bg },
   container: { width: '100%', maxWidth: 860, alignSelf: 'center', padding: Spacing.lg, gap: Spacing.lg, paddingBottom: 104 },
-  row: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.md, alignItems: 'center' },
+  row: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.md, alignItems: 'center', paddingVertical: 4 },
+  rowMe: { backgroundColor: CoachColors.tealSoft, borderRadius: Radius.md, paddingHorizontal: Spacing.sm, marginHorizontal: -Spacing.sm },
   rank: { color: CoachColors.amber, width: 24, fontSize: 24, fontWeight: '900' },
+  rankMe: { color: CoachColors.teal },
   avatar: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
   avatarText: { color: '#fff', fontSize: 14, fontWeight: '900', letterSpacing: 0.5 },
   cardTitle: { color: CoachColors.slate, fontSize: 17, lineHeight: 23, fontWeight: '900' },
+  cardTitleMe: { color: CoachColors.teal },
   muted: { color: CoachColors.slateMuted, fontSize: 13, lineHeight: 19 },
   xpRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
   xpValue: { color: CoachColors.blue, fontSize: 28, fontWeight: '900' },

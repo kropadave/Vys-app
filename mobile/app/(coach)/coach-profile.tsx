@@ -1,7 +1,8 @@
 import { Feather } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import { useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { Image, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Image, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { CoachCard, CoachPageHeader } from '@/components/coach/coach-screen';
 import { StatusPill } from '@/components/parent-card';
@@ -39,6 +40,7 @@ function courseMatchesSession(course: Course, sessionItem: CoachSession) {
 }
 
 export default function CoachProfile() {
+  const router = useRouter();
   const { session } = useAuth();
   const currentCoachId = session?.userId ?? FALLBACK_COACH_ID;
   const { coach, saveCoachProfilePhoto, saveCoachPayoutDetails, saveCoachPhone } = useCoachProfile(currentCoachId);
@@ -64,6 +66,8 @@ export default function CoachProfile() {
     payoutAccountHolder: coach.payoutAccountHolder ?? coach.name,
     payoutNote: coach.payoutNote ?? '',
   });
+  const [payoutSheetOpen, setPayoutSheetOpen] = useState(false);
+  const [coursesSheetOpen, setCoursesSheetOpen] = useState(false);
   const [courseActionId, setCourseActionId] = useState<string | null>(null);
   const [courseMessage, setCourseMessage] = useState('');
   const assignedCourseIds = useMemo(
@@ -238,26 +242,65 @@ export default function CoachProfile() {
         {phoneMessage ? <Text style={styles.photoMessage}>{phoneMessage}</Text> : null}
       </CoachCard>
 
-      <CoachCard title="Výplatní údaje">
-        <Text style={styles.cardTitle}>Kam posílat odměnu</Text>
-        <Text style={styles.muted}>Admin tyhle údaje uvidí u výplat a DPP. Stačí doplnit účet nebo IBAN.</Text>
-        {!payoutForm.bankAccount && !payoutForm.iban ? (
-          <View style={styles.payoutWarning}>
-            <Text style={styles.payoutWarningTitle}>⚠️ Bez účtu ti admin nemůže poslat výplatu</Text>
-            <Text style={styles.payoutWarningText}>Vyplň číslo účtu nebo IBAN a klikni na Uložit. Jinak výplata nemůže proběhnout.</Text>
-          </View>
-        ) : null}
-        <View style={styles.formGrid}>
-          <PayoutField label="Majitel účtu" value={payoutForm.payoutAccountHolder} onChange={(value) => updatePayoutField('payoutAccountHolder', value)} placeholder="Jméno majitele účtu" />
-          <PayoutField label="Číslo účtu" value={payoutForm.bankAccount} onChange={(value) => updatePayoutField('bankAccount', value)} placeholder="123456789/2010" />
-          <PayoutField label="IBAN" value={payoutForm.iban} onChange={(value) => updatePayoutField('iban', value)} placeholder="CZ65 2010 0000 0029 0234 5671" autoCapitalize="characters" />
-          <PayoutField label="Poznámka" value={payoutForm.payoutNote} onChange={(value) => updatePayoutField('payoutNote', value)} placeholder="Např. preferuji měsíční výplatu" multiline />
+      {/* Payout trigger row */}
+      <Pressable
+        onPress={() => setPayoutSheetOpen(true)}
+        style={({ pressed }) => [styles.payoutTrigger, pressed && { opacity: 0.84 }]}
+      >
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={styles.payoutTriggerTitle}>Výplatní údaje</Text>
+          <Text style={styles.payoutTriggerSub}>
+            {payoutForm.bankAccount || payoutForm.iban
+              ? payoutForm.bankAccount || payoutForm.iban
+              : '⚠️ Bez účtu ti admin nemůže poslat výplatu'}
+          </Text>
         </View>
-        <Pressable onPress={savePayoutDetails} disabled={savingPayout} style={({ pressed }: any) => [styles.payoutButton, pressed && styles.photoButtonPressed, savingPayout && styles.photoButtonDisabled]}>
-          <Text style={styles.photoButtonText}>{savingPayout ? 'Ukládám...' : 'Uložit výplatní údaje'}</Text>
-        </Pressable>
-        {payoutMessage ? <Text style={styles.photoMessage}>{payoutMessage}</Text> : null}
-      </CoachCard>
+        <View style={styles.payoutTriggerIcon}>
+          <Feather name="plus" size={20} color={CoachColors.teal} />
+        </View>
+      </Pressable>
+
+      {/* Payout sheet modal */}
+      <Modal
+        visible={payoutSheetOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setPayoutSheetOpen(false)}
+      >
+        <Pressable style={styles.payoutOverlay} onPress={() => setPayoutSheetOpen(false)} />
+        <View style={styles.payoutSheet}>
+          <View style={styles.payoutSheetHandle} />
+          <View style={styles.payoutSheetHeader}>
+            <Text style={styles.payoutSheetTitle}>Výplatní údaje</Text>
+            <Pressable onPress={() => setPayoutSheetOpen(false)} style={({ pressed }) => [styles.payoutSheetClose, pressed && { opacity: 0.7 }]}>
+              <Feather name="x" size={20} color={CoachColors.slate} />
+            </Pressable>
+          </View>
+          <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+            <Text style={styles.muted}>Admin tyhle údaje uvidí u výplat a DPP. Stačí doplnit účet nebo IBAN.</Text>
+            {!payoutForm.bankAccount && !payoutForm.iban ? (
+              <View style={[styles.payoutWarning, { marginTop: Spacing.md }]}>
+                <Text style={styles.payoutWarningTitle}>⚠️ Bez účtu ti admin nemůže poslat výplatu</Text>
+                <Text style={styles.payoutWarningText}>Vyplň číslo účtu nebo IBAN a klikni na Uložit.</Text>
+              </View>
+            ) : null}
+            <View style={styles.formGrid}>
+              <PayoutField label="Majitel účtu" value={payoutForm.payoutAccountHolder} onChange={(value) => updatePayoutField('payoutAccountHolder', value)} placeholder="Jméno majitele účtu" />
+              <PayoutField label="Číslo účtu" value={payoutForm.bankAccount} onChange={(value) => updatePayoutField('bankAccount', value)} placeholder="123456789/2010" />
+              <PayoutField label="IBAN" value={payoutForm.iban} onChange={(value) => updatePayoutField('iban', value)} placeholder="CZ65 2010 0000 0029 0234 5671" autoCapitalize="characters" />
+              <PayoutField label="Poznámka" value={payoutForm.payoutNote} onChange={(value) => updatePayoutField('payoutNote', value)} placeholder="Např. preferuji měsíční výplatu" multiline />
+            </View>
+            <Pressable
+              onPress={async () => { await savePayoutDetails(); setPayoutSheetOpen(false); }}
+              disabled={savingPayout}
+              style={({ pressed }: any) => [styles.payoutButton, pressed && styles.photoButtonPressed, savingPayout && styles.photoButtonDisabled]}
+            >
+              <Text style={styles.photoButtonText}>{savingPayout ? 'Ukládám...' : 'Uložit výplatní údaje'}</Text>
+            </Pressable>
+            {payoutMessage ? <Text style={[styles.photoMessage, { marginBottom: Spacing.lg }]}>{payoutMessage}</Text> : null}
+          </ScrollView>
+        </View>
+      </Modal>
 
       <CoachCard title="Hodnocení od rodičů">
         <View style={styles.infoGrid}>
@@ -277,38 +320,85 @@ export default function CoachProfile() {
         ))}
       </CoachCard>
 
-      <CoachCard title="Zapsané kroužky">
-        {coachSessionsLoading ? <Text style={styles.muted}>Načítám aktuální kroužky...</Text> : null}
-        {courses.map((course) => {
-          const isAssigned = assignedCourseIds.has(course.id);
-          const isSaving = courseActionId === course.id;
-          return (
-            <View key={course.id} style={[styles.courseRow, isAssigned && styles.courseRowActive]}>
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <View style={styles.courseTitleRow}>
-                  <Text style={styles.cardTitle}>{courseLocation(course)}</Text>
-                  <StatusPill label={isAssigned ? 'Zapsáno' : 'Volné'} tone={isAssigned ? 'success' : 'neutral'} />
+      {/* Courses trigger row */}
+      <Pressable
+        onPress={() => setCoursesSheetOpen(true)}
+        style={({ pressed }) => [styles.payoutTrigger, pressed && { opacity: 0.84 }]}
+      >
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={styles.payoutTriggerTitle}>Zapsané kroužky</Text>
+          <Text style={styles.payoutTriggerSub}>
+            {assignedCourseIds.size > 0
+              ? `${assignedCourseIds.size} přiřazen${assignedCourseIds.size === 1 ? 'ý kroužek' : assignedCourseIds.size < 5 ? 'é kroužky' : 'é kroužků'} · klepni pro správu`
+              : 'Zatím nejsi přiřazen k žádnému kroužku'}
+          </Text>
+        </View>
+        <View style={styles.payoutTriggerIcon}>
+          <Feather name="plus" size={20} color={CoachColors.teal} />
+        </View>
+      </Pressable>
+
+      {/* Courses sheet modal */}
+      <Modal
+        visible={coursesSheetOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setCoursesSheetOpen(false)}
+      >
+        <Pressable style={styles.payoutOverlay} onPress={() => setCoursesSheetOpen(false)} />
+        <View style={styles.payoutSheet}>
+          <View style={styles.payoutSheetHandle} />
+          <View style={styles.payoutSheetHeader}>
+            <Text style={styles.payoutSheetTitle}>Zapsané kroužky</Text>
+            <Pressable onPress={() => setCoursesSheetOpen(false)} style={({ pressed }) => [styles.payoutSheetClose, pressed && { opacity: 0.7 }]}>
+              <Feather name="x" size={20} color={CoachColors.slate} />
+            </Pressable>
+          </View>
+          <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+            {coachSessionsLoading ? <Text style={styles.muted}>Načítám aktuální kroužky...</Text> : null}
+            {courses.map((course) => {
+              const isAssigned = assignedCourseIds.has(course.id);
+              const isSaving = courseActionId === course.id;
+              return (
+                <View key={course.id} style={[styles.courseRow, isAssigned && styles.courseRowActive, { marginBottom: Spacing.sm }]}>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <View style={styles.courseTitleRow}>
+                      <Text style={styles.cardTitle}>{courseLocation(course)}</Text>
+                      <StatusPill label={isAssigned ? 'Zapsáno' : 'Volné'} tone={isAssigned ? 'success' : 'neutral'} />
+                    </View>
+                    <Text style={styles.muted}>{course.day} · {courseTime(course)} · {courseGroup(course)}</Text>
+                  </View>
+                  <View style={styles.courseActions}>
+                    {isAssigned ? (
+                      <Pressable
+                        onPress={() => { setCoursesSheetOpen(false); router.push('/attendance' as never); }}
+                        style={({ pressed }: any) => [styles.courseAttendanceButton, pressed && { opacity: 0.84 }]}
+                      >
+                        <Feather name="check-square" size={14} color={CoachColors.teal} />
+                        <Text style={styles.courseAttendanceButtonText}>Docházka</Text>
+                      </Pressable>
+                    ) : null}
+                    <Pressable
+                      disabled={isSaving}
+                      onPress={() => toggleCourseAssignment(course)}
+                      style={({ pressed }: any) => [
+                        styles.courseButton,
+                        isAssigned && styles.courseButtonRemove,
+                        pressed && styles.photoButtonPressed,
+                        isSaving && styles.photoButtonDisabled,
+                      ]}
+                    >
+                      <Feather name={isAssigned ? 'minus-circle' : 'plus-circle'} size={16} color={isAssigned ? CoachColors.blue : '#FFFFFF'} />
+                      <Text style={[styles.courseButtonText, isAssigned && styles.courseButtonTextRemove]}>{isSaving ? 'Ukládám...' : isAssigned ? 'Odebrat' : 'Přidat'}</Text>
+                    </Pressable>
+                  </View>
                 </View>
-                <Text style={styles.muted}>{course.day} · {courseTime(course)} · {courseGroup(course)}</Text>
-              </View>
-              <Pressable
-                disabled={isSaving}
-                onPress={() => toggleCourseAssignment(course)}
-                style={({ pressed }: any) => [
-                  styles.courseButton,
-                  isAssigned && styles.courseButtonRemove,
-                  pressed && styles.photoButtonPressed,
-                  isSaving && styles.photoButtonDisabled,
-                ]}
-              >
-                <Feather name={isAssigned ? 'minus-circle' : 'plus-circle'} size={16} color={isAssigned ? CoachColors.blue : '#FFFFFF'} />
-                <Text style={[styles.courseButtonText, isAssigned && styles.courseButtonTextRemove]}>{isSaving ? 'Ukládám...' : isAssigned ? 'Odebrat' : 'Přidat'}</Text>
-              </Pressable>
-            </View>
-          );
-        })}
-        {courseMessage ? <Text style={styles.photoMessage}>{courseMessage}</Text> : null}
-      </CoachCard>
+              );
+            })}
+            {courseMessage ? <Text style={[styles.photoMessage, { marginBottom: Spacing.lg }]}>{courseMessage}</Text> : null}
+          </ScrollView>
+        </View>
+      </Modal>
 
       <CoachCard title="Moje tábory">
         {campsLoading ? <Text style={styles.muted}>Načítám přiřazené tábory...</Text> : null}
@@ -408,7 +498,17 @@ const styles = StyleSheet.create({
   phoneInput: { minHeight: 48, borderWidth: 1, borderColor: CoachColors.border, borderRadius: Radius.md, backgroundColor: '#FFFFFF', color: CoachColors.slate, fontSize: 15, lineHeight: 20, fontWeight: '800', paddingHorizontal: Spacing.md, paddingVertical: 10 },
   phoneRow: { flexDirection: 'row', gap: Spacing.sm, alignItems: 'center', marginTop: 4 },
   phoneSaveBtn: { backgroundColor: CoachColors.teal, borderRadius: Radius.pill, paddingHorizontal: Spacing.md, paddingVertical: 10, alignItems: 'center', justifyContent: 'center' },
-  payoutWarning: { marginTop: Spacing.md, backgroundColor: '#FFF3CD', borderColor: '#F0B429', borderWidth: 1.5, borderRadius: Radius.md, padding: Spacing.md, gap: 6 },
+  payoutTrigger: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, backgroundColor: '#FFFFFF', borderColor: CoachColors.border, borderWidth: 1, borderRadius: Radius.lg, padding: Spacing.md, marginBottom: Spacing.sm },
+  payoutTriggerTitle: { color: CoachColors.slate, fontSize: 16, lineHeight: 22, fontWeight: '900' },
+  payoutTriggerSub: { color: CoachColors.slateMuted, fontSize: 13, lineHeight: 18, marginTop: 2 },
+  payoutTriggerIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: CoachColors.tealSoft, alignItems: 'center', justifyContent: 'center' },
+  payoutOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)' },
+  payoutSheet: { backgroundColor: '#FFFFFF', borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: Spacing.lg, paddingBottom: Spacing.xl ?? Spacing.lg, maxHeight: '85%' },
+  payoutSheetHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: CoachColors.border, alignSelf: 'center', marginTop: Spacing.md, marginBottom: Spacing.sm },
+  payoutSheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: Spacing.sm },
+  payoutSheetTitle: { color: CoachColors.slate, fontSize: 20, lineHeight: 26, fontWeight: '900' },
+  payoutSheetClose: { width: 36, height: 36, borderRadius: 18, backgroundColor: CoachColors.panelAlt, alignItems: 'center', justifyContent: 'center' },
+  payoutWarning: { backgroundColor: '#FFF3CD', borderColor: '#F0B429', borderWidth: 1.5, borderRadius: Radius.md, padding: Spacing.md, gap: 6 },
   payoutWarningTitle: { color: '#7A4F00', fontSize: 14, fontWeight: '900', lineHeight: 20 },
   payoutWarningText: { color: '#7A4F00', fontSize: 13, lineHeight: 19 },
   row: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.md, alignItems: 'center' },
@@ -416,10 +516,13 @@ const styles = StyleSheet.create({
   courseRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.md, alignItems: 'center', backgroundColor: CoachColors.panelAlt, borderColor: CoachColors.border, borderWidth: 1, borderRadius: Radius.md, padding: Spacing.md },
   courseRowActive: { borderColor: CoachColors.teal, backgroundColor: '#F0FBF7' },
   courseTitleRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm, alignItems: 'center', marginBottom: 2 },
+  courseActions: { flexDirection: 'row', gap: Spacing.sm, alignItems: 'center', flexWrap: 'wrap' },
   courseButton: { minHeight: 40, borderRadius: Radius.pill, paddingHorizontal: Spacing.md, paddingVertical: 9, backgroundColor: CoachColors.blue, flexDirection: 'row', gap: 7, alignItems: 'center', justifyContent: 'center' },
   courseButtonRemove: { backgroundColor: '#FFFFFF', borderColor: CoachColors.blue, borderWidth: 1.5 },
   courseButtonText: { color: '#FFFFFF', fontSize: 13, lineHeight: 17, fontWeight: '900' },
   courseButtonTextRemove: { color: CoachColors.blue },
+  courseAttendanceButton: { minHeight: 40, borderRadius: Radius.pill, paddingHorizontal: Spacing.md, paddingVertical: 9, backgroundColor: '#F0FBF7', borderColor: CoachColors.teal, borderWidth: 1.5, flexDirection: 'row', gap: 7, alignItems: 'center', justifyContent: 'center' },
+  courseAttendanceButtonText: { color: CoachColors.teal, fontSize: 13, lineHeight: 17, fontWeight: '900' },
   reviewRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.md, alignItems: 'center', backgroundColor: CoachColors.panelAlt, borderColor: CoachColors.border, borderWidth: 1, borderRadius: Radius.md, padding: Spacing.md },
   reviewText: { color: CoachColors.slate, fontSize: 14, lineHeight: 20 },
   campRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.md, alignItems: 'center', backgroundColor: CoachColors.panelAlt, borderColor: CoachColors.border, borderWidth: 1, borderRadius: Radius.md, padding: Spacing.md },

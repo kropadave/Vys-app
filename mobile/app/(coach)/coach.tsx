@@ -1334,12 +1334,12 @@ export default function CoachHome() {
 
       <ParentCard title="Platby a statistiky">
         <View style={styles.payoutHero}>
-          <View style={{ flex: 1, minWidth: 0 }}>
+          <View style={styles.payoutHeroHeader}>
             <Text style={styles.payoutLabel}>Odhad výplaty za období</Text>
-            <Text style={styles.payoutValue}>{payoutTotal} Kč</Text>
-            <Text style={styles.muted}>Základ {payoutStats.baseAmount} Kč + schválené bonusy {payoutStats.approvedBonuses} Kč</Text>
+            <StatusPill label={payoutStats.status} tone="success" />
           </View>
-          <StatusPill label={payoutStats.status} tone="success" />
+          <Text style={styles.payoutValue}>{payoutTotal} Kč</Text>
+          <Text style={styles.muted}>Základ {payoutStats.baseAmount} Kč + schválené bonusy {payoutStats.approvedBonuses} Kč</Text>
         </View>
         <View style={styles.statsGrid}>
           <Stat label="Základ z docházky" value={`${payoutStats.baseAmount} Kč`} />
@@ -1941,9 +1941,10 @@ const styles = StyleSheet.create({
   historyListRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, backgroundColor: Palette.surfaceAlt, borderRadius: Radius.md, padding: Spacing.md },
   historyListDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: Palette.success },
   monthGroupLabel: { color: CoachColors.blue, fontSize: 12, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.5, paddingVertical: Spacing.xs, borderBottomWidth: 1, borderBottomColor: Palette.border, marginBottom: Spacing.sm },
-  payoutHero: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.md, alignItems: 'center', justifyContent: 'space-between', backgroundColor: CoachColors.tealSoft, borderColor: 'rgba(31,157,114,0.22)', borderWidth: 1, borderRadius: Radius.lg, padding: Spacing.lg },
-  payoutLabel: { color: Palette.textMuted, fontSize: 12, lineHeight: 16, fontWeight: '900', textTransform: 'uppercase' },
-  payoutValue: { color: Palette.text, fontSize: 32, lineHeight: 38, fontWeight: '900' },
+  payoutHero: { flexDirection: 'column', gap: Spacing.xs, backgroundColor: CoachColors.tealSoft, borderColor: 'rgba(31,157,114,0.22)', borderWidth: 1, borderRadius: Radius.lg, padding: Spacing.lg },
+  payoutHeroHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.sm, marginBottom: Spacing.xs },
+  payoutLabel: { color: Palette.textMuted, fontSize: 13, lineHeight: 18, fontWeight: '600' },
+  payoutValue: { color: Palette.text, fontSize: 34, lineHeight: 40, fontWeight: '900' },
   statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.md },
   statCard: { backgroundColor: '#FFFFFF', borderColor: Palette.border, borderWidth: 1, borderRadius: Radius.md, padding: Spacing.md, minWidth: 136, flexGrow: 1 },
   statValue: { color: Palette.text, fontSize: 18, lineHeight: 24, fontWeight: '900' },

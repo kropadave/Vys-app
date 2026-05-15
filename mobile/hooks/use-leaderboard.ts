@@ -186,6 +186,32 @@ export function useCoachLeaderboard(myCoachId?: string) {
         };
       });
 
+      // If current coach not in results (e.g. not yet approved), append them
+      if (myCoachId && !ranked.some((e) => e.isMe)) {
+        const { data: myData } = await supabase
+          .from('coach_profiles')
+          .select('id,qr_tricks_approved,bonus_total,app_profiles(name)')
+          .eq('id', myCoachId)
+          .maybeSingle();
+        if (myData) {
+          const myRow = myData as unknown as CoachProfileRow;
+          const ap = Array.isArray(myRow.app_profiles) ? myRow.app_profiles[0] : myRow.app_profiles;
+          const name = ap?.name ?? 'Trenér';
+          const qr = Number(myRow.qr_tricks_approved ?? 0);
+          const bonusAmount = Number(myRow.bonus_total ?? 0);
+          ranked.push({
+            rank: ranked.length + 1,
+            name,
+            xp: qr * 10,
+            qr,
+            bonus: bonusAmount > 0 ? `+${bonusAmount} Kč` : 'čeká',
+            avatarColor: AVATAR_COLORS[ranked.length % AVATAR_COLORS.length],
+            initials: initialsFromName(name),
+            isMe: true,
+          });
+        }
+      }
+
       setEntries(ranked);
       setLoading(false);
     })();
