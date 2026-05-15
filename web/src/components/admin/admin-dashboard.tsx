@@ -2732,7 +2732,7 @@ function DocumentsSection({ activityRows, products }: { activityRows: ReturnType
   );
 }
 
-type ProductEdits = Partial<Pick<ParentProduct, 'title' | 'place' | 'primaryMeta' | 'capacityTotal' | 'price' | 'priceLabel' | 'heroImage' | 'gallery'>>;
+type ProductEdits = Partial<Pick<ParentProduct, 'title' | 'place' | 'primaryMeta' | 'capacityTotal' | 'price' | 'priceLabel' | 'heroImage' | 'gallery' | 'mapQuery'>>;
 
 function groupCourseProducts(courses: ParentProduct[]): Array<{ baseId: string; base: ParentProduct; variant15: ParentProduct | null }> {
   const baseProducts = courses.filter((product) => !product.id.endsWith('-15'));
@@ -2887,6 +2887,7 @@ function ProductCreateForm({ coaches, onAddProduct }: { coaches: AdminCoachSumma
   const [selectedCoachIds, setSelectedCoachIds] = useState<string[]>([]);
   const [description, setDescription] = useState('');
   const [trainingFocus, setTrainingFocus] = useState('bezpečné dopady, přeskoky, skill tree, NFC docházka');
+  const [mapQuery, setMapQuery] = useState('');
   // Workshop – triky
   const [trick1, setTrick1] = useState('');
   const [trick2, setTrick2] = useState('');
@@ -2976,6 +2977,7 @@ function ProductCreateForm({ coaches, onAddProduct }: { coaches: AdminCoachSumma
         workshopTrick2: trick2.trim() || undefined,
         workshopTrick1VideoFile: trick1VideoFile || undefined,
         workshopTrick2VideoFile: trick2VideoFile || undefined,
+        mapQuery: mapQuery.trim() || undefined,
       });
       setMessage(`${product.title} je vytvořený a uložený v databázi.`);
     } catch (error) {
@@ -3089,6 +3091,8 @@ function ProductCreateForm({ coaches, onAddProduct }: { coaches: AdminCoachSumma
         </label>
 
         <TextInput label="Zaměření" value={trainingFocus} onChange={setTrainingFocus} />
+
+        <TextInput label="Adresa pro mapu (např. ZŠ Purkyňova Vyškov)" value={mapQuery} onChange={setMapQuery} />
 
         <div className="grid gap-2 rounded-[16px] border border-brand-purple/15 bg-brand-paper p-4">
           <p className="text-xs font-black uppercase text-brand-purple">Fotky produktu</p>
@@ -3220,6 +3224,7 @@ function GroupedCourseCard({ group, coaches, isCreated, onRemove, onEdit, onCoac
   const [place, setPlace] = useState(base.place);
   const [primaryMeta, setPrimaryMeta] = useState(base.primaryMeta);
   const [capacityTotal, setCapacityTotal] = useState(String(base.capacityTotal));
+  const [mapQuery, setMapQuery] = useState(base.mapQuery ?? '');
   const existingGallery = base.gallery ?? (base.heroImage ? [base.heroImage] : []);
   const initialHeroIdx = Math.max(0, existingGallery.indexOf(base.heroImage ?? ''));
   const [photos, setPhotos] = useState<string[]>([]);
@@ -3239,7 +3244,7 @@ function GroupedCourseCard({ group, coaches, isCreated, onRemove, onEdit, onCoac
   }
 
   function handleSave() {
-    const edits: ProductEdits = { title, place, primaryMeta, capacityTotal: Number(capacityTotal) };
+    const edits: ProductEdits = { title, place, primaryMeta, capacityTotal: Number(capacityTotal), mapQuery: mapQuery.trim() || undefined };
     if (photos.length > 0) {
       edits.heroImage = photos[heroIndex] ?? photos[0];
       edits.gallery = photos;
@@ -3310,6 +3315,7 @@ function GroupedCourseCard({ group, coaches, isCreated, onRemove, onEdit, onCoac
                   <TextInput label="Místo" value={place} onChange={setPlace} />
                   <TextInput label="Čas / rozvrh" value={primaryMeta} onChange={setPrimaryMeta} />
                   <TextInput label="Kapacita" value={capacityTotal} onChange={setCapacityTotal} inputMode="numeric" />
+                  <TextInput label="Adresa pro mapu (např. ZŠ Purkyňova Vyškov)" value={mapQuery} onChange={setMapQuery} />
                   <div className="grid gap-2 rounded-[16px] border border-brand-purple/15 bg-brand-paper p-3">
                     <p className="text-xs font-black uppercase text-brand-purple">Fotky produktu</p>
                     {photos.length === 0 && existingGallery.length > 0 ? (
@@ -3377,6 +3383,7 @@ function AdminProductCard({ product, coaches, isCreated, onRemove, onEdit, onCoa
   const [primaryMeta, setPrimaryMeta] = useState(product.primaryMeta);
   const [price, setPrice] = useState(String(product.price));
   const [capacityTotal, setCapacityTotal] = useState(String(product.capacityTotal));
+  const [mapQuery, setMapQuery] = useState(product.mapQuery ?? '');
   const existingGallery = product.gallery ?? (product.heroImage ? [product.heroImage] : []);
   const initialHeroIdx = Math.max(0, existingGallery.indexOf(product.heroImage ?? ''));
   const [photos, setPhotos] = useState<string[]>([]);
@@ -3399,7 +3406,7 @@ function AdminProductCard({ product, coaches, isCreated, onRemove, onEdit, onCoa
 
   function handleSave() {
     const priceNum = Number(price);
-    const edits: ProductEdits = { title, place, primaryMeta, price: priceNum, priceLabel: `${priceNum.toLocaleString('cs-CZ')} Kč`, capacityTotal: Number(capacityTotal) };
+    const edits: ProductEdits = { title, place, primaryMeta, price: priceNum, priceLabel: `${priceNum.toLocaleString('cs-CZ')} Kč`, capacityTotal: Number(capacityTotal), mapQuery: mapQuery.trim() || undefined };
     if (photos.length > 0) {
       edits.heroImage = photos[heroIndex] ?? photos[0];
       edits.gallery = photos;
@@ -3468,6 +3475,7 @@ function AdminProductCard({ product, coaches, isCreated, onRemove, onEdit, onCoa
                   <TextInput label="Datum / čas" value={primaryMeta} onChange={setPrimaryMeta} />
                   <TextInput label="Cena (Kč)" value={price} onChange={setPrice} inputMode="numeric" />
                   <TextInput label="Kapacita" value={capacityTotal} onChange={setCapacityTotal} inputMode="numeric" />
+                  <TextInput label="Adresa pro mapu (např. ZŠ Purkyňova Vyškov)" value={mapQuery} onChange={setMapQuery} />
                   <div className="grid gap-2 rounded-[16px] border border-brand-purple/15 bg-brand-paper p-3">
                     <p className="text-xs font-black uppercase text-brand-purple">Fotky produktu</p>
                     {photos.length === 0 && existingGallery.length > 0 && !clearImage ? (

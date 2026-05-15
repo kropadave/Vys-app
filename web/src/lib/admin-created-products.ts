@@ -38,6 +38,8 @@ export type AdminProductInput = {
   trainingFocus: string;
   /** Fotky jako base64 data-URL (kroužek / tábor) */
   photos?: string[];
+  /** Mapový dotaz pro automatické vyhledání polohy (např. "ZŠ Purkyňova Vyškov") */
+  mapQuery?: string;
   /** Vybraní trenéři pro produkt */
   coachIds?: string[];
   /** Název triku 1 (workshop) */
@@ -86,6 +88,7 @@ function productToRow(product: ParentProduct): AdminProductRow {
     capacity_current: product.capacityCurrent,
     hero_image: product.heroImage,
     gallery: product.gallery,
+    map_query: product.mapQuery,
     coach_ids: product.coachIds ?? [],
     training_focus: product.trainingFocus,
     is_published: true,
@@ -112,6 +115,7 @@ function rowToProduct(row: AdminProductRow): ParentProduct {
     badge: row.badge,
     heroImage,
     gallery: productGallery(row, type, heroImage),
+    mapQuery: row.map_query ?? undefined,
     coachIds: row.coach_ids ?? [],
     importantInfo: Array.isArray(row.important_info) && row.important_info.length > 0
       ? row.important_info
@@ -288,6 +292,7 @@ function createAdminCreatedProduct(input: AdminProductInput): ParentProduct {
     badge: badgeFor(type),
     heroImage: uploadedPhotos ? uploadedPhotos[0] : heroImage,
     gallery,
+    mapQuery: input.mapQuery?.trim() || undefined,
     coachIds: input.coachIds ?? [],
     importantInfo: importantInfoFor(type, primaryMeta, capacityCurrent, capacityTotal, trick1, trick2, input.workshopTrick1VideoFile, input.workshopTrick2VideoFile),
     trainingFocus: trainingFocus.length ? trainingFocus : defaultFocus(type),

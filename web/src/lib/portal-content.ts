@@ -43,6 +43,7 @@ export type ParentProduct = {
   badge: string;
   heroImage: string;
   gallery: string[];
+  mapQuery?: string;
   coachIds?: string[];
   importantInfo: Array<{ label: string; value: string }>;
   trainingFocus: string[];

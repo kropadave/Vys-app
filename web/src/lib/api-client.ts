@@ -339,6 +339,7 @@ export type AdminProductRow = {
   capacity_current: number;
   hero_image?: string;
   gallery: string[];
+  map_query?: string;
   coach_ids: string[];
   training_focus: string[];
   is_published: boolean;

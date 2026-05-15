@@ -239,6 +239,17 @@ export function AdminCreatedCourseDetail({ productId }: { productId: string }) {
                 ))}
               </div>
             ) : null}
+            {product.mapQuery ? (
+              <div className="overflow-hidden rounded-brand shadow-brand-soft">
+                <iframe
+                  title="Mapa místa"
+                  src={`https://maps.google.com/maps?q=${encodeURIComponent(product.mapQuery)}&output=embed&hl=cs`}
+                  className="h-64 w-full border-0"
+                  loading="lazy"
+                  referrerPolicy="no-referrer-when-downgrade"
+                />
+              </div>
+            ) : null}
           </div>
         </Reveal>
 
