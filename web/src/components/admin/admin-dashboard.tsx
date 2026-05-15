@@ -3220,9 +3220,12 @@ function GroupedCourseCard({ group, coaches, isCreated, onRemove, onEdit, onCoac
   const [place, setPlace] = useState(base.place);
   const [primaryMeta, setPrimaryMeta] = useState(base.primaryMeta);
   const [capacityTotal, setCapacityTotal] = useState(String(base.capacityTotal));
+  const existingGallery = base.gallery ?? (base.heroImage ? [base.heroImage] : []);
+  const initialHeroIdx = Math.max(0, existingGallery.indexOf(base.heroImage ?? ''));
   const [photos, setPhotos] = useState<string[]>([]);
   const [photoCount, setPhotoCount] = useState(0);
   const [heroIndex, setHeroIndex] = useState(0);
+  const [existingHeroIndex, setExistingHeroIndex] = useState(initialHeroIdx);
   const photoInputRef = useRef<HTMLInputElement>(null);
 
   async function handlePhotoFiles(files: FileList) {
@@ -3240,6 +3243,8 @@ function GroupedCourseCard({ group, coaches, isCreated, onRemove, onEdit, onCoac
     if (photos.length > 0) {
       edits.heroImage = photos[heroIndex] ?? photos[0];
       edits.gallery = photos;
+    } else if (existingGallery.length > 0) {
+      edits.heroImage = existingGallery[existingHeroIndex] ?? existingGallery[0];
     }
     onEdit(edits);
     setEditing(false);
@@ -3306,35 +3311,49 @@ function GroupedCourseCard({ group, coaches, isCreated, onRemove, onEdit, onCoac
                   <TextInput label="Čas / rozvrh" value={primaryMeta} onChange={setPrimaryMeta} />
                   <TextInput label="Kapacita" value={capacityTotal} onChange={setCapacityTotal} inputMode="numeric" />
                   <div className="grid gap-2 rounded-[16px] border border-brand-purple/15 bg-brand-paper p-3">
-                    <p className="text-xs font-black uppercase text-brand-purple">Obrázek produktu</p>
-                    {photos.length === 0 && base.heroImage ? (
-                      <div className="flex items-center gap-3">
-                        <img src={base.heroImage} alt="Aktuální obrázek" className="h-16 w-24 rounded-[10px] object-cover shadow-sm" />
-                        <span className="text-xs font-bold text-brand-ink-soft">Aktuálně nastavený obrázek. Nahradit novým výběrem níže.</span>
-                      </div>
+                    <p className="text-xs font-black uppercase text-brand-purple">Fotky produktu</p>
+                    {photos.length === 0 && existingGallery.length > 0 ? (
+                      <>
+                        <p className="text-[10px] font-bold text-brand-ink-soft">Klikni na fotku pro výběr hlavní fotky webu.</p>
+                        <div className="flex flex-wrap gap-2">
+                          {existingGallery.map((src, index) => (
+                            <button key={index} type="button" onClick={() => setExistingHeroIndex(index)}
+                              className={`relative h-14 w-14 rounded-[10px] overflow-hidden shadow-sm ring-2 transition ${
+                                existingHeroIndex === index ? 'ring-brand-purple' : 'ring-transparent hover:ring-brand-purple/40'
+                              }`}>
+                              <img src={src} alt={`Fotka ${index + 1}`} className="h-full w-full object-cover" />
+                              {existingHeroIndex === index && (
+                                <span className="absolute bottom-0.5 right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-brand-purple text-white text-[9px] font-black">✓</span>
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      </>
                     ) : null}
                     <label className="inline-flex cursor-pointer items-center gap-2 rounded-[14px] border border-brand-purple/20 bg-white px-3 py-2 text-xs font-black text-brand-purple transition hover:bg-brand-purple-light">
                       <ImagePlus size={15} />
-                      {photoCount > 0 ? `${photoCount} ${photoCount === 1 ? 'fotka' : photoCount < 5 ? 'fotky' : 'fotek'} vybrány` : 'Vybrat nové fotky'}
+                      {photoCount > 0 ? `${photoCount} ${photoCount === 1 ? 'fotka' : photoCount < 5 ? 'fotky' : 'fotek'} vybrány` : 'Přidat / nahradit fotky'}
                       <input ref={photoInputRef} type="file" accept="image/*" multiple className="sr-only"
                         onChange={(event) => { if (event.target.files) void handlePhotoFiles(event.target.files); }} />
                     </label>
                     {photos.length > 0 ? (
-                      <div className="mt-1 flex flex-wrap gap-2">
-                        {photos.map((src, index) => (
-                          <button key={index} type="button" onClick={() => setHeroIndex(index)}
-                            className={`relative h-14 w-14 rounded-[10px] overflow-hidden shadow-sm ring-2 transition ${
-                              heroIndex === index ? 'ring-brand-purple' : 'ring-transparent hover:ring-brand-purple/40'
-                            }`}>
-                            <img src={src} alt={`Náhled ${index + 1}`} className="h-full w-full object-cover" />
-                            {heroIndex === index && (
-                              <span className="absolute bottom-0.5 right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-brand-purple text-white text-[9px] font-black">✓</span>
-                            )}
-                          </button>
-                        ))}
-                      </div>
+                      <>
+                        <p className="text-[10px] font-bold text-brand-ink-soft">Klikni na fotku pro výběr hlavní fotky webu.</p>
+                        <div className="flex flex-wrap gap-2">
+                          {photos.map((src, index) => (
+                            <button key={index} type="button" onClick={() => setHeroIndex(index)}
+                              className={`relative h-14 w-14 rounded-[10px] overflow-hidden shadow-sm ring-2 transition ${
+                                heroIndex === index ? 'ring-brand-purple' : 'ring-transparent hover:ring-brand-purple/40'
+                              }`}>
+                              <img src={src} alt={`Náhled ${index + 1}`} className="h-full w-full object-cover" />
+                              {heroIndex === index && (
+                                <span className="absolute bottom-0.5 right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-brand-purple text-white text-[9px] font-black">✓</span>
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      </>
                     ) : null}
-                    {photos.length > 1 ? <p className="text-[10px] font-bold text-brand-ink-soft">Klikni na fotku pro výběr hlavní fotky webu.</p> : null}
                   </div>
                   <div className="flex gap-2">
                     <button type="button" onClick={handleSave} className="flex-1 rounded-[14px] bg-brand-purple py-2.5 text-sm font-black text-white transition hover:opacity-80">Uložit</button>
@@ -3358,9 +3377,12 @@ function AdminProductCard({ product, coaches, isCreated, onRemove, onEdit, onCoa
   const [primaryMeta, setPrimaryMeta] = useState(product.primaryMeta);
   const [price, setPrice] = useState(String(product.price));
   const [capacityTotal, setCapacityTotal] = useState(String(product.capacityTotal));
+  const existingGallery = product.gallery ?? (product.heroImage ? [product.heroImage] : []);
+  const initialHeroIdx = Math.max(0, existingGallery.indexOf(product.heroImage ?? ''));
   const [photos, setPhotos] = useState<string[]>([]);
   const [photoCount, setPhotoCount] = useState(0);
   const [heroIndex, setHeroIndex] = useState(0);
+  const [existingHeroIndex, setExistingHeroIndex] = useState(initialHeroIdx);
   const [clearImage, setClearImage] = useState(false);
   const photoInputRef = useRef<HTMLInputElement>(null);
 
@@ -3384,6 +3406,8 @@ function AdminProductCard({ product, coaches, isCreated, onRemove, onEdit, onCoa
     } else if (clearImage) {
       edits.heroImage = '';
       edits.gallery = [];
+    } else if (existingGallery.length > 0) {
+      edits.heroImage = existingGallery[existingHeroIndex] ?? existingGallery[0];
     }
     onEdit(edits);
     setEditing(false);
@@ -3445,45 +3469,57 @@ function AdminProductCard({ product, coaches, isCreated, onRemove, onEdit, onCoa
                   <TextInput label="Cena (Kč)" value={price} onChange={setPrice} inputMode="numeric" />
                   <TextInput label="Kapacita" value={capacityTotal} onChange={setCapacityTotal} inputMode="numeric" />
                   <div className="grid gap-2 rounded-[16px] border border-brand-purple/15 bg-brand-paper p-3">
-                    <p className="text-xs font-black uppercase text-brand-purple">Obrázek produktu</p>
-                    {photos.length === 0 && product.heroImage && !clearImage ? (
-                      <div className="flex items-center gap-3">
-                        <img src={product.heroImage} alt="Aktuální obrázek" className="h-16 w-24 rounded-[10px] object-cover shadow-sm" />
-                        <div className="flex flex-col gap-1.5">
-                          <span className="text-xs font-bold text-brand-ink-soft">Aktuálně nastavený obrázek. Nahradit novým nebo smazat.</span>
-                          <button type="button" onClick={() => setClearImage(true)} className="inline-flex w-fit items-center gap-1.5 rounded-[10px] bg-brand-pink/10 px-2.5 py-1 text-xs font-black text-brand-pink transition hover:bg-brand-pink/20">
-                            <Trash2 size={12} /> Smazat obrázek
-                          </button>
+                    <p className="text-xs font-black uppercase text-brand-purple">Fotky produktu</p>
+                    {photos.length === 0 && existingGallery.length > 0 && !clearImage ? (
+                      <>
+                        <p className="text-[10px] font-bold text-brand-ink-soft">Klikni na fotku pro výběr hlavní fotky webu.</p>
+                        <div className="flex flex-wrap gap-2">
+                          {existingGallery.map((src, index) => (
+                            <button key={index} type="button" onClick={() => setExistingHeroIndex(index)}
+                              className={`relative h-14 w-14 rounded-[10px] overflow-hidden shadow-sm ring-2 transition ${
+                                existingHeroIndex === index ? 'ring-brand-purple' : 'ring-transparent hover:ring-brand-purple/40'
+                              }`}>
+                              <img src={src} alt={`Fotka ${index + 1}`} className="h-full w-full object-cover" />
+                              {existingHeroIndex === index && (
+                                <span className="absolute bottom-0.5 right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-brand-purple text-white text-[9px] font-black">✓</span>
+                              )}
+                            </button>
+                          ))}
                         </div>
-                      </div>
+                        <button type="button" onClick={() => setClearImage(true)} className="inline-flex w-fit items-center gap-1.5 rounded-[10px] bg-brand-pink/10 px-2.5 py-1 text-xs font-black text-brand-pink transition hover:bg-brand-pink/20">
+                          <Trash2 size={12} /> Smazat všechny fotky
+                        </button>
+                      </>
                     ) : clearImage ? (
                       <div className="flex items-center gap-2 rounded-[10px] bg-brand-pink/10 px-3 py-2">
-                        <span className="flex-1 text-xs font-bold text-brand-pink">Obrázek bude smazán po uložení.</span>
+                        <span className="flex-1 text-xs font-bold text-brand-pink">Fotky budou smazány po uložení.</span>
                         <button type="button" onClick={() => setClearImage(false)} className="text-xs font-black text-brand-ink-soft hover:text-brand-ink">Zpět</button>
                       </div>
                     ) : null}
                     <label className="inline-flex cursor-pointer items-center gap-2 rounded-[14px] border border-brand-purple/20 bg-white px-3 py-2 text-xs font-black text-brand-purple transition hover:bg-brand-purple-light">
                       <ImagePlus size={15} />
-                      {photoCount > 0 ? `${photoCount} ${photoCount === 1 ? 'fotka' : photoCount < 5 ? 'fotky' : 'fotek'} vybrány` : 'Vybrat nové fotky'}
+                      {photoCount > 0 ? `${photoCount} ${photoCount === 1 ? 'fotka' : photoCount < 5 ? 'fotky' : 'fotek'} vybrány` : 'Přidat / nahradit fotky'}
                       <input ref={photoInputRef} type="file" accept="image/*" multiple className="sr-only"
                         onChange={(event) => { if (event.target.files) void handlePhotoFiles(event.target.files); }} />
                     </label>
                     {photos.length > 0 ? (
-                      <div className="mt-1 flex flex-wrap gap-2">
-                        {photos.map((src, index) => (
-                          <button key={index} type="button" onClick={() => setHeroIndex(index)}
-                            className={`relative h-14 w-14 rounded-[10px] overflow-hidden shadow-sm ring-2 transition ${
-                              heroIndex === index ? 'ring-brand-purple' : 'ring-transparent hover:ring-brand-purple/40'
-                            }`}>
-                            <img src={src} alt={`Náhled ${index + 1}`} className="h-full w-full object-cover" />
-                            {heroIndex === index && (
-                              <span className="absolute bottom-0.5 right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-brand-purple text-white text-[9px] font-black">✓</span>
-                            )}
-                          </button>
-                        ))}
-                      </div>
+                      <>
+                        <p className="text-[10px] font-bold text-brand-ink-soft">Klikni na fotku pro výběr hlavní fotky webu.</p>
+                        <div className="flex flex-wrap gap-2">
+                          {photos.map((src, index) => (
+                            <button key={index} type="button" onClick={() => setHeroIndex(index)}
+                              className={`relative h-14 w-14 rounded-[10px] overflow-hidden shadow-sm ring-2 transition ${
+                                heroIndex === index ? 'ring-brand-purple' : 'ring-transparent hover:ring-brand-purple/40'
+                              }`}>
+                              <img src={src} alt={`Náhled ${index + 1}`} className="h-full w-full object-cover" />
+                              {heroIndex === index && (
+                                <span className="absolute bottom-0.5 right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-brand-purple text-white text-[9px] font-black">✓</span>
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      </>
                     ) : null}
-                    {photos.length > 1 ? <p className="text-[10px] font-bold text-brand-ink-soft">Klikni na fotku pro výběr hlavní fotky webu.</p> : null}
                   </div>
                   <div className="flex gap-2">
                     <button type="button" onClick={handleSave} className="flex-1 rounded-[14px] bg-brand-purple py-2.5 text-sm font-black text-white transition hover:opacity-80">Uložit</button>
