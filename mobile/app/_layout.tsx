@@ -78,6 +78,7 @@ export default function RootLayout() {
     const inPublic = first === undefined || first === 'sign-in' || first === 'qr-claim';
     const inCoach = first === '(coach)';
     const inParticipant = first === '(tabs)';
+    const inShared = first === 'spots';
 
     if (inPublic) {
       if (first === undefined && session && role) router.replace(routeForRole(role));
@@ -96,7 +97,8 @@ export default function RootLayout() {
 
     const inCorrectArea =
       (role === 'coach' && inCoach) ||
-      (role === 'participant' && inParticipant);
+      (role === 'participant' && inParticipant) ||
+      inShared;
 
     if (!inCorrectArea) {
       router.replace(routeForRole(role));
@@ -158,6 +160,7 @@ export default function RootLayout() {
         <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="sign-in" options={{ headerShown: false }} />
         <Stack.Screen name="qr-claim" options={{ headerShown: false }} />
+        <Stack.Screen name="spots" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="(coach)" options={{ headerShown: false }} />
       </Stack>
