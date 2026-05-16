@@ -1,14 +1,15 @@
 import { Feather } from '@expo/vector-icons';
-import { useMemo, useState, type ComponentProps } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useRef, useMemo, useState, type ComponentProps } from 'react';
+import { Animated, ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { BlurView } from 'expo-blur';
 import { CoachCard, CoachPageHeader } from '@/components/coach/coach-screen';
 import {
-  coachTrainingGameTypeLabels,
-  useCoachTrainingGames,
-  type CoachTrainingGameType,
-  type CoachTrainingGameWithMeta,
-  type SaveCoachTrainingGameInput,
+    coachTrainingGameTypeLabels,
+    useCoachTrainingGames,
+    type CoachTrainingGameType,
+    type CoachTrainingGameWithMeta,
+    type SaveCoachTrainingGameInput,
 } from '@/hooks/use-coach-training-games';
 import { CoachColors } from '@/lib/coach-theme';
 import { Radius, Spacing } from '@/lib/theme';
@@ -38,11 +39,33 @@ export default function CoachGamesScreen() {
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
-  const [ageFilter, setAgeFilter] = useState('all');
   const [playerFilter, setPlayerFilter] = useState('all');
   const [favoritesOnly, setFavoritesOnly] = useState(false);
 
-  const ageOptions = useMemo(() => uniqueSorted(games.map((game) => game.ageGroup)), [games]);
+  const backdropOpacity = useRef(new Animated.Value(0)).current;
+  const slideY = useRef(new Animated.Value(300)).current;
+
+  const openForm = () => {
+    backdropOpacity.setValue(0);
+    slideY.setValue(300);
+    setFormOpen(true);
+    Animated.parallel([
+      Animated.timing(backdropOpacity, { toValue: 1, duration: 280, useNativeDriver: true }),
+      Animated.spring(slideY, { toValue: 0, useNativeDriver: true, tension: 65, friction: 11 }),
+    ]).start();
+  };
+
+  const closeForm = () => {
+    Animated.parallel([
+      Animated.timing(backdropOpacity, { toValue: 0, duration: 220, useNativeDriver: true }),
+      Animated.timing(slideY, { toValue: 300, duration: 220, useNativeDriver: true }),
+    ]).start(() => {
+      setFormOpen(false);
+      setForm(initialForm);
+      setFormError(null);
+    });
+  };
+
   const playerOptions = useMemo(() => uniqueSorted(games.map((game) => game.playerCount)), [games]);
   const favoriteCount = games.filter((game) => game.isFavorite).length;
   const ratedGames = games.filter((game) => game.ratingCount > 0);
@@ -55,21 +78,20 @@ export default function CoachGamesScreen() {
     return games.filter((game) => {
       if (favoritesOnly && !game.isFavorite) return false;
       if (typeFilter !== 'all' && game.type !== typeFilter) return false;
-      if (ageFilter !== 'all' && game.ageGroup !== ageFilter) return false;
       if (playerFilter !== 'all' && game.playerCount !== playerFilter) return false;
       if (!query) return true;
 
-      const haystack = [game.title, game.description, game.rules, game.ageGroup, game.playerCount, game.spaceNeeded, game.skillGoal, coachTrainingGameTypeLabels[game.type]]
+      const haystack = [game.title, game.description, game.rules, game.playerCount, game.spaceNeeded, game.skillGoal, coachTrainingGameTypeLabels[game.type]]
         .join(' ')
         .toLowerCase();
       return haystack.includes(query);
     });
-  }, [ageFilter, favoritesOnly, games, playerFilter, search, typeFilter]);
+  }, [favoritesOnly, games, playerFilter, search, typeFilter]);
 
   const submitGame = async () => {
-    const required = [form.title, form.description, form.rules, form.ageGroup, form.playerCount, form.spaceNeeded, form.skillGoal];
+    const required = [form.title, form.description, form.rules, form.playerCount, form.spaceNeeded, form.skillGoal];
     if (required.some((value) => value.trim().length === 0)) {
-      setFormError('Vyplň název, popis, pravidla, věk, počet hráčů, prostor i rozvíjenou dovednost.');
+      setFormError('Vyplň název, popis, pravidla, počet hráčů, prostor i rozvíjenou dovednost.');
       return;
     }
 
@@ -77,8 +99,7 @@ export default function CoachGamesScreen() {
     setFormError(null);
     try {
       await createGame(form);
-      setForm(initialForm);
-      setFormOpen(false);
+      closeForm();
     } catch {
       setFormError('Hru se nepodařilo uložit. Zkus to prosím znovu.');
     } finally {
@@ -98,20 +119,37 @@ export default function CoachGamesScreen() {
           { label: 'Oblíbené', value: String(favoriteCount), tone: 'pink' },
           { label: 'Průměr', value: averageRating > 0 ? averageRating.toFixed(1) : '—', tone: 'amber' },
         ]}
-        actionLabel={formOpen ? 'Zavřít formulář' : 'Přidat hru'}
-        actionIcon={formOpen ? 'x' : 'plus'}
-        onActionPress={() => setFormOpen((value) => !value)}
+        actionLabel="Přidat hru"
+        actionIcon="plus"
+        onActionPress={openForm}
       />
 
-      {formOpen ? (
-        <GameForm
-          form={form}
-          error={formError}
-          saving={saving}
-          onChange={(patch) => setForm((current) => ({ ...current, ...patch }))}
-          onSubmit={submitGame}
-        />
-      ) : null}
+      <Modal visible={formOpen} transparent animationType="none" statusBarTranslucent onRequestClose={closeForm}>
+        <Animated.View style={[StyleSheet.absoluteFill, { opacity: backdropOpacity }]} pointerEvents="none">
+          <BlurView intensity={50} tint="dark" style={StyleSheet.absoluteFill} />
+        </Animated.View>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalKAV}>
+          <Pressable style={{ flex: 1 }} onPress={closeForm} />
+          <Animated.View style={[styles.modalSheet, { transform: [{ translateY: slideY }] }]}>
+            <View style={styles.modalHandleBar} />
+            <View style={styles.modalSheetHeader}>
+              <Text style={styles.modalSheetTitle}>Nová hra</Text>
+              <Pressable onPress={closeForm} style={styles.modalCloseBtn}>
+                <Feather name="x" size={20} color={CoachColors.slate} />
+              </Pressable>
+            </View>
+            <ScrollView contentContainerStyle={styles.modalFormContent} keyboardShouldPersistTaps="handled">
+              <GameForm
+                form={form}
+                error={formError}
+                saving={saving}
+                onChange={(patch) => setForm((current) => ({ ...current, ...patch }))}
+                onSubmit={submitGame}
+              />
+            </ScrollView>
+          </Animated.View>
+        </KeyboardAvoidingView>
+      </Modal>
 
       <CoachCard
         title="Filtry"
@@ -143,10 +181,6 @@ export default function CoachGamesScreen() {
           </View>
           <View style={styles.filterRow}>
             <FilterChip label="Oblíbené" icon="heart" active={favoritesOnly} onPress={() => setFavoritesOnly((value) => !value)} />
-            <FilterChip label="Věk: vše" active={ageFilter === 'all'} onPress={() => setAgeFilter('all')} />
-            {ageOptions.map((age) => (
-              <FilterChip key={age} label={age} active={ageFilter === age} onPress={() => setAgeFilter(age)} />
-            ))}
           </View>
           <View style={styles.filterRow}>
             <FilterChip label="Hráči: vše" active={playerFilter === 'all'} onPress={() => setPlayerFilter('all')} />
@@ -172,7 +206,7 @@ export default function CoachGamesScreen() {
             </View>
             <Text style={styles.emptyTitle}>Zatím tu není žádná hra pro tento výběr</Text>
             <Text style={styles.muted}>Přidej první hru a ostatní trenéři ji uvidí ve své knihovně.</Text>
-            <Pressable style={({ pressed }) => [styles.primaryButton, pressed && { opacity: 0.86 }]} onPress={() => setFormOpen(true)}>
+            <Pressable style={({ pressed }) => [styles.primaryButton, pressed && { opacity: 0.86 }]} onPress={openForm}>
               <Feather name="plus" size={17} color="#fff" />
               <Text style={styles.primaryButtonText}>Přidat hru</Text>
             </Pressable>
@@ -208,10 +242,9 @@ function GameForm({
   onSubmit: () => void;
 }) {
   return (
-    <CoachCard title="Nová hra" subtitle="Vyplň strukturu hry, která se má sdílet mezi trenéry.">
+    <View style={styles.formContainer}>
       <View style={styles.formGrid}>
         <FormField label="Název" value={form.title} onChangeText={(title) => onChange({ title })} placeholder="Např. Precision štafeta" />
-        <FormField label="Věková skupina" value={form.ageGroup} onChangeText={(ageGroup) => onChange({ ageGroup })} placeholder="6-12 let" />
         <FormField label="Počet hráčů" value={form.playerCount} onChangeText={(playerCount) => onChange({ playerCount })} placeholder="4-12 hráčů" />
         <FormField label="Potřebný prostor" value={form.spaceNeeded} onChangeText={(spaceNeeded) => onChange({ spaceNeeded })} placeholder="Tělocvična, spot, žíněnky" />
       </View>
@@ -237,7 +270,7 @@ function GameForm({
         {saving ? <ActivityIndicator size="small" color="#fff" /> : <Feather name="share-2" size={17} color="#fff" />}
         <Text style={styles.primaryButtonText}>{saving ? 'Ukládám...' : 'Sdílet hru'}</Text>
       </Pressable>
-    </CoachCard>
+    </View>
   );
 }
 
@@ -266,7 +299,6 @@ function GameCard({ game, onRate, onFavorite }: { game: CoachTrainingGameWithMet
       </View>
 
       <View style={styles.metaGrid}>
-        <Meta icon="users" label="Věk" value={game.ageGroup} />
         <Meta icon="user-plus" label="Hráči" value={game.playerCount} />
         <Meta icon="map-pin" label="Prostor" value={game.spaceNeeded} />
         <Meta icon="target" label="Dovednost" value={game.skillGoal} />
@@ -421,4 +453,12 @@ const styles = StyleSheet.create({
   starButtonActive: { backgroundColor: CoachColors.amber, borderColor: CoachColors.amber },
   authorRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   authorText: { color: CoachColors.slateMuted, fontSize: 12, lineHeight: 17, fontWeight: '700' },
+  modalKAV: { flex: 1 },
+  modalSheet: { backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '90%', shadowColor: '#000', shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.18, shadowRadius: 20, elevation: 24 },
+  modalHandleBar: { width: 40, height: 4, borderRadius: 2, backgroundColor: CoachColors.border, alignSelf: 'center', marginTop: 12, marginBottom: 4 },
+  modalSheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md, borderBottomWidth: 1, borderBottomColor: CoachColors.border },
+  modalSheetTitle: { color: CoachColors.slate, fontSize: 18, fontWeight: '900', lineHeight: 24 },
+  modalCloseBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: CoachColors.panelAlt, borderWidth: 1, borderColor: CoachColors.border },
+  modalFormContent: { padding: Spacing.lg, gap: Spacing.md, paddingBottom: 40 },
+  formContainer: { gap: Spacing.md },
 });
