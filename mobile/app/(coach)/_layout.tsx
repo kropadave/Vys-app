@@ -17,6 +17,7 @@ const tabIcons: Record<string, MaterialIconName> = {
   'coach-leaderboard': 'podium-gold',
   'coach-profile': 'account-circle-outline',
   'coach-inspiration': 'book-open-page-variant-outline',
+  'coach-games': 'gamepad-variant-outline',
 };
 
 export default function CoachTabs() {
@@ -83,6 +84,7 @@ export default function CoachTabs() {
       <Tabs.Screen name="ward-detail" options={{ href: null, title: 'Detail dítěte' }} />
       <Tabs.Screen name="participant-search" options={{ href: null, title: 'Hledat účastníka' }} />
       <Tabs.Screen name="coach-inspiration" options={{ href: null, title: 'Inspirace' }} />
+      <Tabs.Screen name="coach-games" options={{ href: null, title: 'Hry na trénink' }} />
       <Tabs.Screen name="coach-leaderboard" options={{ title: 'Žebříček', tabBarAccessibilityLabel: 'Žebříček' }} />
       <Tabs.Screen name="coach-profile" options={{ title: 'Profil', tabBarAccessibilityLabel: 'Profil' }} />
     </Tabs>

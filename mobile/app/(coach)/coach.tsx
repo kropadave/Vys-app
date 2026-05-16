@@ -27,6 +27,8 @@ const CoachColors = {
   slateSoft: '#EEF2F6',
   blue: '#0E8FB8',
   blueSoft: 'rgba(14,143,184,0.10)',
+  pink: '#D946EF',
+  pinkSoft: 'rgba(217,70,239,0.10)',
   teal: '#1F9D72',
   tealSoft: 'rgba(31,157,114,0.12)',
   amber: '#E89A18',
@@ -1320,6 +1322,15 @@ export default function CoachHome() {
               <Text style={styles.muted}>První pomoc, metodika učení a levelování v parkouru.</Text>
             </View>
           </Pressable>
+          <Pressable style={({ pressed }) => [styles.quickActionButton, styles.quickActionGames, pressed && { opacity: 0.86 }]} onPress={() => router.push('/coach-games' as never)}>
+            <View style={[styles.quickActionIcon, styles.quickActionIconGames]}>
+              <Feather name="zap" size={18} color={CoachColors.pink} />
+            </View>
+            <View style={styles.quickActionCopy}>
+              <Text style={styles.quickActionTitle}>Hry na trénink</Text>
+              <Text style={styles.muted}>Vytvářet, sdílet, hodnotit a ukládat oblíbené hry.</Text>
+            </View>
+          </Pressable>
           <Pressable style={({ pressed }) => [styles.quickActionButton, styles.quickActionSpots, pressed && { opacity: 0.86 }]} onPress={() => router.push('/spots' as never)}>
             <View style={[styles.quickActionIcon, styles.quickActionIconSpots]}>
               <Feather name="map-pin" size={18} color={CoachColors.teal} />
@@ -1785,11 +1796,13 @@ const styles = StyleSheet.create({
   quickActionAttendance: { borderLeftWidth: 4, borderLeftColor: CoachColors.teal },
   quickActionQr: { borderLeftWidth: 4, borderLeftColor: CoachColors.blue },
   quickActionGuide: { borderLeftWidth: 4, borderLeftColor: CoachColors.amber },
+  quickActionGames: { borderLeftWidth: 4, borderLeftColor: CoachColors.pink },
   quickActionSpots: { borderLeftWidth: 4, borderLeftColor: CoachColors.teal },
   quickActionIcon: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
   quickActionIconAttendance: { backgroundColor: CoachColors.tealSoft },
   quickActionIconQr: { backgroundColor: CoachColors.blueSoft },
   quickActionIconGuide: { backgroundColor: CoachColors.amberSoft },
+  quickActionIconGames: { backgroundColor: CoachColors.pinkSoft },
   quickActionIconSpots: { backgroundColor: CoachColors.tealSoft },
   quickActionCopy: { flex: 1, minWidth: 0, gap: 2 },
   quickActionTitle: { color: Palette.text, fontSize: 18, lineHeight: 24, fontWeight: '900' },
