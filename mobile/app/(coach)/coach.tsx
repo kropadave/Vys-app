@@ -1317,7 +1317,7 @@ export default function CoachHome() {
             </View>
             <View style={styles.quickActionCopy}>
               <Text style={styles.quickActionTitle}>Inspirace pro trenéry</Text>
-              <Text style={styles.muted}>První pomoc, metodika, harmonogram sezóny a hry na zahřátí.</Text>
+              <Text style={styles.muted}>První pomoc, metodika učení a levelování v parkouru.</Text>
             </View>
           </Pressable>
           <Pressable style={({ pressed }) => [styles.quickActionButton, styles.quickActionSpots, pressed && { opacity: 0.86 }]} onPress={() => router.push('/spots' as never)}>
