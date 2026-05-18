@@ -1,6 +1,6 @@
 export type RewardKind = 'xp' | 'yarn' | 'discount' | 'chest' | 'bonus';
 export type RewardDiscountTarget = 'Kroužek' | 'Workshop';
-export type RewardChestRarity = 'common' | 'rare' | 'epic';
+export type RewardChestRarity = 'common' | 'rare' | 'gold';
 
 export type MonthlyReward = {
   id: string;
@@ -130,10 +130,10 @@ export const monthlyRewardPath: MonthlyReward[] = [
   {
     id: 'epic-crate',
     xp: 2600,
-    title: 'Epická bedna',
+    title: 'Zlatá bedna',
     detail: 'Nejvyšší měsíční šance na tmavé a černé maskoty.',
     kind: 'chest',
-    chestRarity: 'epic',
+    chestRarity: 'gold',
     bonusXp: 200,
     accent: '#FFB21A',
   },

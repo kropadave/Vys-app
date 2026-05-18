@@ -1,8 +1,7 @@
 import { Feather } from '@expo/vector-icons';
-import { useRef, useMemo, useState, type ComponentProps } from 'react';
-import { Animated, ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useMemo, useRef, useState, type ComponentProps } from 'react';
+import { ActivityIndicator, Animated, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { BlurView } from 'expo-blur';
 import { CoachCard, CoachPageHeader } from '@/components/coach/coach-screen';
 import {
     coachTrainingGameTypeLabels,
@@ -13,6 +12,7 @@ import {
 } from '@/hooks/use-coach-training-games';
 import { CoachColors } from '@/lib/coach-theme';
 import { Radius, Spacing } from '@/lib/theme';
+import { BlurView } from 'expo-blur';
 
 type FeatherIconName = ComponentProps<typeof Feather>['name'];
 type TypeFilter = CoachTrainingGameType | 'all';

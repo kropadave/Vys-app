@@ -1,4 +1,5 @@
 import { FontAwesome5 } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import type { ComponentProps } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -19,6 +20,11 @@ import {
 import { rewardPathForXp } from '@/lib/participant-content';
 import { Palette, Radius, Shadow, Spacing } from '@/lib/theme';
 import { useBreakpoint } from '@/lib/use-breakpoint';
+
+// ─── Crate images ──────────────────────────────────────────────
+const crateImageCommon  = require('@/assets/images/crate-common.png');
+const crateImageRare    = require('@/assets/images/crate-rare.png');
+const crateImageGold    = require('@/assets/images/crate-gold.png');
 
 export default function RewardsScreen() {
   const { isMobile } = useBreakpoint();
@@ -115,7 +121,7 @@ export default function RewardsScreen() {
                   </View>
                   <View style={styles.rewardTitleRow}>
                     <View style={[styles.rewardIcon, { backgroundColor: hexToSoft(accent, 0.14) }]}> 
-                      <RewardIcon kind={reward.kind} accent={accent} />
+                      <RewardIcon kind={reward.kind} chestRarity={reward.chestRarity} accent={accent} />
                     </View>
                     <Text style={styles.rewardTitle} numberOfLines={2}>{reward.title}</Text>
                   </View>
@@ -129,12 +135,16 @@ export default function RewardsScreen() {
   );
 }
 
+function crateImageForRarity(rarity?: string) {
+  if (rarity === 'gold') return crateImageGold;
+  if (rarity === 'rare') return crateImageRare;
+  return crateImageCommon;
+}
+
 function ChestPreview({ reward, distance }: { reward: MonthlyReward; distance: number }) {
   return (
     <View style={styles.chestPreview}>
-      <View style={[styles.chestPreviewIcon, { backgroundColor: hexToSoft(reward.accent, 0.16) }]}> 
-        <FontAwesome5 name="box-open" size={16} color={reward.accent} />
-      </View>
+      <Image source={crateImageForRarity(reward.chestRarity)} style={styles.chestPreviewImage} contentFit="contain" />
       <View style={{ flex: 1, minWidth: 0 }}>
         <Text style={styles.chestPreviewLabel}>Další bedna</Text>
         <Text style={styles.chestPreviewTitle}>{reward.title}</Text>
@@ -185,8 +195,9 @@ function CoinStat({ label, value }: { label: string; value: number }) {
   );
 }
 
-function RewardIcon({ kind, accent }: { kind: string; accent: string }) {
+function RewardIcon({ kind, chestRarity, accent }: { kind: string; chestRarity?: string; accent: string }) {
   if (kind === 'yarn') return <YarnBall size={15} color={accent} />;
+  if (kind === 'chest') return <Image source={crateImageForRarity(chestRarity)} style={styles.rewardIconImage} contentFit="contain" />;
   return <FontAwesome5 name={rewardIconName(kind)} size={13} color={accent} />;
 }
 
@@ -254,6 +265,7 @@ const styles = StyleSheet.create({
 
   chestPreview: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderRadius: Radius.xl, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: 'rgba(23,18,32,0.08)' },
   chestPreviewIcon: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
+  chestPreviewImage: { width: 44, height: 44 },
   chestPreviewLabel: { color: Palette.textMuted, fontSize: 10, lineHeight: 14, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.6 },
   chestPreviewTitle: { color: Palette.text, fontSize: 15, lineHeight: 19, fontWeight: '900' },
   chestRarityPill: { borderRadius: Radius.pill, paddingHorizontal: 9, paddingVertical: 5 },
@@ -290,6 +302,7 @@ const styles = StyleSheet.create({
   xpLabel: { fontSize: 11, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.5 },
   rewardTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 9, marginTop: 8 },
   rewardIcon: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
+  rewardIconImage: { width: 22, height: 22 },
   rewardTitle: { color: Palette.text, fontSize: 16, lineHeight: 20, fontWeight: '900', flex: 1 },
   rewardDetail: { color: Palette.textMuted, fontSize: 12, lineHeight: 17, fontWeight: '700', marginTop: 2 },
   rewardMetaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 6 },

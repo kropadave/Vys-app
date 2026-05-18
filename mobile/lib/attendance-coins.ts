@@ -5,7 +5,7 @@
 //   • Kid attends ~4×/month (1 course, weekly) → earns 40 coins/month
 //   • Common crate  (60  coins) ≈ 1.5 months  — accessible
 //   • Rare   crate  (150 coins) ≈ 3.75 months — meaningful effort
-//   • Epic   crate  (360 coins) ≈ 9 months     — real achievement
+//   • Gold   crate  (360 coins) ≈ 9 months     — real achievement
 //
 // COINS_PER_SESSION = 10  (not 15 — keeps economy healthy)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -100,7 +100,7 @@ export type LootResult =
 
 // ─── Crate types ──────────────────────────────────────────────────────────────
 
-export type CrateId = 'common' | 'rare' | 'epic';
+export type CrateId = 'common' | 'rare' | 'gold';
 
 export type CrateDefinition = {
   id: CrateId;
@@ -156,8 +156,8 @@ export const crateDefinitions: CrateDefinition[] = [
     ],
   },
   {
-    id: 'epic',
-    name: 'Epická bedna',
+    id: 'gold',
+    name: 'Zlatá bedna',
     subtitle: 'Tmavá a černá série',
     price: 360,
     gradient: ['#FFD6F0', '#FFE0CC'],

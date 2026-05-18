@@ -22,6 +22,11 @@ import { Brand, BrandGradient } from '@/lib/brand';
 import { Radius, Shadow, Spacing } from '@/lib/theme';
 import { useBreakpoint } from '@/lib/use-breakpoint';
 
+// ─── Crate images ────────────────────────────────────────────────────────────
+const crateImageCommon  = require('@/assets/images/crate-common.png');
+const crateImageRare    = require('@/assets/images/crate-rare.png');
+const crateImageGold    = require('@/assets/images/crate-gold.png');
+
 // ─── Mascot images ───────────────────────────────────────────────────────────
 const mascotBeigeSit    = require('@/assets/images/maskoti/maskot-beige-sit.png');
 const mascotBeigeSleep  = require('@/assets/images/maskoti/maskot-beige-sleep.png');
@@ -165,8 +170,8 @@ function CrateCard({ crate, coins, onBuy }: { crate: CrateDefinition; coins: num
   const shakeAnim = useRef(new Animated.Value(0)).current;
   const flashAnim = useRef(new Animated.Value(0)).current;
 
-  const iconName =
-    crate.id === 'epic' ? 'treasure-chest' : crate.id === 'rare' ? 'package-variant' : 'package-variant-closed';
+  const crateImage =
+    crate.id === 'gold' ? crateImageGold : crate.id === 'rare' ? crateImageRare : crateImageCommon;
 
   const handlePress = useCallback(() => {
     if (!canAfford) return;
@@ -221,7 +226,7 @@ function CrateCard({ crate, coins, onBuy }: { crate: CrateDefinition; coins: num
       />
 
       <Animated.View style={[styles.crateIconWrap, shakeStyle]}>
-        <MaterialCommunityIcons name={iconName} size={36} color={crate.badgeColor} />
+        <Image source={crateImage} style={styles.crateImage} contentFit="contain" />
       </Animated.View>
 
       <View style={styles.crateInfo}>
@@ -637,6 +642,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.55)',
   },
+  crateImage: { width: 54, height: 54 },
   crateInfo: { flex: 1, gap: 4 },
   crateName: { fontSize: 15, fontWeight: '900', color: Brand.ink },
   crateSubtitle: { fontSize: 11, fontWeight: '600', color: Brand.inkSoft },
