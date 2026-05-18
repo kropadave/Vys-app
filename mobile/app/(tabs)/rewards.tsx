@@ -3,7 +3,6 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import type { ComponentProps } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
-import Svg, { Circle, Path } from 'react-native-svg';
 
 import { AnimatedProgressBar, FadeInUp, PulseGlow } from '@/components/animated/motion';
 import { useParticipantProfile } from '@/hooks/use-participant-profile';
@@ -25,6 +24,7 @@ import { useBreakpoint } from '@/lib/use-breakpoint';
 const crateImageCommon  = require('@/assets/images/crate-common.png');
 const crateImageRare    = require('@/assets/images/crate-rare.png');
 const crateImageGold    = require('@/assets/images/crate-gold.png');
+const yarnBallImage     = require('@/assets/images/yarn-ball.png');
 
 export default function RewardsScreen() {
   const { isMobile } = useBreakpoint();
@@ -174,15 +174,8 @@ function HeroStat({ icon, label, value, color }: { icon: ComponentProps<typeof F
   );
 }
 
-function YarnBall({ size = 14, color = Brand.orange }: { size?: number; color?: string }) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 20 20">
-      <Circle cx="10" cy="10" r="9.5" fill={color} />
-      <Path d="M 1 10 Q 10 3 19 10" fill="none" stroke="rgba(255,255,255,0.48)" strokeWidth="1.8" strokeLinecap="round" />
-      <Path d="M 1 10 Q 10 17 19 10" fill="none" stroke="rgba(255,255,255,0.30)" strokeWidth="1.4" strokeLinecap="round" />
-      <Path d="M 10 1 Q 17 10 10 19" fill="none" stroke="rgba(255,255,255,0.34)" strokeWidth="1.5" strokeLinecap="round" />
-    </Svg>
-  );
+function YarnBall({ size = 14 }: { size?: number; color?: string }) {
+  return <Image source={yarnBallImage} style={{ width: size, height: size }} contentFit="contain" />;
 }
 
 function CoinStat({ label, value }: { label: string; value: number }) {

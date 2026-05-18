@@ -3,7 +3,6 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, Easing, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import Svg, { Circle, Path } from 'react-native-svg';
 
 import { AnimatedCounter, FadeInUp, PulseGlow, ScaleIn, StaggeredList } from '@/components/animated/motion';
 import {
@@ -26,6 +25,7 @@ import { useBreakpoint } from '@/lib/use-breakpoint';
 const crateImageCommon  = require('@/assets/images/crate-common.png');
 const crateImageRare    = require('@/assets/images/crate-rare.png');
 const crateImageGold    = require('@/assets/images/crate-gold.png');
+const yarnBallImage     = require('@/assets/images/yarn-ball.png');
 
 // ─── Mascot images ───────────────────────────────────────────────────────────
 const mascotBeigeSit    = require('@/assets/images/maskoti/maskot-beige-sit.png');
@@ -64,28 +64,8 @@ const mascotAssetById: Partial<Record<string, ReturnType<typeof require>>> = {
 
 // ─── Yarn ball icon ──────────────────────────────────────────────────────────
 
-function YarnCoin({ size = 20, color = Brand.orange }: { size?: number; color?: string }) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 40 40">
-      {/* Shadow */}
-      <Circle cx="20" cy="22" r="14" fill="rgba(0,0,0,0.10)" />
-      {/* Main ball */}
-      <Circle cx="20" cy="20" r="14" fill={color} />
-      {/* Highlight sheen */}
-      <Circle cx="14" cy="13" r="5" fill="rgba(255,255,255,0.18)" />
-      {/* Wrap threads - horizontal arcs */}
-      <Path d="M 6.5 20 Q 20 10 33.5 20" fill="none" stroke="rgba(255,255,255,0.55)" strokeWidth="2" strokeLinecap="round" />
-      <Path d="M 6.5 20 Q 20 30 33.5 20" fill="none" stroke="rgba(255,255,255,0.35)" strokeWidth="1.6" strokeLinecap="round" />
-      {/* Wrap threads - vertical arc */}
-      <Path d="M 20 6.5 Q 30 20 20 33.5" fill="none" stroke="rgba(255,255,255,0.40)" strokeWidth="1.8" strokeLinecap="round" />
-      {/* Diagonal wrap */}
-      <Path d="M 9 11 Q 22 20 11 31" fill="none" stroke="rgba(255,255,255,0.28)" strokeWidth="1.4" strokeLinecap="round" />
-      {/* Tail thread */}
-      <Path d="M 28 8 Q 34 4 36 8" fill="none" stroke={color} strokeWidth="3" strokeLinecap="round" />
-      <Path d="M 34 4 L 38 2" stroke={color} strokeWidth="2.5" strokeLinecap="round" />
-      <Circle cx="28" cy="8" r="2.2" fill="rgba(255,255,255,0.7)" />
-    </Svg>
-  );
+function YarnCoin({ size = 20 }: { size?: number; color?: string }) {
+  return <Image source={yarnBallImage} style={{ width: size, height: size }} contentFit="contain" />;
 }
 
 // ─── Mascot bubble ────────────────────────────────────────────────────────────
