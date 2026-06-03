@@ -8,7 +8,7 @@ import { DEV_BYPASS_AUTH } from '@/lib/dev-config';
 import { createBrowserSupabaseClient, hasSupabaseBrowserConfig } from '@/lib/supabase/browser';
 import { cn } from '@/lib/utils';
 
-type WebRole = 'parent' | 'admin';
+type WebRole = 'admin';
 type Mode = 'sign-in' | 'sign-up' | 'verify-email' | 'forgot-password' | 'reset-password';
 
 type AuthUser = {
@@ -38,7 +38,7 @@ export function SignInForm() {
   const searchParams = useSearchParams();
   const next = searchParams.get('next');
   const [mode, setMode] = useState<Mode>('sign-in');
-  const [role, setRole] = useState<WebRole>('parent');
+  const [role] = useState<WebRole>('admin');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -93,15 +93,15 @@ export function SignInForm() {
         const { data: profile, error: profileError } = await supabase.from('app_profiles').select('role').eq('id', user.id).maybeSingle();
         if (profileError) throw profileError;
 
-        if (profile?.role === 'admin' || profile?.role === 'parent') {
-          router.replace(redirectForRole(profile.role));
+        if (profile?.role === 'admin') {
+          router.replace(redirectForRole('admin'));
           router.refresh();
           return;
         }
 
-        await upsertParentProfile(supabase, user, metadataName(user) || name);
-        router.replace(redirectForRole('parent'));
-        router.refresh();
+        // Parent accounts now use the mobile app
+        await supabase.auth.signOut();
+        setMessage('Rodičovský účet se přihlašuje v mobilní aplikaci TeamVYS.');
       }).catch((error) => {
         setMessage(error instanceof Error ? error.message : 'Ověření e-mailu se nepovedlo.');
       }).finally(() => {
@@ -122,11 +122,10 @@ export function SignInForm() {
     setPassword('');
     setConfirmPassword('');
     setVerificationCode('');
-    if (nextMode === 'sign-up' && role === 'admin' && !DEV_BYPASS_AUTH) setRole('parent');
   }
 
   function redirectForRole(resolvedRole: WebRole) {
-    return next && next.startsWith('/') && !next.startsWith('//') ? next : resolvedRole === 'admin' ? '/admin' : '/rodic';
+    return next && next.startsWith('/') && !next.startsWith('//') ? next : '/admin';
   }
 
   function emailRedirectUrl() {
@@ -160,8 +159,7 @@ export function SignInForm() {
       const user = data.user ?? data.session?.user;
       if (!user) throw new Error('Kód se nepodařilo přiřadit k účtu.');
 
-      await upsertParentProfile(supabase, user, name);
-      router.replace(redirectForRole('parent'));
+      router.replace(redirectForRole('admin'));
       router.refresh();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Ověření kódu se nepovedlo.');
@@ -270,10 +268,10 @@ export function SignInForm() {
       return;
     }
 
-    if (mode === 'sign-up' && role === 'admin') {
-      setMessage('Admin účet nejde vytvořit veřejnou registrací. Přihlášení admina musí nejdřív povolit existující admin.');
-      return;
-    }
+      if (mode === 'sign-up' && role === 'admin') {
+        setMessage('Admin účet nejde vytvořit veřejnou registrací. Přihlášení admina musí nejdřív povolit existující admin.');
+        return;
+      }
 
     setPending(true);
     try {
@@ -309,39 +307,27 @@ export function SignInForm() {
         const { data: profile, error } = await supabase.from('app_profiles').select('role').eq('id', user.id).maybeSingle();
         if (error) throw error;
 
-        if (profile?.role === 'admin' || profile?.role === 'parent') {
-          // Enforce that selected role matches actual DB role
-          if (profile.role !== role) {
-            await supabase.auth.signOut();
-            const roleName = profile.role === 'admin' ? 'Admin' : 'Rodič';
-            setMessage(`Tenhle účet je ${roleName}. Vyber správnou roli a zkus to znovu.`);
-            setRole(profile.role as WebRole);
-            return;
-          }
-          router.replace(redirectForRole(profile.role));
+        if (profile?.role === 'admin') {
+          router.replace(redirectForRole('admin'));
           router.refresh();
           return;
         }
 
-        if (!profile && role === 'parent') {
-          await supabase.from('app_profiles').upsert(
-            { id: user.id, role: 'parent', name: name || user.email || 'TeamVYS rodič', email: user.email },
-            { onConflict: 'id' }
-          );
-          router.replace(redirectForRole('parent'));
-          router.refresh();
+        if (profile?.role === 'parent') {
+          await supabase.auth.signOut();
+          setMessage('Rodičovský účet se přihlašuje v mobilní aplikaci TeamVYS.');
           return;
         }
 
-        await supabase.auth.signOut();
-        setMessage('Tenhle účet není webový rodič ani schválený admin. Použij správné přihlášení.');
+      await supabase.auth.signOut();
+        setMessage('Tenhle účet nemá admin oprávnění.');
         return;
       }
 
-      await upsertParentProfile(supabase, user, name);
-
-      router.replace(redirectForRole('parent'));
-      router.refresh();
+        await supabase.auth.signOut();
+        setMessage('Tenhle účet není schválený admin. Použij správné přihlášení.');
+        return;
+      }
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Přihlášení se nepovedlo.';
       if (msg.toLowerCase().includes('email not confirmed')) {
@@ -360,20 +346,13 @@ export function SignInForm() {
       onSubmit={onSubmit}
       className="space-y-5 rounded-[28px] border border-brand-purple/12 bg-white p-6 shadow-brand md:p-7"
     >
-      <div className="grid grid-cols-2 gap-2 rounded-[20px] bg-brand-paper p-1.5">
+      <div className="flex gap-2 rounded-[20px] bg-brand-paper p-1.5">
         <button
           type="button"
           onClick={() => switchMode('sign-in')}
-          className={cn('rounded-[16px] px-4 py-3 text-sm font-black transition-colors', mode === 'sign-in' ? 'bg-white text-brand-ink shadow-brand-soft' : 'text-brand-ink-soft')}
+          className={cn('flex-1 rounded-[16px] px-4 py-3 text-sm font-black transition-colors', mode === 'sign-in' ? 'bg-white text-brand-ink shadow-brand-soft' : 'text-brand-ink-soft')}
         >
           Přihlášení
-        </button>
-        <button
-          type="button"
-          onClick={() => switchMode('sign-up')}
-          className={cn('rounded-[16px] px-4 py-3 text-sm font-black transition-colors', mode === 'sign-up' ? 'bg-white text-brand-ink shadow-brand-soft' : 'text-brand-ink-soft')}
-        >
-          Registrace
         </button>
       </div>
 
@@ -390,10 +369,11 @@ export function SignInForm() {
         </div>
       ) : null}
 
-      {mode === 'sign-in' || mode === 'sign-up' ? <div className="grid grid-cols-2 gap-2">
-        <RoleButton active={role === 'parent'} label="Rodič" onClick={() => setRole('parent')} />
-        {mode === 'sign-in' || DEV_BYPASS_AUTH ? <RoleButton active={role === 'admin'} label="Admin" onClick={() => setRole('admin')} /> : null}
-      </div> : null}
+      {mode === 'sign-in' || mode === 'sign-up' ? (
+        <div className="rounded-[18px] bg-brand-paper px-4 py-3 text-sm font-black text-brand-ink">
+          Admin přístup
+        </div>
+      ) : null}
 
       {mode === 'sign-up' ? (
         <label className="block space-y-2">
