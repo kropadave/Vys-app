@@ -90,8 +90,16 @@ const LOGIN_FIELDS: Record<AppRole, FieldConfig[]> = {
     { key: 'credential', label: 'E-mail nebo telefon', placeholder: 'eliska@example.cz', keyboardType: 'email-address' },
     { key: 'password', label: 'Heslo', placeholder: 'Tvoje heslo', secure: true },
   ],
+  parent: [
+    { key: 'credential', label: 'Rodičovský e-mail', placeholder: 'rodic@example.cz', keyboardType: 'email-address' },
+    { key: 'password', label: 'Heslo', placeholder: 'Tvoje heslo', secure: true },
+  ],
   coach: [
     { key: 'credential', label: 'Trenérský e-mail', placeholder: 'trener@teamvys.cz', keyboardType: 'email-address' },
+    { key: 'password', label: 'Heslo', placeholder: 'Tvoje heslo', secure: true },
+  ],
+  admin: [
+    { key: 'credential', label: 'Admin e-mail', placeholder: 'admin@teamvys.cz', keyboardType: 'email-address' },
     { key: 'password', label: 'Heslo', placeholder: 'Tvoje heslo', secure: true },
   ],
 };
@@ -106,11 +114,23 @@ const REGISTER_FIELDS: Record<AppRole, FieldConfig[]> = {
     { key: 'password', label: 'Heslo', placeholder: 'Minimálně 6 znaků', secure: true },
     { key: 'confirmPassword', label: 'Potvrzení hesla', placeholder: 'Zopakuj heslo', secure: true },
   ],
+  parent: [
+    { key: 'fullName', label: 'Jméno a příjmení', placeholder: 'Jana Nováková' },
+    { key: 'credential', label: 'E-mail', placeholder: 'rodic@example.cz', keyboardType: 'email-address' },
+    { key: 'phone', label: 'Telefon', placeholder: '+420 605 324 417', keyboardType: 'phone-pad' },
+    { key: 'password', label: 'Heslo', placeholder: 'Minimálně 6 znaků', secure: true },
+    { key: 'confirmPassword', label: 'Potvrzení hesla', placeholder: 'Zopakuj heslo', secure: true },
+  ],
   coach: [
     { key: 'fullName', label: 'Jméno a příjmení', placeholder: 'Jméno trenéra' },
     { key: 'credential', label: 'E-mail', placeholder: 'trener@example.cz', keyboardType: 'email-address' },
     { key: 'phone', label: 'Telefon', placeholder: '+420 777 221 904', keyboardType: 'phone-pad' },
     { key: 'coachMessage', label: 'Krátce o sobě (nepovinné)', placeholder: 'Kde trénuješ, odkud víš o nás, zkušenosti...', multiline: true },
+    { key: 'password', label: 'Heslo', placeholder: 'Minimálně 6 znaků', secure: true },
+    { key: 'confirmPassword', label: 'Potvrzení hesla', placeholder: 'Zopakuj heslo', secure: true },
+  ],
+  admin: [
+    { key: 'credential', label: 'E-mail', placeholder: 'admin@teamvys.cz', keyboardType: 'email-address' },
     { key: 'password', label: 'Heslo', placeholder: 'Minimálně 6 znaků', secure: true },
     { key: 'confirmPassword', label: 'Potvrzení hesla', placeholder: 'Zopakuj heslo', secure: true },
   ],
@@ -253,6 +273,9 @@ export default function SignInScreen() {
   async function upsertRoleProfile(userId: string, role: AppRole) {
     if (!supabase) return;
 
+    // Parent has no separate role-specific table
+    if (role === 'parent') return;
+
     if (role === 'coach') {
       const { error } = await supabase.from('coach_profiles').upsert(
         {
@@ -312,7 +335,7 @@ export default function SignInScreen() {
   async function sendPasswordReset() {
     if (!supabase) throw new Error('Supabase klient není nakonfigurovaný.');
 
-    const redirectTo = typeof window !== 'undefined' ? `${window.location.origin}/sign-in?mode=reset-password` : undefined;
+    const redirectTo = typeof window !== 'undefined' && window.location?.origin ? `${window.location.origin}/sign-in?mode=reset-password` : undefined;
     const { error } = await supabase.auth.resetPasswordForEmail(form.credential.trim().toLowerCase(), { redirectTo });
     if (error) throw error;
     setErrors({ form: 'Obnovovací e-mail je odeslaný. Otevři odkaz a nastav nové heslo.' });
@@ -335,8 +358,7 @@ export default function SignInScreen() {
 
     const email = form.credential.trim();
     const password = form.password;
-    const emailRedirectTo = typeof window !== 'undefined' ? `${window.location.origin}/sign-in` : undefined;
-    const authResult = mode === 'login'
+const emailRedirectTo = typeof window !== 'undefined' && window.location?.origin ? `${window.location.origin}/sign-in` : undefined;    const authResult = mode === 'login'
       ? await supabase.auth.signInWithPassword({ email, password })
       : await supabase.auth.signUp({
         email,
@@ -376,9 +398,15 @@ export default function SignInScreen() {
         .maybeSingle();
 
       if (error) throw error;
-      if (profile?.role === 'participant' || profile?.role === 'coach') {
-        resolvedRole = profile.role;
-        // Ensure participants/coach row exists (may be missing if email verification interrupted registration)
+      if (profile?.role === 'parent') {
+        await supabase.auth.signOut();
+        await setRole(null);
+        setErrors({ form: 'Rodičovský portál je dostupný na webu: vys-web.vercel.app/rodic' });
+        return;
+      }
+      if (profile?.role === 'participant' || profile?.role === 'coach' || profile?.role === 'admin') {
+        resolvedRole = profile.role as AppRole;
+        // Ensure participants row exists (may be missing if email verification interrupted registration)
         if (profile.role === 'participant') {
           const { data: existingParticipant } = await supabase.from('participants').select('id').eq('id', user.id).maybeSingle();
           if (!existingParticipant) {
@@ -409,12 +437,26 @@ export default function SignInScreen() {
       }
     }
 
+    if (resolvedRole === 'parent') {
+      await supabase.auth.signOut();
+      await setRole(null);
+      setErrors({ form: 'Rodičovský portál je dostupný na webu: vys-web.vercel.app/rodic' });
+      return;
+    }
+
     if (resolvedRole === 'coach') {
       const approvalStatus = await loadCoachApprovalStatus(user.id);
       if (approvalStatus !== 'approved') {
         await stopPendingCoachSession();
         return;
       }
+    }
+
+    if (resolvedRole === 'admin') {
+      await persistLocalProfile();
+      await setRole('admin', { remember: staySignedIn });
+      router.replace('/coach' as never);
+      return;
     }
 
     await persistLocalProfile();
