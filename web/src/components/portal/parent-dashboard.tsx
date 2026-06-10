@@ -2,6 +2,7 @@
 
 import { AnimatePresence, motion } from 'framer-motion';
 import {
+    AlertTriangle,
     ArrowRight,
     BadgePercent,
     Bell,
@@ -11,6 +12,7 @@ import {
     ChevronDown,
     CreditCard,
     FileCheck2,
+    FileDown,
     History,
     LayoutDashboard,
     MapPin,
@@ -29,12 +31,12 @@ import {
     X,
 } from 'lucide-react';
 import Image from 'next/image';
-import { createContext, useContext, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
-import { TeamVysLogo } from '@/components/brand/team-vys-logo';
 import { EmbeddedPaymentForm } from '@/components/checkout/embedded-payment-form';
 import { useAdminCreatedProducts } from '@/lib/admin-created-products';
-import { confirmEmbeddedPaymentIntent, createEmbeddedPaymentIntent, createManualParticipantProfile, linkParticipantByBirthNumber, saveCourseDocuments } from '@/lib/api-client';
+import { confirmEmbeddedPaymentIntent, createEmbeddedPaymentIntent, createManualParticipantProfile, linkParticipantByClaimCode, registerWorkshopInterest, saveCourseDocuments } from '@/lib/api-client';
 import {
     applyRewardDiscount,
     findRewardDiscountByCode,
@@ -85,6 +87,8 @@ type ProductGroup = {
   gallery: string[];
   capacityTotal: number;
   capacityCurrent: number;
+  interestCount: number;
+  canPurchase?: boolean;
   importantInfo: ParentProduct['importantInfo'];
   trainingFocus: string[];
   trainers: ParentProductTrainer[];
@@ -181,7 +185,6 @@ const sections: Array<{ key: SectionKey; label: string; icon: React.ReactNode; d
   { key: 'overview', label: 'Přehled', icon: <LayoutDashboard size={18} />, description: 'stav rodiny' },
   { key: 'participants', label: 'Účastníci', icon: <Users size={18} />, description: 'děti a docházka' },
   { key: 'payments', label: 'Platby', icon: <WalletCards size={18} />, description: 'kroužky, tábory, workshopy' },
-  { key: 'documents', label: 'Dokumenty', icon: <FileCheck2 size={18} />, description: 'povinné souhlasy' },
   { key: 'profile', label: 'Profil', icon: <UserPlus size={18} />, description: 'rodič a hodnocení' },
 ];
 
@@ -190,20 +193,41 @@ const paymentTypes: Array<{ key: ActivityType; label: string }> = [
   { key: 'Tabor', label: 'Tábory' },
   { key: 'Workshop', label: 'Workshopy' },
 ];
+const WORKSHOP_INTEREST_THRESHOLD = 9;
+const WORKSHOP_PAYMENT_OPEN_DAYS = 2;
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+const BRAND_GRADIENT = 'bg-[linear-gradient(135deg,#6b3df5_0%,#e84cc4_55%,#ff8a3d_100%)]';
+
+function initialsFromName(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  return name.slice(0, 2).toUpperCase();
+}
 
 export function ParentPortalDashboard({ displayName, displayEmail, parentProfileId, initialData }: ParentPortalDashboardProps) {
   const basePortalData = initialData ?? fallbackParentPortalData;
+  const router = useRouter();
   const [activeSection, setActiveSection] = useState<SectionKey>('overview');
   const [selectedParticipantId, setSelectedParticipantId] = useState(basePortalData.participants[0]?.id ?? '');
   const [activeProductType, setActiveProductType] = useState<ActivityType>('Krouzek');
+  const [profileEmail, setProfileEmail] = useState(displayEmail);
   const [purchaseFlow, setPurchaseFlow] = useState<PurchaseFlow | null>(null);
   const [usedRewardCodeIds, setUsedRewardCodeIds] = useState<string[]>(readUsedRewardDiscountIds);
+  const [catalogMessage, setCatalogMessage] = useState<string | null>(null);
+  const [interestOverrides, setInterestOverrides] = useState<Record<string, number>>({});
+  const [registeredInterestProductIds, setRegisteredInterestProductIds] = useState<Set<string>>(new Set());
   const { products: adminCreatedProducts } = useAdminCreatedProducts();
 
   const portalData = useMemo<ParentPortalData>(() => ({
     ...basePortalData,
-    products: mergeProducts(basePortalData.products, adminCreatedProducts),
-  }), [basePortalData, adminCreatedProducts]);
+    products: mergeProducts(basePortalData.products, adminCreatedProducts).map((product) => {
+      const overriddenInterestCount = interestOverrides[product.id];
+      return product.type === 'Workshop' && typeof overriddenInterestCount === 'number'
+        ? { ...product, interestCount: overriddenInterestCount }
+        : product;
+    }),
+  }), [basePortalData, adminCreatedProducts, interestOverrides]);
   const participants = portalData.participants;
   const availableProducts = portalData.products;
   const productGroups = useMemo(() => buildProductGroups(availableProducts), [availableProducts]);
@@ -231,24 +255,41 @@ export function ParentPortalDashboard({ displayName, displayEmail, parentProfile
     });
   }
 
-  function openDocumentFlow(document: ParentDocument) {
-    const target = findDocumentTarget(document, productGroups, participants);
-    if (!target) {
-      setActiveSection('payments');
+  async function handleWorkshopInterest(group: ProductGroup) {
+    const selectedProduct = group.variants[0];
+    if (!selectedProduct) return;
+
+    if (!selectedParticipant) {
+      setCatalogMessage('Nejdřív přidej nebo vyber účastníka, za kterého chceš dát zájem o workshop.');
       return;
     }
 
-    setSelectedParticipantId(target.participant.id);
-    setPurchaseFlow({
-      mode: 'documents',
-      group: target.group,
-      selectedProductId: target.product.id,
-      participantId: target.participant.id,
-      discountCode: '',
-      documentValues: defaultDocumentValues(displayName),
-      isSubmitting: false,
-      message: null,
-    });
+    try {
+      setCatalogMessage(null);
+      const result = await registerWorkshopInterest({
+        parentProfileId,
+        productId: selectedProduct.id,
+        participantId: selectedParticipant.id,
+        participantName: `${selectedParticipant.firstName} ${selectedParticipant.lastName}`,
+      });
+      setInterestOverrides((current) => ({ ...current, [selectedProduct.id]: result.interestCount }));
+      setRegisteredInterestProductIds((current) => new Set([...current, selectedProduct.id]));
+
+      if (result.canPurchase) {
+        setCatalogMessage(`Zájem je uložený. Workshop má ${result.interestCount} zájemců, takže už jde zaplatit.`);
+        openPurchaseFlow({
+          ...group,
+          interestCount: result.interestCount,
+          canPurchase: true,
+          variants: group.variants.map((variant) => variant.id === selectedProduct.id ? { ...variant, interestCount: result.interestCount, canPurchase: true } : variant),
+        });
+        return;
+      }
+
+      setCatalogMessage(`Zájem je uložený. U tohoto workshopu je teď ${result.interestCount}/${result.threshold} zájemců; platba se otevře 2 dny před termínem nebo při ${result.threshold} zájemcích.`);
+    } catch (error) {
+      setCatalogMessage(error instanceof Error ? error.message : 'Zájem se nepodařilo uložit.');
+    }
   }
 
   async function handleCheckout() {
@@ -297,7 +338,7 @@ export function ParentPortalDashboard({ displayName, displayEmail, parentProfile
         productId: selectedProduct.id,
         participantId: participant.id,
         participantName: `${participant.firstName} ${participant.lastName}`,
-        receiptEmail: displayEmail,
+        receiptEmail: profileEmail,
         discountCode: appliedDiscount?.code,
       });
 
@@ -330,23 +371,28 @@ export function ParentPortalDashboard({ displayName, displayEmail, parentProfile
       message: `${result.purchase.title} pro ${result.purchase.participantName} je zaplacené a uložené v Supabase.`,
     } : current);
     if (purchaseFlow?.appliedRewardCodeId) markCodeUsed(purchaseFlow.appliedRewardCodeId);
-    if (typeof window !== 'undefined') window.setTimeout(() => window.location.reload(), 900);
+    // Refresh the server-rendered portal data WITHOUT a full document reload so
+    // the Supabase auth session/cookies are preserved (a hard reload was
+    // logging the parent out right after paying).
+    router.refresh();
   }
 
   return (
     <ParentPortalDataContext.Provider value={portalData}>
-    <div className="grid gap-5 xl:grid-cols-[220px_minmax(0,1fr)]">
-      <section className="fixed inset-x-2 bottom-2 z-50 self-start rounded-[22px] border border-brand-purple/20 bg-[#2B1247]/95 p-1.5 shadow-brand ring-1 ring-brand-purple/20 backdrop-blur-2xl xl:sticky xl:inset-x-auto xl:bottom-auto xl:top-3 xl:p-2 xl:self-start">
+    <div className="grid gap-5 xl:grid-cols-[240px_minmax(0,1fr)]">
+      <section className="fixed inset-x-2 bottom-2 z-50 self-start rounded-[22px] border border-neutral-200 bg-white p-1.5 shadow-md xl:sticky xl:inset-x-auto xl:bottom-auto xl:top-3 xl:rounded-2xl xl:border xl:border-neutral-200 xl:bg-white xl:p-0 xl:shadow-sm xl:overflow-hidden xl:self-start">
         <div className="flex items-center gap-2 xl:block">
-          <div className="hidden h-16 w-full shrink-0 items-center gap-3 rounded-[18px] bg-white/10 px-3 ring-1 ring-white/10 xl:flex">
-            <TeamVysLogo size={36} priority />
+          <div className="hidden xl:flex items-center gap-3 px-4 py-4 border-b border-neutral-100">
+            <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl text-sm font-bold text-white shadow-[0_4px_10px_rgba(232,76,196,0.25)] ${BRAND_GRADIENT}`}>
+              {initialsFromName(displayName)}
+            </span>
             <div className="min-w-0">
-              <p className="text-[9px] font-black uppercase leading-none text-brand-cyan">Rodičovský portál</p>
-              <p className="mt-0.5 truncate text-[13px] font-black leading-tight text-white">{displayName}</p>
+              <p className="text-[11px] font-semibold uppercase tracking-widest text-violet-600">Rodičovský portál</p>
+              <p className="mt-0.5 text-[14px] font-semibold text-neutral-900 truncate">{displayName}</p>
             </div>
           </div>
 
-          <nav className="grid min-w-0 flex-1 grid-cols-5 gap-1.5 xl:mt-2 xl:grid-cols-1">
+          <nav className="grid min-w-0 flex-1 grid-cols-4 gap-1 xl:mt-2 xl:grid-cols-1 xl:gap-1 xl:rounded-xl xl:bg-neutral-50 xl:p-1.5">
           {sections.map((section) => {
             const isActive = activeSection === section.key;
             return (
@@ -356,15 +402,15 @@ export function ParentPortalDashboard({ displayName, displayEmail, parentProfile
                 aria-label={section.label}
                 title={section.label}
                 onClick={() => setActiveSection(section.key)}
-                className={`flex h-10 min-w-0 items-center justify-center gap-1.5 rounded-[16px] border px-1.5 text-left transition-all duration-300 sm:h-12 sm:gap-2 sm:px-2.5 xl:h-11 xl:justify-start xl:px-3 ${
+                className={`flex h-10 min-w-0 items-center justify-center gap-2 rounded-[12px] px-2 text-left transition-all sm:h-11 sm:px-3 xl:h-10 xl:justify-start xl:px-3 ${
                   isActive
-                    ? 'border-brand-purple bg-brand-purple text-white shadow-brand'
-                    : 'border-brand-purple/20 bg-white/10 text-white/80 shadow-sm backdrop-blur-xl hover:border-brand-purple/30 hover:bg-white/20 hover:text-white'
+                    ? 'bg-violet-600 font-semibold text-white shadow-[0_4px_12px_rgba(107,61,245,0.28)]'
+                    : 'text-neutral-500 hover:bg-violet-50 hover:text-violet-700'
                 }`}
               >
-                <span className={`shrink-0 ${isActive ? 'text-white' : 'text-brand-cyan'}`}>{section.icon}</span>
+                <span className={`shrink-0 ${isActive ? 'text-white' : 'text-neutral-400'}`}>{section.icon}</span>
                 <span className="hidden min-w-0 sm:block">
-                  <span className="block truncate text-[11px] font-black sm:text-xs lg:text-[13px]">{section.label}</span>
+                  <span className="block truncate text-[11px] sm:text-xs xl:text-[13px]">{section.label}</span>
                 </span>
               </button>
             );
@@ -384,7 +430,6 @@ export function ParentPortalDashboard({ displayName, displayEmail, parentProfile
             parentProfileId={parentProfileId}
             availableProducts={availableProducts}
             onSelectParticipant={setSelectedParticipantId}
-            onOpenDocument={openDocumentFlow}
           />
         ) : null}
         {activeSection === 'payments' ? (
@@ -393,12 +438,14 @@ export function ParentPortalDashboard({ displayName, displayEmail, parentProfile
             productGroups={productGroups}
             selectedParticipant={selectedParticipant}
             rewardDiscounts={earnedRewardCodes}
+            catalogMessage={catalogMessage}
             onProductTypeChange={setActiveProductType}
             onStartPurchase={openPurchaseFlow}
+            onRegisterInterest={handleWorkshopInterest}
+            registeredInterestProductIds={registeredInterestProductIds}
           />
         ) : null}
-        {activeSection === 'documents' ? <DocumentsSection onOpenDocument={openDocumentFlow} onGoToPayments={() => setActiveSection('payments')} /> : null}
-        {activeSection === 'profile' ? <ProfileSection displayName={displayName} displayEmail={displayEmail} participantName={activeParticipantName} /> : null}
+        {activeSection === 'profile' ? <ProfileSection displayName={displayName} displayEmail={profileEmail} parentProfileId={parentProfileId} participantName={activeParticipantName} onEmailChange={setProfileEmail} /> : null}
       </main>
 
       {purchaseFlow ? (
@@ -417,41 +464,31 @@ export function ParentPortalDashboard({ displayName, displayEmail, parentProfile
 }
 
 function Header({ activeSection }: { activeSection: SectionKey }) {
-  const { participants, documents, digitalPasses } = useParentPortalData();
-  const section = sections.find((item) => item.key === activeSection) ?? sections[0];
-  const signedDocuments = documents.filter((document) => document.status === 'signed').length;
-  const missingDocuments = documents.length - signedDocuments;
+  const { participants, digitalPasses } = useParentPortalData();
   const attendanceDone = participants.reduce((sum, participant) => sum + participant.attendanceDone, 0);
   const attendanceTotal = participants.reduce((sum, participant) => sum + participant.attendanceTotal, 0);
   const activePasses = digitalPasses.length;
 
   return (
-    <div className="relative overflow-hidden rounded-[22px] border border-brand-purple/20 bg-gradient-to-br from-[#331650] via-[#27113D] to-[#4A1D78] px-4 py-3 text-white shadow-brand sm:px-5">
-      <div className="absolute inset-x-0 top-0 h-1 bg-gradient-brand" />
-      <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[15px] bg-white/10 ring-1 ring-white/10">
-            <span className="text-brand-cyan">{section.icon}</span>
-          </div>
-          <div className="min-w-0">
-            <p className="text-[10px] font-black uppercase tracking-[0.14em] text-brand-cyan">{section.label}</p>
-            <h1 className="mt-0.5 text-lg font-black leading-tight md:text-xl">{headlineForSection(activeSection)}</h1>
-            <p className="mt-0.5 max-w-[560px] text-xs font-bold leading-5 text-white/60 md:text-sm">Rychle vidíš, co je hotové a kam pokračovat.</p>
-          </div>
-        </div>
-        <div className="grid grid-cols-3 gap-2 text-right">
-          <HeroSignal value={`${participants.length}`} label="děti" tone="cyan" />
-          <HeroSignal value={missingDocuments === 0 ? 'OK' : `${missingDocuments}`} label="dokumenty" tone={missingDocuments === 0 ? 'mint' : 'orange'} />
-          <HeroSignal value={`${activePasses}`} label="passy" tone="purple" />
-        </div>
-      </div>
-      <div className="mt-3 rounded-[16px] bg-white/10 p-2.5 ring-1 ring-white/10">
-        <div className="flex items-center justify-between gap-3 text-xs font-black uppercase text-white/70">
-          <span>Docházka rodiny</span>
-          <span className="text-white">{attendanceDone}/{attendanceTotal}</span>
-        </div>
-        <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/12">
-          <div className="h-full rounded-full bg-brand-cyan" style={{ width: `${attendanceTotal ? Math.round((attendanceDone / attendanceTotal) * 100) : 0}%` }} />
+    <div className="relative overflow-hidden rounded-2xl border border-violet-100 bg-[linear-gradient(135deg,#f3eeff_0%,#fff5f0_100%)] px-6 py-6 shadow-sm sm:px-8 sm:py-7">
+      <div className={`pointer-events-none absolute -right-10 -top-10 h-44 w-44 rounded-full opacity-10 blur-xl ${BRAND_GRADIENT}`} />
+      <div className="relative">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-violet-600">Rodičovský portál</p>
+        <h1 className="mt-1.5 text-[26px] font-bold leading-tight tracking-tight text-neutral-900 sm:text-[30px]">{headlineForSection(activeSection)}</h1>
+        <div className="mt-3 flex flex-wrap items-center gap-2.5">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-violet-200/70 bg-white/70 px-3 py-1 text-[13px] font-semibold text-neutral-700">
+            <Users size={14} className="text-violet-600" />
+            {participants.length} {participants.length === 1 ? 'dítě' : 'děti'}
+          </span>
+          {activePasses > 0 ? (
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-violet-200/70 bg-white/70 px-3 py-1 text-[13px] font-semibold text-neutral-700">
+              <QrCode size={14} className="text-violet-600" />
+              {activePasses} {activePasses === 1 ? 'pass' : 'passy'}
+            </span>
+          ) : null}
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-violet-200/70 bg-white/70 px-3 py-1 text-[13px] font-semibold text-neutral-700">
+            Docházka rodiny <b className="font-bold text-violet-600">{attendanceDone}/{attendanceTotal}</b>
+          </span>
         </div>
       </div>
     </div>
@@ -459,21 +496,17 @@ function Header({ activeSection }: { activeSection: SectionKey }) {
 }
 
 function OverviewSection({ rewardDiscounts, onNavigate }: { rewardDiscounts: RewardDiscountCode[]; onNavigate: (section: SectionKey) => void }) {
-  const { participants, documents, notifications } = useParentPortalData();
-  const missingDocuments = documents.filter((document) => document.status !== 'signed');
+  const { participants, notifications } = useParentPortalData();
 
   return (
     <div className="grid items-start gap-4 xl:grid-cols-[1.1fr_0.9fr]">
       <div className="space-y-4">
-        <Panel className="overflow-hidden p-0">
-          <div className="border-b border-brand-purple/10 bg-white px-4 py-2.5">
-            <p className="text-xs font-black uppercase tracking-[0.14em] text-brand-purple">Co řešit nejdřív</p>
-          </div>
-          <div className="grid gap-2 p-3 sm:grid-cols-2 xl:grid-cols-4">
-            <ActionTile icon={<Users size={18} />} label="Účastníci" value={`${participants.length} profily`} onClick={() => onNavigate('participants')} />
+        <Panel className="p-5">
+          <h2 className="text-[15px] font-medium text-neutral-900">Co řešit nejdřív</h2>
+          <div className="mt-4 grid gap-3 sm:grid-cols-3">
+            <ActionTile icon={<Users size={18} />} label="Účastníci" value={`${participants.length} ${participants.length === 1 ? 'profil' : 'profily'}`} onClick={() => onNavigate('participants')} />
             <ActionTile icon={<WalletCards size={18} />} label="Platby" value="historie + nový nákup" onClick={() => onNavigate('payments')} />
-            <ActionTile icon={<FileCheck2 size={18} />} label="Dokumenty" value={`${missingDocuments.length} chybí`} onClick={() => onNavigate('documents')} />
-            <ActionTile icon={<MessageSquareText size={18} />} label="Hodnocení" value="hvězdičky" onClick={() => onNavigate('profile')} />
+            <ActionTile icon={<MessageSquareText size={18} />} label="Hodnocení" value="hvězdičky a zpětná vazba" onClick={() => onNavigate('profile')} />
           </div>
         </Panel>
 
@@ -481,22 +514,36 @@ function OverviewSection({ rewardDiscounts, onNavigate }: { rewardDiscounts: Rew
           <SectionTitle icon={<Users size={18} />} title="Děti v rodině" subtitle="rychlý stav produktů, QR a docházky" />
           <div className="mt-4 grid gap-3 md:grid-cols-2">
             {participants.map((participant) => (
-              <div key={participant.id} className="rounded-[16px] border border-brand-purple/10 bg-brand-paper p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h3 className="text-base font-black text-brand-ink">{participant.firstName} {participant.lastName}</h3>
-                    <p className="mt-1 text-xs font-bold text-brand-ink-soft">{participant.activeCourse}</p>
+              <div key={participant.id} className="rounded-xl border border-neutral-200 bg-white p-4 transition-all hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(107,61,245,0.10)]">
+                <div className="flex items-start gap-3">
+                  <span className={`grid h-12 w-12 shrink-0 place-items-center rounded-2xl text-base font-bold text-white ${BRAND_GRADIENT}`}>
+                    {participant.firstName.charAt(0)}{participant.lastName.charAt(0)}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <h3 className="text-[16px] font-semibold text-neutral-900">{participant.firstName} {participant.lastName}</h3>
+                    <p className="mt-0.5 text-[13px] text-neutral-400 truncate">{participant.activeCourse}</p>
                   </div>
-                  <span className="rounded-[16px] bg-white px-3 py-2 text-xs font-black text-brand-purple">Level {participant.level}</span>
+                  <span className="shrink-0 rounded-full bg-violet-50 px-2.5 py-0.5 text-xs font-semibold text-violet-700">Level {participant.level}</span>
                 </div>
                 <ProgressBar value={participant.xp} max={participant.nextBraceletXp} />
-                <div className="mt-4 grid grid-cols-2 gap-2 text-xs font-black text-brand-ink">
+                <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
                   <InfoPill label="Náramek" value={participant.bracelet} />
                   <InfoPill label="Docházka" value={`${participant.attendanceDone}/${participant.attendanceTotal}`} />
                 </div>
               </div>
             ))}
-            {participants.length === 0 ? <EmptyState text="Zatím není připojený žádný účastník. Přidej dítě v sekci Účastníci." /> : null}
+            {participants.length === 0 ? (
+              <div className="md:col-span-2 flex flex-col items-center gap-3 rounded-xl border border-dashed border-violet-200 bg-[radial-gradient(120%_120%_at_50%_0%,rgba(243,238,255,0.7)_0%,rgba(255,255,255,0)_60%)] px-6 py-10 text-center">
+                <span className={`grid h-16 w-16 place-items-center rounded-2xl text-white shadow-[0_10px_28px_rgba(232,76,196,0.3)] ${BRAND_GRADIENT}`}>
+                  <UserPlus size={28} />
+                </span>
+                <h3 className="text-[18px] font-bold text-neutral-900">Začni přidáním dítěte</h3>
+                <p className="max-w-sm text-sm text-neutral-500">Připoj svoje dítě a hned uvidíš jeho kurzy, docházku, QR průkazku a postup v levelech.</p>
+                <button type="button" onClick={() => onNavigate('participants')} className="mt-1 inline-flex items-center gap-2 rounded-xl bg-violet-600 px-5 py-3 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(107,61,245,0.3)] transition hover:-translate-y-0.5 hover:bg-violet-700">
+                  <Plus size={18} /> Přidat dítě
+                </button>
+              </div>
+            ) : null}
           </div>
         </Panel>
       </div>
@@ -506,11 +553,11 @@ function OverviewSection({ rewardDiscounts, onNavigate }: { rewardDiscounts: Rew
 
         <Panel className="p-5">
           <SectionTitle icon={<Bell size={18} />} title="Upozornění" subtitle="poslední příchody zapsané přes NFC" />
-          <div className="mt-4 space-y-3">
+          <div className="mt-4 space-y-2">
             {notifications.map((notification) => (
-              <div key={notification.id} className="rounded-[16px] border border-brand-purple/10 bg-white p-4">
-                <p className="text-sm font-black leading-6 text-brand-ink">{notification.text}</p>
-                <p className="mt-1 text-xs font-bold text-brand-ink-soft">{notification.createdAt} · {notification.method}</p>
+              <div key={notification.id} className="rounded-lg border border-neutral-200 p-4">
+                <p className="text-sm text-neutral-900 leading-6">{notification.text}</p>
+                <p className="mt-1 text-[12px] font-normal text-neutral-400">{notification.createdAt} · {notification.method}</p>
               </div>
             ))}
             {notifications.length === 0 ? <EmptyState text="Zatím tu nejsou žádná upozornění z docházky." /> : null}
@@ -527,16 +574,14 @@ function ParticipantsSection({
   parentProfileId,
   availableProducts,
   onSelectParticipant,
-  onOpenDocument,
 }: {
   selectedParticipantId: string;
   displayName: string;
   parentProfileId?: string;
   availableProducts: ParentProduct[];
   onSelectParticipant: (id: string) => void;
-  onOpenDocument: (document: ParentDocument) => void;
 }) {
-  const { participants, documents, payments, digitalPasses, attendanceHistory } = useParentPortalData();
+  const { participants, payments, digitalPasses, attendanceHistory } = useParentPortalData();
   const participant = participants.find((item) => item.id === selectedParticipantId) ?? participants[0];
 
   if (!participant) {
@@ -552,7 +597,6 @@ function ParticipantsSection({
 
   const participantName = `${participant.firstName} ${participant.lastName}`;
   const normalizedParticipantName = normalizePersonName(participantName);
-  const participantDocuments = documents.filter((document) => normalizePersonName(document.participantName) === normalizedParticipantName);
   const participantPayments = payments.filter((payment) => normalizePersonName(payment.participantName) === normalizedParticipantName);
   const participantPasses = digitalPasses.filter((pass) => pass.participantId === participant.id);
   const participantAttendance = attendanceHistory.filter((record) => normalizePersonName(record.participantName) === normalizedParticipantName);
@@ -572,10 +616,10 @@ function ParticipantsSection({
                   key={item.id}
                   type="button"
                   onClick={() => onSelectParticipant(item.id)}
-                  className={`rounded-[16px] border p-3 text-left transition-all duration-300 ${active ? 'border-brand-purple bg-brand-purple text-white shadow-brand-soft' : 'border-brand-purple/10 bg-white text-brand-ink hover:-translate-y-0.5 hover:border-brand-purple/24 hover:bg-brand-paper hover:shadow-brand-soft'}`}
+                  className={`rounded-xl border p-3 text-left transition-colors ${active ? 'border-violet-300 bg-violet-50 text-violet-800' : 'border-transparent text-neutral-600 hover:bg-neutral-50'}`}
                 >
-                  <span className="block text-sm font-black">{item.firstName} {item.lastName}</span>
-                  <span className={`mt-1 block text-xs font-bold ${active ? 'text-white/80' : 'text-brand-ink-soft'}`}>{item.activeCourse}</span>
+                  <span className={`block text-sm ${active ? 'font-medium' : ''}`}>{item.firstName} {item.lastName}</span>
+                  <span className={`mt-0.5 block text-xs ${active ? 'text-violet-600' : 'text-neutral-400'}`}>{item.activeCourse}</span>
                 </button>
               );
             })}
@@ -585,9 +629,9 @@ function ParticipantsSection({
         <Panel className="p-5">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <p className="text-xs font-black uppercase text-brand-purple">{participant.birthNumberMasked}</p>
-              <h2 className="mt-1 text-2xl font-black text-brand-ink">{participant.firstName} {participant.lastName}</h2>
-              <p className="mt-2 text-sm font-bold text-brand-ink-soft">Další trénink: {participant.nextTraining}</p>
+              <p className="font-mono text-[11px] text-neutral-400">{participant.claimCode}</p>
+              <h2 className="mt-1 text-2xl font-semibold text-neutral-900">{participant.firstName} {participant.lastName}</h2>
+              <p className="mt-1.5 text-sm text-neutral-500">Další trénink: {participant.nextTraining}</p>
             </div>
             <div className="grid min-w-[220px] grid-cols-2 gap-2">
               <Metric value={`${participant.level}`} label="level" />
@@ -615,11 +659,6 @@ function ParticipantsSection({
         </div>
 
         <div className="space-y-5">
-          <AccordionPanel icon={<FileCheck2 size={18} />} title="Dokumenty" count={participantDocuments.length}>
-            {participantDocuments.map((document) => (
-              <ParticipantDocumentRow key={document.id} document={document} onOpenDocument={onOpenDocument} />
-            ))}
-          </AccordionPanel>
           <AccordionPanel icon={<QrCode size={18} />} title="Digitální passy" count={participantPasses.length}>
             {participantPasses.map((pass) => (
               <Row key={pass.id} label={pass.title} value={`${pass.usedEntries}/${pass.totalEntries} vstupů`} tone="cyan" />
@@ -633,19 +672,19 @@ function ParticipantsSection({
         <div className="mt-4 grid gap-4">
           {groupByMonthWeb(participantAttendance, (r) => r.date).map(({ label, items }) => (
             <div key={label}>
-              <p className="mb-2 border-b border-brand-purple/10 pb-1 text-xs font-black uppercase tracking-wide text-brand-purple">{label}</p>
+              <p className="mb-2 border-b border-neutral-200 pb-1 text-xs font-medium text-neutral-400">{label}</p>
               <div className="grid gap-2">
                 {items.map((record) => (
-                  <div key={record.id} className="grid gap-2 rounded-[16px] border border-brand-purple/10 bg-white p-3 text-sm transition-all duration-300 hover:-translate-y-0.5 hover:border-brand-purple/24 hover:shadow-brand-soft md:grid-cols-[1fr_auto_auto] md:items-center">
-                    <span className="font-black text-brand-ink">{record.location}</span>
-                    <span className="font-bold text-brand-ink-soft">{record.date} · {record.time}</span>
-                    <span className="rounded-[16px] bg-brand-cyan/10 px-3 py-1 text-xs font-black text-brand-cyan">{record.method}</span>
+                  <div key={record.id} className="grid gap-2 rounded-lg border border-neutral-200 bg-white p-3 text-sm md:grid-cols-[1fr_auto_auto] md:items-center">
+                    <span className="text-neutral-800">{record.location}</span>
+                    <span className="text-neutral-400">{record.date} · {record.time}</span>
+                    <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-xs text-neutral-600">{record.method}</span>
                   </div>
                 ))}
               </div>
             </div>
           ))}
-          {participantAttendance.length === 0 && <p className="text-sm text-brand-ink-soft">Zatím žádné záznamy docházky.</p>}
+          {participantAttendance.length === 0 && <p className="text-sm text-neutral-500">Zatím žádné záznamy docházky.</p>}
         </div>
       </Panel>
     </div>
@@ -657,7 +696,7 @@ function AddParticipantPanel({ displayName, parentProfileId, products }: { displ
   const [mode, setMode] = useState<'link' | 'manual'>('link');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
-  const [birthNumber, setBirthNumber] = useState('');
+  const [claimCode, setClaimCode] = useState('');
   const [dateOfBirth, setDateOfBirth] = useState('');
   const [schoolYear, setSchoolYear] = useState('');
   const courseOptions = useMemo(() => Array.from(new Set(products.filter((product) => product.type === 'Krouzek').map((product) => product.place))), [products]);
@@ -676,15 +715,15 @@ function AddParticipantPanel({ displayName, parentProfileId, products }: { displ
   const [saving, setSaving] = useState(false);
 
   async function lookupParticipant() {
-    if (!firstName.trim() || !lastName.trim()) {
-      setMessage('Zadej jméno a příjmení účastníka.');
+    if (!claimCode.trim()) {
+      setMessage('Zadej propojovací kód účastníka.');
       return;
     }
 
     setSaving(true);
     setMessage(null);
     try {
-      const result = await linkParticipantByBirthNumber({ parentProfileId, firstName, lastName, birthNumber });
+      const result = await linkParticipantByClaimCode({ parentProfileId, claimCode });
       setMessage(`${result.participant.first_name} ${result.participant.last_name} je připojený k rodičovskému účtu. Obnovuji přehled, aby šly rovnou nakupovat produkty na jeho profil.`);
       if (typeof window !== 'undefined') window.setTimeout(() => window.location.reload(), 900);
       return;
@@ -726,7 +765,6 @@ function AddParticipantPanel({ displayName, parentProfileId, products }: { displ
         parentProfileId,
         firstName,
         lastName,
-        birthNumberMasked: birthNumber,
         dateOfBirth,
         schoolYear,
         parentName,
@@ -755,18 +793,18 @@ function AddParticipantPanel({ displayName, parentProfileId, products }: { displ
         type="button"
         aria-expanded={isOpen}
         onClick={() => setIsOpen((current) => !current)}
-        className="flex w-full items-center justify-between gap-3 rounded-[18px] bg-brand-paper/80 p-2.5 text-left transition hover:bg-brand-purple-light"
+        className="flex w-full items-center justify-between gap-3 rounded-xl bg-neutral-50 p-2.5 text-left transition hover:bg-neutral-100"
       >
         <span className="flex min-w-0 items-center gap-3">
-          <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-[16px] transition-colors ${isOpen ? 'bg-brand-purple text-white' : 'bg-white text-brand-purple shadow-sm'}`}>
+          <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl transition-colors ${isOpen ? 'bg-violet-600 text-white' : 'bg-neutral-100 text-neutral-600'}`}>
             <Plus size={24} className={`transition-transform duration-300 ${isOpen ? 'rotate-45' : ''}`} />
           </span>
           <span className="min-w-0">
-            <span className="block text-base font-black text-brand-ink sm:text-lg">Přidat účastníka</span>
-            <span className="hidden truncate text-xs font-bold text-brand-ink-soft sm:block">Propojit dítě z aplikace nebo vytvořit profil bez telefonu</span>
+            <span className="block text-base font-semibold text-neutral-900 sm:text-lg">Přidat účastníka</span>
+            <span className="hidden truncate text-xs text-neutral-500 sm:block">Propojit dítě z aplikace nebo vytvořit profil bez telefonu</span>
           </span>
         </span>
-        <span className="hidden rounded-[16px] bg-white px-3 py-2 text-xs font-black text-brand-purple shadow-sm sm:inline-flex">
+        <span className="hidden rounded-lg border border-neutral-200 bg-white px-3 py-2 text-xs text-neutral-700 sm:inline-flex">
           {isOpen ? 'Skrýt' : 'Otevřít'}
         </span>
       </button>
@@ -774,76 +812,93 @@ function AddParticipantPanel({ displayName, parentProfileId, products }: { displ
       <CollapsibleContent open={isOpen} className="pt-4">
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px] xl:items-start">
         <div>
-          <div className="mt-4 grid grid-cols-2 gap-2 rounded-[16px] border border-brand-purple/10 bg-brand-paper p-1">
-            <button type="button" onClick={() => { setMode('link'); setMessage(null); }} className={`rounded-[7px] px-3 py-2 text-xs font-black transition ${mode === 'link' ? 'bg-brand-purple text-white shadow-sm' : 'text-brand-ink-soft hover:text-brand-purple'}`}>
+          <div className="mt-4 grid grid-cols-2 gap-1 rounded-lg border border-neutral-200 bg-neutral-50 p-1">
+            <button type="button" onClick={() => { setMode('link'); setMessage(null); }} className={`rounded-md px-3 py-2 text-xs font-medium transition ${mode === 'link' ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500 hover:text-neutral-900'}`}>
               Propojit účet z aplikace
             </button>
-            <button type="button" onClick={() => { setMode('manual'); setMessage(null); }} className={`rounded-[7px] px-3 py-2 text-xs font-black transition ${mode === 'manual' ? 'bg-brand-purple text-white shadow-sm' : 'text-brand-ink-soft hover:text-brand-purple'}`}>
+            <button type="button" onClick={() => { setMode('manual'); setMessage(null); }} className={`rounded-md px-3 py-2 text-xs font-medium transition ${mode === 'manual' ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500 hover:text-neutral-900'}`}>
               Vytvořit bez telefonu
             </button>
           </div>
 
-          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            <MiniInput label="Jméno" value={firstName} onChange={setFirstName} placeholder="Eliška" />
-            <MiniInput label="Příjmení" value={lastName} onChange={setLastName} placeholder="Nováková" />
-            {mode === 'link' ? (
-              <label className="grid gap-2 text-sm font-black text-brand-ink">
-                Rodné číslo
+          {mode === 'link' ? (
+            <div className="mt-4">
+              <label className="grid gap-2 text-sm font-medium text-neutral-900">
+                Propojovací kód účastníka
                 <input
                   type="text"
-                  inputMode="numeric"
-                  value={birthNumber}
-                  onChange={(e) => {
-                    const digits = e.target.value.replace(/\D/g, '');
-                    if (digits.length <= 6) setBirthNumber(digits);
-                    else setBirthNumber(`${digits.slice(0, 6)}/${digits.slice(6, 10)}`);
-                  }}
-                  placeholder="060609/7338"
-                  maxLength={11}
-                  className="rounded-[16px] border border-brand-purple/15 bg-white px-3 py-2.5 text-sm font-bold outline-none transition focus:border-brand-purple"
+                  value={claimCode}
+                  onChange={(e) => setClaimCode(e.target.value.toUpperCase())}
+                  placeholder="ABCD-1234"
+                  maxLength={9}
+                  className="rounded-lg border border-neutral-200 bg-white px-3 py-2.5 font-mono text-sm outline-none transition focus:border-violet-500 focus:ring-2 focus:ring-violet-500"
                 />
               </label>
-            ) : null}
-            {mode === 'manual' ? <MiniInput label="Rodné číslo / identifikátor" value={birthNumber} onChange={setBirthNumber} placeholder="****** / 1234" /> : null}
-            {mode === 'manual' ? <MiniInput label="Datum narození" type="date" value={dateOfBirth} onChange={setDateOfBirth} placeholder="" /> : null}
-            {mode === 'manual' ? <MiniInput label="Školní ročník" value={schoolYear} onChange={setSchoolYear} placeholder="5. třída" /> : null}
-            {mode === 'manual' ? <MiniSelect label="Preferovaná lokalita" value={preferredCourse} onChange={setPreferredCourse} options={courseOptions.map((course) => ({ value: course, label: course }))} /> : null}
-            {mode === 'manual' ? <MiniInput label="Jméno rodiče" value={parentName} onChange={setParentName} placeholder="Jméno a příjmení rodiče" /> : null}
-            {mode === 'manual' ? <MiniInput label="Telefon rodiče" type="tel" value={parentPhone} onChange={setParentPhone} placeholder="+420 ..." /> : null}
-            {mode === 'manual' ? <MiniInput label="Nouzový telefon" type="tel" value={emergencyPhone} onChange={setEmergencyPhone} placeholder="+420 ..." /> : null}
-            {mode === 'manual' ? <MiniInput label="Adresa" value={address} onChange={setAddress} placeholder="Ulice, město" /> : null}
-            {mode === 'manual' ? <MiniSelect label="Odchod po tréninku" value={departureMode} onChange={setDepartureMode} options={[{ value: 'parent', label: 'Pouze s rodičem' }, { value: 'alone', label: 'Může odejít samo' }, { value: 'authorized', label: 'Jen s pověřenou osobou' }]} /> : null}
-            {mode === 'manual' && departureMode === 'authorized' ? <MiniInput label="Pověřené osoby" value={authorizedPeople} onChange={setAuthorizedPeople} placeholder="Jména a telefon" /> : null}
-          </div>
-
-          {mode === 'manual' ? (
-            <div className="mt-4 grid gap-3 md:grid-cols-2">
-              <MiniTextarea label="Zdravotní omezení" value={healthLimits} onChange={setHealthLimits} />
-              <MiniTextarea label="Alergie" value={allergies} onChange={setAllergies} />
-              <MiniTextarea label="Léky" value={medicationNote} onChange={setMedicationNote} />
-              <MiniTextarea label="Poznámka pro trenéra" value={coachNote} onChange={setCoachNote} placeholder="Na co si dát pozor, motivace, zkušenosti..." />
             </div>
           ) : null}
 
-          <button type="button" disabled={saving} onClick={mode === 'link' ? lookupParticipant : submitManualParticipant} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-[16px] bg-brand-purple px-4 py-3 text-sm font-black text-white shadow-brand transition hover:bg-brand-purple-deep disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto">
+          {mode === 'manual' ? (
+            <div className="mt-4 space-y-6">
+              <div>
+                <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-neutral-400">Základní informace</p>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <MiniInput label="Jméno" value={firstName} onChange={setFirstName} placeholder="Eliška" />
+                  <MiniInput label="Příjmení" value={lastName} onChange={setLastName} placeholder="Nováková" />
+                  <MiniInput label="Datum narození" type="date" value={dateOfBirth} onChange={setDateOfBirth} placeholder="" />
+                  <MiniInput label="Školní ročník" value={schoolYear} onChange={setSchoolYear} placeholder="5. třída" />
+                </div>
+              </div>
+
+              <div>
+                <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-neutral-400">Kontakt a lokalita</p>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <MiniSelect label="Preferovaná lokalita" value={preferredCourse} onChange={setPreferredCourse} options={courseOptions.map((course) => ({ value: course, label: course }))} />
+                  <MiniInput label="Jméno rodiče" value={parentName} onChange={setParentName} placeholder="Jméno a příjmení rodiče" />
+                  <MiniInput label="Telefon rodiče" type="tel" value={parentPhone} onChange={setParentPhone} placeholder="+420 ..." />
+                  <MiniInput label="Nouzový telefon" type="tel" value={emergencyPhone} onChange={setEmergencyPhone} placeholder="+420 ..." />
+                  <MiniInput label="Adresa" value={address} onChange={setAddress} placeholder="Ulice, město" />
+                </div>
+              </div>
+
+              <div>
+                <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-neutral-400">Odchod po tréninku</p>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <MiniSelect label="Odchod po tréninku" value={departureMode} onChange={setDepartureMode} options={[{ value: 'parent', label: 'Pouze s rodičem' }, { value: 'alone', label: 'Může odejít samo' }, { value: 'authorized', label: 'Jen s pověřenou osobou' }]} />
+                  {departureMode === 'authorized' ? <MiniInput label="Pověřené osoby" value={authorizedPeople} onChange={setAuthorizedPeople} placeholder="Jména a telefon" /> : null}
+                </div>
+              </div>
+
+              <div>
+                <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-neutral-400">Zdraví a poznámky</p>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <MiniTextarea label="Zdravotní omezení" value={healthLimits} onChange={setHealthLimits} />
+                  <MiniTextarea label="Alergie" value={allergies} onChange={setAllergies} />
+                  <MiniTextarea label="Léky" value={medicationNote} onChange={setMedicationNote} />
+                  <MiniTextarea label="Poznámka pro trenéra" value={coachNote} onChange={setCoachNote} placeholder="Na co si dát pozor, motivace, zkušenosti..." />
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          <button type="button" disabled={saving} onClick={mode === 'link' ? lookupParticipant : submitManualParticipant} className="mt-4 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 text-sm font-medium text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto">
             {mode === 'link' ? <Search size={17} /> : <UserPlus size={17} />}
-            {mode === 'link' ? (saving ? 'Připojuji účastníka...' : 'Vyhledat a připojit') : saving ? 'Ukládám profil...' : 'Uložit profil bez telefonu'}
+            {mode === 'link' ? (saving ? 'Připojuji účastníka...' : 'Připojit účastníka') : saving ? 'Ukládám profil...' : 'Uložit profil bez telefonu'}
           </button>
-          {message ? <p className="mt-3 rounded-[16px] bg-brand-paper p-3 text-sm font-bold leading-6 text-brand-ink-soft">{message}</p> : null}
+          {message ? <p className="mt-3 rounded-lg border border-neutral-200 bg-neutral-50 p-3 text-sm leading-6 text-neutral-500">{message}</p> : null}
         </div>
 
         {mode === 'link' ? (
-          <div className="rounded-[16px] border border-brand-cyan/20 bg-brand-cyan/10 p-4">
-            <p className="text-xs font-black uppercase text-brand-cyan">Doporučený postup</p>
-            <h3 className="mt-2 text-lg font-black text-brand-ink">Nejdřív aplikace, potom propojení</h3>
-            <p className="mt-2 text-sm font-bold leading-6 text-brand-ink-soft">Dítě musí mít staženou aplikaci a vlastní registraci. Zadej jméno, příjmení a rodné číslo — shodné s tím, které dítě zapsalo při registraci.</p>
+          <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-4">
+            <p className="text-xs font-medium text-neutral-400">Jak to funguje</p>
+            <h3 className="mt-2 text-base font-semibold text-neutral-900">Propojovací kód z profilu dítěte</h3>
+            <p className="mt-2 text-sm leading-6 text-neutral-500">Každý účastník má unikátní kód zobrazený v aplikaci nebo přidělený trenérem při registraci. Zadej kód a dítě se automaticky propojí s tvým rodičovským účtem.</p>
           </div>
         ) : (
-          <div className="rounded-[16px] border border-brand-pink/20 bg-brand-pink/10 p-4">
-            <p className="text-xs font-black uppercase text-brand-pink">Profil bez telefonu</p>
-            <h3 className="mt-2 text-lg font-black text-brand-ink">Potřebujeme údaje pro trenéra i dokumenty</h3>
-            <p className="mt-2 text-sm font-bold leading-6 text-brand-ink-soft">Bez dětského app účtu se progres a QR triky nebudou zapisovat automaticky, ale trenér pořád potřebuje bezpečnostní, zdravotní a kontaktní údaje.</p>
-            <div className="mt-4 grid gap-2 text-sm font-bold leading-6 text-brand-ink-soft">
+          <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-4">
+            <p className="text-xs font-medium text-neutral-400">Profil bez telefonu</p>
+            <h3 className="mt-2 text-base font-semibold text-neutral-900">Potřebujeme údaje pro trenéra i dokumenty</h3>
+            <p className="mt-2 text-sm leading-6 text-neutral-500">Bez dětského app účtu se progres a QR triky nebudou zapisovat automaticky, ale trenér pořád potřebuje bezpečnostní, zdravotní a kontaktní údaje.</p>
+            <div className="mt-4 grid gap-2 text-sm leading-6 text-neutral-500">
               <span>Datum narození a školní ročník</span>
               <span>Rodič, telefon a nouzový kontakt</span>
               <span>Zdraví, alergie, léky a odchod z tréninku</span>
@@ -862,15 +917,21 @@ function PaymentsSection({
   productGroups,
   selectedParticipant,
   rewardDiscounts,
+  catalogMessage,
   onProductTypeChange,
   onStartPurchase,
+  onRegisterInterest,
+  registeredInterestProductIds,
 }: {
   activeProductType: ActivityType;
   productGroups: ProductGroup[];
   selectedParticipant?: ParentParticipant;
   rewardDiscounts: RewardDiscountCode[];
+  catalogMessage: string | null;
   onProductTypeChange: (type: ActivityType) => void;
   onStartPurchase: (group: ProductGroup) => void;
+  onRegisterInterest: (group: ProductGroup) => void;
+  registeredInterestProductIds: Set<string>;
 }) {
   const { payments } = useParentPortalData();
   const visibleGroups = productGroups
@@ -883,13 +944,13 @@ function PaymentsSection({
       <Panel className="p-5">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <SectionTitle icon={<WalletCards size={18} />} title="Platby a nové produkty" subtitle="aktuální nabídka, lokality a varianty permanentek" />
-          <div className="grid grid-cols-3 rounded-[16px] border border-brand-purple/10 bg-brand-paper p-1">
+          <div className="grid grid-cols-3 rounded-lg border border-neutral-200 bg-neutral-50 p-1">
             {paymentTypes.map((type) => (
               <button
                 key={type.key}
                 type="button"
                 onClick={() => onProductTypeChange(type.key)}
-                className={`rounded-[7px] px-3 py-2 text-xs font-black transition ${activeProductType === type.key ? 'bg-brand-purple text-white shadow-sm' : 'text-brand-ink-soft hover:text-brand-purple'}`}
+                className={`rounded-md px-3 py-2 text-xs font-medium transition ${activeProductType === type.key ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500 hover:text-neutral-900'}`}
               >
                 {type.label}
               </button>
@@ -899,10 +960,11 @@ function PaymentsSection({
       </Panel>
 
       <RewardCodesPanel discounts={rewardDiscounts} compact />
+      {catalogMessage ? <p className="rounded-lg border border-neutral-200 bg-white px-4 py-3 text-sm text-neutral-500">{catalogMessage}</p> : null}
 
       <div className="grid items-start gap-4 xl:grid-cols-2">
         {visibleGroups.map((group) => (
-          <ProductGroupCard key={group.id} group={group} onStartPurchase={() => onStartPurchase(group)} />
+          <ProductGroupCard key={group.id} group={group} selectedParticipant={selectedParticipant} onStartPurchase={() => onStartPurchase(group)} onRegisterInterest={() => onRegisterInterest(group)} parentHasInterest={registeredInterestProductIds.has(group.id)} />
         ))}
       </div>
 
@@ -915,21 +977,21 @@ function RewardCodesPanel({ discounts, compact = false }: { discounts: RewardDis
   const [isOpen, setIsOpen] = useState(false);
 
   return (
-    <Panel className={compact ? 'px-4 py-3 shadow-brand-soft' : 'px-4 py-3'}>
+    <Panel className={compact ? 'px-4 py-3' : 'px-4 py-0'}>
       <button
         type="button"
         aria-expanded={isOpen}
         onClick={() => setIsOpen((v) => !v)}
-        className="flex w-full cursor-pointer items-center justify-between gap-3 text-left"
+        className="flex w-full cursor-pointer items-center justify-between gap-3 border-b border-neutral-200 py-3 text-left"
       >
         <div className="flex items-center gap-2">
-          <BadgePercent size={15} className="shrink-0 text-brand-purple" />
-          <span className="text-sm font-black text-brand-ink">Slevové kódy</span>
+          <BadgePercent size={15} className="shrink-0 text-neutral-400" />
+          <span className="text-sm text-neutral-900">Slevové kódy</span>
           {discounts.length > 0 && (
-            <span className="rounded-full bg-brand-purple-light px-2 py-0.5 text-[11px] font-black text-brand-purple">{discounts.length}</span>
+            <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[11px] text-violet-700">{discounts.length}</span>
           )}
         </div>
-        <ChevronDown className={`text-brand-purple transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`} size={15} />
+        <ChevronDown className={`text-neutral-400 transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`} size={15} />
       </button>
 
       <AnimatePresence initial={false}>
@@ -944,17 +1006,17 @@ function RewardCodesPanel({ discounts, compact = false }: { discounts: RewardDis
           >
             <div className="mt-2 flex flex-col gap-1.5">
               {discounts.length > 0 ? discounts.map((discount) => (
-                <div key={discount.id} className="flex items-center justify-between gap-2 rounded-[12px] bg-brand-paper px-3 py-2">
+                <div key={discount.id} className="flex items-center justify-between gap-2 rounded-lg border border-neutral-200 bg-white px-3 py-2">
                   <div className="min-w-0">
-                    <span className="text-[11px] font-black uppercase text-brand-purple">{discount.participantName}</span>
-                    <span className="mx-1.5 text-brand-ink-soft/40">·</span>
-                    <span className="text-xs font-bold text-brand-ink-soft">{discount.title}</span>
-                    <code className="ml-2 text-xs font-bold text-brand-ink">{discount.code}</code>
+                    <span className="text-[11px] font-medium text-neutral-900">{discount.participantName}</span>
+                    <span className="mx-1.5 text-neutral-300">·</span>
+                    <span className="text-xs text-neutral-500">{discount.title}</span>
+                    <code className="ml-2 font-mono text-xs text-neutral-700">{discount.code}</code>
                   </div>
-                  <span className="shrink-0 rounded-[10px] bg-white px-2.5 py-1 text-xs font-black text-brand-purple shadow-sm">-{discount.percent} %</span>
+                  <span className="shrink-0 rounded-full bg-neutral-100 px-2.5 py-1 text-xs text-neutral-700">-{discount.percent} %</span>
                 </div>
               )) : (
-                <p className="py-1 text-xs font-bold text-brand-ink-soft">Zatím žádný aktivní kód.</p>
+                <p className="py-1 text-xs text-neutral-500">Zatím žádný aktivní kód.</p>
               )}
             </div>
           </motion.div>
@@ -969,13 +1031,13 @@ function PaymentHistoryPanel({ totalPaid }: { totalPaid: number }) {
   const [isOpen, setIsOpen] = useState(true);
 
   return (
-    <section className={`rounded-[16px] border border-brand-purple/12 bg-white p-5 shadow-brand transition-all duration-300 ${isOpen ? 'shadow-brand-float' : ''}`}>
-      <button type="button" aria-expanded={isOpen} onClick={() => setIsOpen((current) => !current)} className="flex w-full cursor-pointer flex-wrap items-center justify-between gap-4 rounded-[16px] text-left transition-colors hover:bg-brand-paper/60">
+    <section className="rounded-xl border border-neutral-200 bg-white p-5 transition-all duration-300">
+      <button type="button" aria-expanded={isOpen} onClick={() => setIsOpen((current) => !current)} className="flex w-full cursor-pointer flex-wrap items-center justify-between gap-4 rounded-lg text-left transition-colors hover:bg-neutral-50">
         <SectionTitle icon={<History size={18} />} title="Historie plateb" subtitle="úplně dole, můžeš ji kdykoliv skrýt" />
         <div className="flex flex-wrap items-center gap-2">
-          <span className="rounded-[16px] bg-brand-paper px-3 py-2 text-xs font-black text-brand-ink">{payments.length} platby</span>
-          <span className="rounded-[16px] bg-brand-paper px-3 py-2 text-xs font-black text-brand-ink">{formatCurrency(totalPaid)}</span>
-          <ChevronDown className={`text-brand-purple transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`} size={19} />
+          <span className="rounded-full bg-neutral-100 px-3 py-1 text-xs text-neutral-700">{payments.length} platby</span>
+          <span className="rounded-full bg-neutral-100 px-3 py-1 text-xs text-neutral-700">{formatCurrency(totalPaid)}</span>
+          <ChevronDown className={`text-neutral-400 transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`} size={19} />
         </div>
       </button>
       <CollapsibleContent open={isOpen} className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_260px] xl:items-start">
@@ -1011,14 +1073,14 @@ function groupByMonthWeb<T>(items: T[], getDate: (item: T) => string): { label: 
 
 function PaymentHistoryRow({ payment }: { payment: ParentPayment }) {
   return (
-    <div className="grid gap-2 rounded-[16px] border border-brand-purple/10 bg-brand-paper p-3 text-sm transition-all duration-300 hover:-translate-y-0.5 hover:border-brand-purple/24 hover:bg-white hover:shadow-brand-soft md:grid-cols-[minmax(0,1fr)_140px_120px_110px] md:items-center">
+    <div className="grid gap-2 rounded-lg border border-neutral-200 bg-white p-3 text-sm transition-all duration-300 hover:bg-neutral-50 md:grid-cols-[minmax(0,1fr)_140px_120px_110px] md:items-center">
       <div className="min-w-0">
-        <p className="truncate font-black text-brand-ink">{payment.title}</p>
-        <p className="mt-1 text-xs font-bold text-brand-ink-soft">{payment.participantName} · {payment.method}</p>
+        <p className="truncate font-medium text-neutral-900">{payment.title}</p>
+        <p className="mt-1 text-xs text-neutral-500">{payment.participantName} · {payment.method}</p>
       </div>
-      <span className="font-black text-brand-ink">{formatCurrency(payment.amount)}</span>
-      <span className="text-xs font-bold text-brand-ink-soft">{payment.paidAt}</span>
-      <span className="inline-flex justify-center rounded-[16px] bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700">{paymentStatusLabel(payment.status)}</span>
+      <span className="font-medium text-neutral-900">{formatCurrency(payment.amount)}</span>
+      <span className="text-xs text-neutral-500">{payment.paidAt}</span>
+      <span className="inline-flex justify-center rounded-full bg-emerald-50 px-3 py-2 text-xs text-emerald-700">{paymentStatusLabel(payment.status)}</span>
     </div>
   );
 }
@@ -1028,45 +1090,20 @@ function DocumentsSection({ onOpenDocument, onGoToPayments }: { onOpenDocument: 
   const missingDocuments = documents.filter((document) => document.status !== 'signed');
 
   return (
-    <div className="grid items-start gap-5 xl:grid-cols-[1fr_0.9fr]">
-      <Panel className="p-5">
-        <SectionTitle icon={<FileCheck2 size={18} />} title="Povinné dokumenty" subtitle="souhlasy, zdraví, vyzvedávání a táborová potvrzení" />
-        <div className="mt-4 grid gap-3">
-          {documents.map((document) => (
-            <button
-              key={document.id}
-              type="button"
-              disabled={document.status === 'signed'}
-              onClick={() => onOpenDocument(document)}
-              className={`grid gap-3 rounded-[16px] border p-4 text-left transition md:grid-cols-[1fr_auto] md:items-center ${document.status === 'signed' ? 'border-brand-purple/10 bg-white' : 'border-brand-purple/20 bg-white hover:border-brand-purple hover:bg-brand-paper'}`}
-            >
-              <div>
-                <p className="text-sm font-black text-brand-ink">{document.title}</p>
-                <p className="mt-1 text-xs font-bold text-brand-ink-soft">{document.participantName} · {document.activityTitle} · {activityLabel(document.activityType)}</p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2 md:justify-end">
-                <StatusBadge status={document.status} />
-                {document.status !== 'signed' ? <span className="text-xs font-black text-brand-purple">Vyplnit</span> : null}
-              </div>
-            </button>
-          ))}
-          {documents.length === 0 ? <EmptyState text="Dokumenty se objeví po první registraci nebo uloženém nákupu." /> : null}
-        </div>
-      </Panel>
-
+    <div className="grid items-start gap-5">
       <Panel className="p-5">
         <SectionTitle icon={<ShieldCheck size={18} />} title="Co je nutné vyplnit" subtitle="kroužek a tábor mají odlišný balíček dokumentů" />
-        <div className="mt-4 space-y-4">
+        <div className="mt-4 grid gap-6 md:grid-cols-2">
           <DocumentChecklist title="Kroužek" productType="Krouzek" />
           <DocumentChecklist title="Tábor" productType="Tabor" />
         </div>
         {missingDocuments.length > 0 ? (
-          <button type="button" onClick={() => onOpenDocument(missingDocuments[0])} className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-[16px] bg-brand-purple px-4 py-3 text-sm font-black text-white shadow-brand transition hover:bg-brand-purple-deep">
+          <button type="button" onClick={() => onOpenDocument(missingDocuments[0])} className="mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 text-sm font-medium text-white transition hover:bg-violet-700">
             Vyplnit chybějící dokumenty
             <ArrowRight size={17} />
           </button>
         ) : (
-          <button type="button" onClick={onGoToPayments} className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-[16px] border border-brand-purple/15 bg-white px-4 py-3 text-sm font-black text-brand-purple transition hover:bg-brand-purple-light">
+          <button type="button" onClick={onGoToPayments} className="mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-neutral-200 bg-white px-4 text-sm font-medium text-neutral-700 transition hover:bg-neutral-50">
             Přejít na nabídku aktivit
             <ArrowRight size={17} />
           </button>
@@ -1076,8 +1113,10 @@ function DocumentsSection({ onOpenDocument, onGoToPayments }: { onOpenDocument: 
   );
 }
 
-function ProfileSection({ displayName, displayEmail, participantName }: { displayName: string; displayEmail: string; participantName: string }) {
+function ProfileSection({ displayName, displayEmail, parentProfileId, participantName, onEmailChange }: { displayName: string; displayEmail: string; parentProfileId?: string; participantName: string; onEmailChange: (email: string) => void }) {
   const { coachReviews: reviews, coaches: portalCoaches, products } = useParentPortalData();
+  const [emailDraft, setEmailDraft] = useState(displayEmail);
+  const [profileSaving, setProfileSaving] = useState(false);
   const [selectedCoachId, setSelectedCoachId] = useState(reviews[0]?.coachId ?? '');
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState('');
@@ -1088,6 +1127,33 @@ function ProfileSection({ displayName, displayEmail, participantName }: { displa
     return uniqueCoachesFromProducts(products);
   }, [portalCoaches, products]);
   const selectedCoach = reviewableCoaches.find((coach) => coach.id === selectedCoachId) ?? reviewableCoaches[0];
+
+  async function saveProfileEmail() {
+    const nextEmail = emailDraft.trim().toLowerCase();
+    if (!looksLikeEmail(nextEmail)) {
+      setMessage('Vyplň platný e-mail pro potvrzení plateb.');
+      return;
+    }
+
+    setProfileSaving(true);
+    setMessage(null);
+
+    try {
+      if (hasSupabaseBrowserConfig() && parentProfileId) {
+        const supabase = createBrowserSupabaseClient();
+        const { error } = await supabase.from('app_profiles').update({ email: nextEmail }).eq('id', parentProfileId);
+        if (error) throw error;
+        setMessage('E-mail pro potvrzení plateb je uložený.');
+      } else {
+        setMessage('Demo režim: e-mail je změněný jen v aktuálním zobrazení.');
+      }
+      onEmailChange(nextEmail);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'E-mail se nepodařilo uložit.');
+    } finally {
+      setProfileSaving(false);
+    }
+  }
 
   async function submitReview() {
     if (!selectedCoach) return;
@@ -1127,7 +1193,14 @@ function ProfileSection({ displayName, displayEmail, participantName }: { displa
         <SectionTitle icon={<UserPlus size={18} />} title="Profil rodiče" subtitle="kontaktní údaje pro platby a dokumenty" />
         <div className="mt-5 space-y-3">
           <ProfileRow label="Jméno" value={displayName} />
-          <ProfileRow label="E-mail" value={displayEmail} />
+          <label className="grid gap-2 text-sm font-medium text-neutral-900">
+            E-mail pro potvrzení plateb
+            <input value={emailDraft} onChange={(event) => setEmailDraft(event.target.value)} type="email" className="rounded-lg border border-neutral-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-violet-500 focus:ring-2 focus:ring-violet-500" placeholder="rodic@example.cz" />
+          </label>
+          <button type="button" disabled={profileSaving || emailDraft.trim().toLowerCase() === displayEmail.toLowerCase()} onClick={saveProfileEmail} className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 text-sm font-medium text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-60">
+            <Check size={17} />
+            {profileSaving ? 'Ukládám...' : 'Uložit e-mail'}
+          </button>
           <ProfileRow label="Telefon" value="Doplní se z přihlášky účastníka" />
           <ProfileRow label="Adresa" value="Doplní se z přihlášky účastníka" />
         </div>
@@ -1136,9 +1209,9 @@ function ProfileSection({ displayName, displayEmail, participantName }: { displa
       <Panel className="p-5">
         <SectionTitle icon={<MessageSquareText size={18} />} title="Hodnocení trenéra" subtitle="klikni na hvězdičky a odešli zpětnou vazbu" />
         <div className="mt-5 grid gap-4">
-          <label className="grid gap-2 text-sm font-black text-brand-ink">
+          <label className="grid gap-2 text-sm font-medium text-neutral-900">
             Trenér
-            <select value={selectedCoachId} onChange={(event) => setSelectedCoachId(event.target.value)} className="rounded-[16px] border border-brand-purple/15 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-brand-purple">
+            <select value={selectedCoachId} onChange={(event) => setSelectedCoachId(event.target.value)} className="rounded-lg border border-neutral-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-violet-500 focus:ring-2 focus:ring-violet-500">
               {reviewableCoaches.map((coach) => (
                 <option key={coach.id} value={coach.id}>{coach.name}</option>
               ))}
@@ -1146,90 +1219,138 @@ function ProfileSection({ displayName, displayEmail, participantName }: { displa
           </label>
           {selectedCoach ? <CoachReviewProfile coach={selectedCoach} /> : null}
           <StarRating value={rating} onChange={setRating} />
-          <label className="grid gap-2 text-sm font-black text-brand-ink">
+          <label className="grid gap-2 text-sm font-medium text-neutral-900">
             Poznámka
-            <textarea value={comment} onChange={(event) => setComment(event.target.value)} rows={4} className="rounded-[16px] border border-brand-purple/15 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-brand-purple" placeholder="Co se trenérovi povedlo, co zlepšit..." />
+            <textarea value={comment} onChange={(event) => setComment(event.target.value)} rows={4} className="rounded-lg border border-neutral-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-violet-500 focus:ring-2 focus:ring-violet-500" placeholder="Co se trenérovi povedlo, co zlepšit..." />
           </label>
-          <button type="button" disabled={saving} onClick={submitReview} className="inline-flex items-center justify-center gap-2 rounded-[16px] bg-brand-purple px-5 py-3 text-sm font-black text-white shadow-brand transition hover:bg-brand-purple-deep disabled:cursor-not-allowed disabled:opacity-60">
+          <button type="button" disabled={saving} onClick={submitReview} className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-violet-600 px-5 text-sm font-medium text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-60">
             <Star size={17} fill="currentColor" />
             {saving ? 'Ukládám...' : 'Uložit hodnocení'}
           </button>
-          {message ? <p className="rounded-[16px] bg-brand-paper px-4 py-3 text-sm font-bold text-brand-ink-soft">{message}</p> : null}
+          {message ? <p className="rounded-lg border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm text-neutral-500">{message}</p> : null}
         </div>
       </Panel>
     </div>
   );
 }
 
-function ProductGroupCard({ group, onStartPurchase }: { group: ProductGroup; onStartPurchase: () => void }) {
+function ProductGroupCard({ group, selectedParticipant, onStartPurchase, onRegisterInterest, parentHasInterest }: { group: ProductGroup; selectedParticipant?: ParentParticipant; onStartPurchase: () => void; onRegisterInterest: () => void; parentHasInterest?: boolean }) {
   const [expanded, setExpanded] = useState(false);
+  const [justRegistered, setJustRegistered] = useState(false);
+  const prevHasInterest = useRef(false);
   const firstVariant = group.variants[0];
-  const priceLabel = group.variants.length > 1
-    ? `${formatCurrency(Math.min(...group.variants.map((variant) => variant.price)))} - ${formatCurrency(Math.max(...group.variants.map((variant) => variant.price)))}`
-    : firstVariant.priceLabel;
+  const priceLabel = group.type === 'Tabor' && group.variants.length > 1
+    ? `Turnusy od ${formatCurrency(Math.min(...group.variants.map((variant) => variant.price)))}`
+    : group.variants.length > 1
+      ? `${formatCurrency(Math.min(...group.variants.map((variant) => variant.price)))} - ${formatCurrency(Math.max(...group.variants.map((variant) => variant.price)))}`
+      : firstVariant.priceLabel;
   const remainingSeats = Math.max(group.capacityTotal - group.capacityCurrent, 0);
   const capacityPercent = Math.min(100, Math.round((group.capacityCurrent / group.capacityTotal) * 100));
+  const workshopGate = workshopPurchaseGate(group);
+  const isWorkshopInterestMode = group.type === 'Workshop' && !workshopGate.canPurchase;
+  const primaryAction = isWorkshopInterestMode && !parentHasInterest ? onRegisterInterest : onStartPurchase;
+  const primaryDisabled = isWorkshopInterestMode && !parentHasInterest && !selectedParticipant;
+  const interestPercent = Math.min(100, Math.round((group.interestCount / WORKSHOP_INTEREST_THRESHOLD) * 100));
+
+  useEffect(() => {
+    if (parentHasInterest && !prevHasInterest.current) {
+      setJustRegistered(true);
+      const t = setTimeout(() => setJustRegistered(false), 1800);
+      return () => clearTimeout(t);
+    }
+    prevHasInterest.current = parentHasInterest ?? false;
+  }, [parentHasInterest]);
 
   return (
     <section className="scroll-mt-6 self-start [perspective:1800px]">
       <div className={`relative transition-transform duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] [transform-style:preserve-3d] [will-change:transform] ${expanded ? '[transform:rotateY(180deg)]' : ''}`}>
-        <div className={`overflow-hidden rounded-[16px] border border-brand-purple/12 bg-white shadow-brand [backface-visibility:hidden] ${expanded ? 'pointer-events-none' : ''}`} aria-hidden={expanded}>
-          <div className="relative h-44 bg-brand-purple-light">
+        <div className={`overflow-hidden rounded-xl border border-neutral-200 bg-white [backface-visibility:hidden] ${expanded ? 'pointer-events-none' : ''}`} aria-hidden={expanded}>
+          <div className="relative aspect-video bg-neutral-100">
             <Image src={group.heroImage} alt={group.title} fill className="object-cover" sizes="(min-width: 1280px) 38vw, 100vw" />
-            <div className="absolute left-3 top-3 rounded-[16px] bg-white/95 px-3 py-2 text-xs font-black uppercase text-brand-purple shadow-sm">{activityLabel(group.type)}</div>
+            <div className="absolute left-3 top-3 rounded-full bg-black/60 px-2 py-1 text-xs text-white backdrop-blur-sm">{activityLabel(group.type)}</div>
           </div>
           <div className="p-5">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h3 className="text-xl font-black text-brand-ink">{group.title}</h3>
-                <p className="mt-1 flex items-center gap-2 text-sm font-bold text-brand-ink-soft"><MapPin size={16} /> {group.place}</p>
+                <h3 className="text-xl font-semibold text-neutral-900">{group.title}</h3>
+                <p className="mt-1 flex items-center gap-2 text-sm text-neutral-400"><MapPin size={14} /> {group.place}</p>
               </div>
-              <p className="shrink-0 text-right text-sm font-black text-brand-purple">{priceLabel}</p>
+              <p className="shrink-0 text-right text-[15px] font-semibold text-neutral-900">{priceLabel}</p>
             </div>
-            <p className="mt-3 text-sm leading-6 text-brand-ink-soft">{group.description}</p>
+            <p className="mt-3 text-sm leading-6 text-neutral-500">{group.description}</p>
             <div className="mt-4 grid gap-2 sm:grid-cols-2">
               <InfoPill label="Termín" value={group.primaryMeta} />
-              <InfoPill label="Živá kapacita" value={`${group.capacityCurrent}/${group.capacityTotal} dětí`} />
+              <InfoPill label="Kapacita" value={`${group.capacityCurrent}/${group.capacityTotal} dětí`} />
+              {group.type === 'Workshop' && !workshopGate.canPurchase ? (
+                <div className="col-span-2 mt-1 grid gap-1.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-neutral-500">Zájemci: {group.interestCount}/{WORKSHOP_INTEREST_THRESHOLD}</span>
+                    <span className={interestPercent >= 100 ? 'text-emerald-600' : 'text-violet-600'}>{interestPercent >= 100 ? 'Plno – otevírá se platba' : `ještě ${WORKSHOP_INTEREST_THRESHOLD - group.interestCount} do otevření`}</span>
+                  </div>
+                  <div className="h-1.5 overflow-hidden rounded-full bg-neutral-200">
+                    <div
+                      className="h-full rounded-full bg-violet-500 transition-all duration-700"
+                      style={{ width: `${interestPercent}%` }}
+                    />
+                  </div>
+                </div>
+              ) : null}
+              {group.type === 'Workshop' && workshopGate.canPurchase ? <InfoPill label="Prodej" value="Otevřeno" /> : null}
             </div>
             <CapacityBar current={group.capacityCurrent} total={group.capacityTotal} />
             <div className="mt-4 flex flex-wrap gap-2">
               {group.trainingFocus.slice(0, 4).map((focus) => (
-                <span key={focus} className="rounded-[16px] bg-brand-cyan/10 px-3 py-2 text-xs font-black text-brand-cyan">{focus}</span>
+                <span key={focus} className="rounded-full bg-neutral-100 px-3 py-1 text-xs text-neutral-600">{focus}</span>
               ))}
             </div>
             <div className="mt-5 grid gap-2 sm:grid-cols-[1fr_auto] sm:items-center">
-              <button type="button" onClick={() => setExpanded(true)} className="inline-flex items-center justify-center gap-2 rounded-[16px] border border-brand-purple/15 px-4 py-3 text-sm font-black text-brand-purple transition hover:bg-brand-purple-light">
+              <button type="button" onClick={() => setExpanded(true)} className="inline-flex items-center justify-center gap-2 rounded-xl border border-neutral-200 px-4 py-3 text-sm font-medium text-neutral-700 transition hover:bg-neutral-50">
                 <Camera size={17} />
                 Fotky, info a trenéři
                 <RefreshCw size={16} />
               </button>
-              <button type="button" onClick={onStartPurchase} className="inline-flex items-center justify-center gap-2 rounded-[16px] bg-brand-purple px-4 py-3 text-sm font-black text-white shadow-brand transition hover:bg-brand-purple-deep">
-                Zaplatit
-                <ArrowRight size={17} />
-              </button>
+              {isWorkshopInterestMode && parentHasInterest ? (
+                <motion.button
+                  type="button"
+                  onClick={onStartPurchase}
+                  disabled
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-500 px-4 py-3 text-sm font-medium text-white"
+                  animate={justRegistered ? { scale: [1, 1.08, 0.97, 1.03, 1] } : { scale: 1 }}
+                  transition={{ duration: 0.5, ease: 'easeOut' }}
+                >
+                  <Check size={17} />
+                  Zájem uložen
+                  {justRegistered ? <motion.span initial={{ opacity: 0, x: -4 }} animate={{ opacity: 1, x: 0 }} className="text-emerald-100">✓</motion.span> : null}
+                </motion.button>
+              ) : (
+                <button type="button" disabled={primaryDisabled} onClick={primaryAction} className="inline-flex items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 py-3 text-sm font-medium text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-60">
+                  {isWorkshopInterestMode ? 'Mám zájem' : 'Zaplatit'}
+                  <ArrowRight size={17} />
+                </button>
+              )}
             </div>
           </div>
         </div>
 
-        <div className={`absolute inset-0 flex flex-col overflow-hidden rounded-[16px] border border-brand-purple/12 bg-brand-paper shadow-brand [backface-visibility:hidden] [transform:rotateY(180deg)] ${expanded ? '' : 'pointer-events-none'}`} aria-hidden={!expanded}>
-          <div className="relative h-32 shrink-0 overflow-hidden bg-brand-purple-light">
+        <div className={`absolute inset-0 flex flex-col overflow-hidden rounded-xl border border-neutral-200 bg-white [backface-visibility:hidden] [transform:rotateY(180deg)] ${expanded ? '' : 'pointer-events-none'}`} aria-hidden={!expanded}>
+          <div className="relative h-32 shrink-0 overflow-hidden bg-neutral-100">
             <div className="grid h-full grid-cols-3 gap-1.5 p-1.5">
               {group.gallery.slice(0, 3).map((photo, index) => (
-                <div key={`${photo}-${index}`} className="relative overflow-hidden rounded-[16px] bg-white shadow-sm">
+                <div key={`${photo}-${index}`} className="relative overflow-hidden rounded-xl bg-white">
                   <Image src={photo} alt={`${group.title} ${index + 1}`} fill className="object-cover" sizes="(min-width: 1280px) 12vw, 33vw" />
                 </div>
               ))}
             </div>
           </div>
 
-          <div className="flex shrink-0 items-start justify-between gap-3 border-b border-brand-purple/10 bg-white p-3">
+          <div className="flex shrink-0 items-start justify-between gap-3 border-b border-neutral-200 bg-white p-3">
             <div className="min-w-0">
-              <p className="text-[10px] font-black uppercase text-brand-purple">Fotky, info a trenéři</p>
-              <h3 className="truncate text-base font-black text-brand-ink">{group.title}</h3>
-              <p className="mt-1 flex items-center gap-1.5 text-xs font-bold text-brand-ink-soft"><MapPin size={13} /> {group.place}</p>
-              <p className="mt-0.5 truncate text-[11px] font-black text-brand-ink-soft">{group.primaryMeta} · {priceLabel}</p>
+              <p className="text-[10px] font-medium text-neutral-400">Fotky, info a trenéři</p>
+              <h3 className="truncate text-base font-semibold text-neutral-900">{group.title}</h3>
+              <p className="mt-1 flex items-center gap-1.5 text-xs text-neutral-500"><MapPin size={13} /> {group.place}</p>
+              <p className="mt-0.5 truncate text-[11px] text-neutral-500">{group.primaryMeta} · {priceLabel}</p>
             </div>
-            <button type="button" onClick={() => setExpanded(false)} className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-[16px] bg-brand-purple px-3 py-2 text-xs font-black text-white shadow-sm transition hover:bg-brand-purple-deep">
+            <button type="button" onClick={() => setExpanded(false)} className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700 transition hover:bg-neutral-50">
               <RefreshCw size={14} />
               Zpět
             </button>
@@ -1238,7 +1359,7 @@ function ProductGroupCard({ group, onStartPurchase }: { group: ProductGroup; onS
           <div className="min-h-0 flex-1 overflow-y-auto p-3">
             <div className="grid gap-3 xl:grid-cols-[0.9fr_1.1fr]">
               <div>
-                <h4 className="text-[11px] font-black uppercase text-brand-purple">Důležité informace</h4>
+                <h4 className="text-[11px] font-medium text-neutral-400">Důležité informace</h4>
                 <div className="mt-2 grid gap-2 sm:grid-cols-3 xl:grid-cols-1">
                   {group.importantInfo.map((item) => (
                     <DetailInfoCard key={`${item.label}-${item.value}`} label={item.label} value={item.value} />
@@ -1246,31 +1367,45 @@ function ProductGroupCard({ group, onStartPurchase }: { group: ProductGroup; onS
                 </div>
               </div>
               <div>
-                <h4 className="text-[11px] font-black uppercase text-brand-purple">Trenéři na místě</h4>
+                <h4 className="text-[11px] font-medium text-neutral-400">Trenéři na místě</h4>
                 <div className="mt-2 grid gap-2">
-                  {group.trainers.length > 0 ? group.trainers.map((trainer) => <TrainerRow key={trainer.id} trainer={trainer} />) : <p className="rounded-[16px] bg-white p-3 text-xs font-bold leading-5 text-brand-ink-soft shadow-sm">Trenér se doplní automaticky po registraci a výběru lokality.</p>}
+                  {group.trainers.length > 0 ? group.trainers.map((trainer) => <TrainerRow key={trainer.id} trainer={trainer} />) : <p className="rounded-lg border border-neutral-200 bg-white p-3 text-xs leading-5 text-neutral-500">Trenér se doplní automaticky po registraci a výběru lokality.</p>}
                 </div>
               </div>
             </div>
-            <div className="mt-3 flex flex-wrap gap-1.5">
+            <div className="mt-3 flex flex-wrap gap-2">
               {group.trainingFocus.slice(0, 4).map((focus) => (
-                <span key={focus} className="rounded-[16px] bg-brand-cyan/10 px-2.5 py-1.5 text-[11px] font-black text-brand-cyan">{focus}</span>
+                <span key={focus} className="rounded-full bg-neutral-100 px-3 py-1 text-[11px] text-neutral-600">{focus}</span>
               ))}
             </div>
           </div>
 
-          <div className="shrink-0 border-t border-brand-purple/10 bg-white/95 p-3">
-            <div className="flex items-center justify-between gap-3 text-xs font-black">
-              <span className="text-brand-ink">Aktuálně {group.capacityCurrent}/{group.capacityTotal} dětí</span>
-              <span className="text-brand-cyan">{remainingSeats} volných míst</span>
+          <div className="shrink-0 border-t border-neutral-200 bg-white/95 p-3">
+            <div className="flex items-center justify-between gap-3 text-xs">
+              <span className="text-neutral-500">Aktuálně {group.capacityCurrent}/{group.capacityTotal} dětí</span>
+              <span className="text-neutral-400">{group.type === 'Workshop' ? `${group.interestCount} zájemců` : `${remainingSeats} volných míst`}</span>
             </div>
-            <div className="mt-2 h-2 overflow-hidden rounded-full bg-brand-purple-light">
-              <div className="h-full rounded-full bg-brand-cyan" style={{ width: `${capacityPercent}%` }} />
+            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-neutral-200">
+              <div className="h-full rounded-full bg-violet-500" style={{ width: `${capacityPercent}%` }} />
             </div>
-            <button type="button" onClick={onStartPurchase} className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-[16px] bg-brand-purple px-4 py-3 text-sm font-black text-white shadow-brand transition hover:bg-brand-purple-deep">
-              Zaplatit
-              <ArrowRight size={17} />
-            </button>
+            {isWorkshopInterestMode && parentHasInterest ? (
+              <motion.button
+                type="button"
+                onClick={onStartPurchase}
+                disabled
+                className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 px-4 py-3 text-sm font-medium text-white"
+                animate={justRegistered ? { scale: [1, 1.06, 0.98, 1.02, 1] } : { scale: 1 }}
+                transition={{ duration: 0.5, ease: 'easeOut' }}
+              >
+                <Check size={17} />
+                Zájem uložen
+              </motion.button>
+            ) : (
+              <button type="button" disabled={primaryDisabled} onClick={primaryAction} className="mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 text-sm font-medium text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-60">
+                {isWorkshopInterestMode ? 'Mám zájem' : 'Zaplatit'}
+                <ArrowRight size={17} />
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -1286,21 +1421,43 @@ function PurchaseWizard({ flow, usedRewardCodeIds, onChange, onClose, onCheckout
   const isDocumentOnly = flow.mode === 'documents';
   const appliedDiscount = participant ? findRewardDiscountByCode(flow.discountCode, selectedProduct.type, participant, usedRewardCodeIds) : null;
   const discountPreview = applyRewardDiscount(selectedProduct.price, appliedDiscount);
+  const [savedForLater, setSavedForLater] = useState(false);
+
+  function saveDocumentsForLater() {
+    persistDocumentDefaults(flow.documentValues);
+    setSavedForLater(true);
+    window.setTimeout(() => setSavedForLater(false), 2500);
+  }
 
   function updateDocuments(values: Partial<DocumentFormValues>) {
     onChange({ ...flow, documentValues: { ...flow.documentValues, ...values }, message: null });
   }
 
+  function docBlockCompleted(kind: string): boolean {
+    const v = flow.documentValues;
+    const filled = (s: string) => s.trim().length > 0;
+    switch (kind) {
+      case 'gdpr': return v.gdprConsent;
+      case 'guardian-consent': return filled(v.parentName) && filled(v.emergencyPhone) && v.guardianConsent; // druhý nouzový kontakt je volitelný
+      case 'health': return filled(v.insuranceCompany) && filled(v.allergies) && filled(v.medication) && filled(v.healthLimits) && v.healthAccuracy;
+      case 'departure': return filled(v.pickupPeople) && v.departureConsent;
+      case 'infection-free': return v.infectionFree;
+      case 'packing': return v.packingConfirmed;
+      case 'workshop-terms': return filled(v.parentName) && filled(v.emergencyPhone) && v.workshopTermsAccepted && v.photoConsent;
+      default: return false;
+    }
+  }
+
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-brand-ink/50 px-4 py-6 backdrop-blur-sm">
-      <div className="mx-auto flex max-h-[calc(100dvh-48px)] max-w-5xl flex-col rounded-[16px] bg-white shadow-2xl">
-        <div className="flex items-start justify-between gap-4 border-b border-brand-purple/10 p-5">
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 px-4 py-6 backdrop-blur-sm">
+      <div className="mx-auto flex max-h-[calc(100dvh-48px)] max-w-5xl flex-col rounded-xl bg-white shadow-2xl">
+        <div className="flex items-start justify-between gap-4 border-b border-neutral-200 p-5">
           <div>
-            <p className="text-xs font-black uppercase text-brand-purple">{isDocumentOnly ? 'Doplnění dokumentů' : 'Průvodce platbou'}</p>
-            <h2 className="mt-1 text-2xl font-black text-brand-ink">{flow.group.title}</h2>
-            <p className="mt-1 text-sm font-bold text-brand-ink-soft">{flow.group.place}</p>
+            <p className="text-xs font-medium text-neutral-400">{isDocumentOnly ? 'Doplnění dokumentů' : 'Průvodce platbou'}</p>
+            <h2 className="mt-1 text-2xl font-semibold text-neutral-900">{flow.group.title}</h2>
+            <p className="mt-1 text-sm text-neutral-500">{flow.group.place}</p>
           </div>
-          <button type="button" onClick={onClose} className="rounded-[16px] p-2 text-brand-ink-soft transition hover:bg-brand-paper hover:text-brand-purple" aria-label="Zavřít">
+          <button type="button" onClick={onClose} className="rounded-lg p-2 text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-700" aria-label="Zavřít">
             <X size={22} />
           </button>
         </div>
@@ -1308,14 +1465,14 @@ function PurchaseWizard({ flow, usedRewardCodeIds, onChange, onClose, onCheckout
         <div className="grid gap-5 overflow-y-auto p-5 lg:grid-cols-[1fr_320px]">
           <div className="space-y-5">
             {isDocumentOnly ? (
-              <WizardBlock number="1" title="Aktivita">
-                <div className="rounded-[16px] border border-brand-purple/10 bg-white p-4">
-                  <p className="text-sm font-black text-brand-ink">{selectedProduct.title}</p>
-                  <p className="mt-1 text-xs font-bold text-brand-ink-soft">{selectedProduct.place} · {selectedProduct.priceLabel}</p>
+              <WizardBlock number="1" title="Aktivita" completed>
+                <div className="rounded-lg border border-neutral-200 bg-white p-4">
+                  <p className="text-sm font-medium text-neutral-900">{selectedProduct.title}</p>
+                  <p className="mt-1 text-xs text-neutral-500">{selectedProduct.place} · {selectedProduct.priceLabel}</p>
                 </div>
               </WizardBlock>
             ) : (
-              <WizardBlock number="1" title="Varianta">
+              <WizardBlock number="1" title="Varianta" completed={!!flow.selectedProductId}>
                 <div className="grid gap-3 sm:grid-cols-2">
                   {flow.group.variants.map((variant) => {
                     const selected = variant.id === flow.selectedProductId;
@@ -1324,10 +1481,10 @@ function PurchaseWizard({ flow, usedRewardCodeIds, onChange, onClose, onCheckout
                         key={variant.id}
                         type="button"
                         onClick={() => onChange({ ...flow, selectedProductId: variant.id, message: null })}
-                        className={`rounded-[16px] border p-4 text-left transition ${selected ? 'border-brand-purple bg-brand-purple text-white' : 'border-brand-purple/10 bg-white text-brand-ink hover:bg-brand-paper'}`}
+                        className={`rounded-xl border p-4 text-left transition ${selected ? 'border-violet-600 bg-violet-600 text-white' : 'border-neutral-200 bg-white text-neutral-900 hover:bg-neutral-50'}`}
                       >
-                        <span className="block text-sm font-black">{variant.priceLabel}</span>
-                        <span className={`mt-1 block text-xs font-bold ${selected ? 'text-white/80' : 'text-brand-ink-soft'}`}>{variant.secondaryMeta}</span>
+                        <span className="block text-sm font-medium">{variant.priceLabel}</span>
+                        <span className={`mt-1 block text-xs ${selected ? 'text-white/80' : 'text-neutral-500'}`}>{variant.secondaryMeta}</span>
                       </button>
                     );
                   })}
@@ -1335,7 +1492,7 @@ function PurchaseWizard({ flow, usedRewardCodeIds, onChange, onClose, onCheckout
               </WizardBlock>
             )}
 
-            <WizardBlock number="2" title="Účastník">
+            <WizardBlock number="2" title="Účastník" completed={!!flow.participantId}>
               <div className="grid gap-3 sm:grid-cols-2">
                 {participants.map((item) => {
                   const selected = item.id === flow.participantId;
@@ -1344,10 +1501,10 @@ function PurchaseWizard({ flow, usedRewardCodeIds, onChange, onClose, onCheckout
                       key={item.id}
                       type="button"
                       onClick={() => onChange({ ...flow, participantId: item.id, message: null })}
-                      className={`rounded-[16px] border p-4 text-left transition ${selected ? 'border-brand-cyan bg-brand-cyan text-white' : 'border-brand-purple/10 bg-white text-brand-ink hover:bg-brand-paper'}`}
+                      className={`rounded-xl border p-4 text-left transition ${selected ? 'border-violet-600 bg-violet-600 text-white' : 'border-neutral-200 bg-white text-neutral-900 hover:bg-neutral-50'}`}
                     >
-                      <span className="block text-sm font-black">{item.firstName} {item.lastName}</span>
-                      <span className={`mt-1 block text-xs font-bold ${selected ? 'text-white/80' : 'text-brand-ink-soft'}`}>{item.activeCourse}</span>
+                      <span className="block text-sm font-medium">{item.firstName} {item.lastName}</span>
+                      <span className={`mt-1 block text-xs ${selected ? 'text-white/80' : 'text-neutral-500'}`}>{item.activeCourse}</span>
                     </button>
                   );
                 })}
@@ -1356,7 +1513,7 @@ function PurchaseWizard({ flow, usedRewardCodeIds, onChange, onClose, onCheckout
             </WizardBlock>
 
             {!isDocumentOnly ? (
-              <WizardBlock number="3" title="Slevový kód">
+              <WizardBlock number="3" title="Slevový kód" completed={!!appliedDiscount}>
                 <RewardDiscountPicker
                   product={selectedProduct}
                   participant={participant}
@@ -1370,11 +1527,11 @@ function PurchaseWizard({ flow, usedRewardCodeIds, onChange, onClose, onCheckout
             {requiredDocuments.length > 0 ? requiredDocuments.map((doc, idx) => {
               const blockNum = String((isDocumentOnly ? 3 : 4) + idx);
               return (
-                <WizardBlock key={doc.kind} number={blockNum} title={doc.title}>
+                <CollapsibleDocBlock key={doc.kind} number={blockNum} title={doc.title} physicalOnly={doc.physicalOnly} completed={docBlockCompleted(doc.kind)} defaultOpen={idx === 0}>
                   {doc.kind === 'gdpr' && (
                     <div className="space-y-3">
-                      <p className="rounded-[16px] bg-white p-4 text-sm leading-6 text-brand-ink-soft">
-                        Správce osobních údajů: <span className="font-bold text-brand-ink">TeamVYS</span>. Zpracováváme jméno, datum narození, zdravotní informace a kontaktní údaje dítěte a zákonného zástupce za účelem organizace sportovní aktivity, vedení docházky a zajištění bezpečnosti. Uchování: po dobu aktivity a 1 rok poté. Máte právo na přístup, opravu a výmaz dle nařízení GDPR (EU) 2016/679.
+                      <p className="rounded-lg border border-neutral-200 bg-white p-4 text-sm leading-6 text-neutral-500">
+                        Správce osobních údajů: <span className="font-medium text-neutral-900">TeamVYS</span>. Zpracováváme jméno, datum narození, zdravotní informace a kontaktní údaje dítěte a zákonného zástupce za účelem organizace sportovní aktivity, vedení docházky a zajištění bezpečnosti. Uchování: po dobu aktivity a 1 rok poté. Máte právo na přístup, opravu a výmaz dle nařízení GDPR (EU) 2016/679.
                       </p>
                       <CheckboxRow label="Souhlasím se zpracováním osobních údajů dítěte a zákonného zástupce dle výše uvedených podmínek." checked={flow.documentValues.gdprConsent} onChange={(checked) => updateDocuments({ gdprConsent: checked })} />
                     </div>
@@ -1429,15 +1586,19 @@ function PurchaseWizard({ flow, usedRewardCodeIds, onChange, onClose, onCheckout
                   )}
                   {doc.kind === 'infection-free' && (
                     <div className="space-y-3">
-                      <p className="rounded-[16px] bg-white p-4 text-sm leading-6 text-brand-ink-soft">
-                        Dle §9 vyhl. č. 106/2001 Sb. o hygienických požadavcích na zotavovací akce pro děti je zákonný zástupce povinen před nástupem doložit prohlášení o bezinfekčnosti.
-                      </p>
-                      <CheckboxRow label="Prohlašuji, že dítě nebylo ve 14 dnech před nástupem v kontaktu s osobou nemocnou infekčním onemocněním ani mu nebylo nařízeno karanténní opatření. Dítě je v den nástupu zdravé." checked={flow.documentValues.infectionFree} onChange={(checked) => updateDocuments({ infectionFree: checked })} />
+                      <div className="grid gap-2 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm leading-6">
+                        <p className="font-bold text-amber-800">⚠️ Tento dokument se nevyplňuje online – přineste ho první den tábora.</p>
+                        <p className="text-amber-700">Na dokumentu musí být <strong>datum dne odjezdu</strong> (max. 1 den předem). Starší datum je neplatné.</p>
+                        <a href="/bezinfekcnost-vzor.html" target="_blank" rel="noopener noreferrer" className="inline-flex w-fit items-center gap-1.5 rounded-lg bg-amber-500 px-3 py-1.5 text-[12px] font-medium text-white transition hover:bg-amber-600">
+                          <FileDown size={14} /> Stáhnout vzor / tisknout
+                        </a>
+                      </div>
+                      <CheckboxRow label="Beru na vědomí, že první den tábora přinesu podepsané prohlášení o bezinfekčnosti s datumem dne odjezdu." checked={flow.documentValues.infectionFree} onChange={(checked) => updateDocuments({ infectionFree: checked })} />
                     </div>
                   )}
                   {doc.kind === 'packing' && (
                     <div className="space-y-4">
-                      <ul className="rounded-[16px] bg-white p-4 space-y-1.5 text-sm text-brand-ink-soft">
+                      <ul className="rounded-lg border border-neutral-200 bg-white p-4 space-y-1.5 text-sm text-neutral-500">
                         <li>• Oblečení na pohyb (min. 3 sady), náhradní obuv</li>
                         <li>• Pyžamo, ručník, hygienické potřeby</li>
                         <li>• Spací pytel nebo deka a polštář</li>
@@ -1455,24 +1616,35 @@ function PurchaseWizard({ flow, usedRewardCodeIds, onChange, onClose, onCheckout
                         <TextField label="Jméno zákonného zástupce" value={flow.documentValues.parentName} onChange={(value) => updateDocuments({ parentName: value })} />
                         <TextField label="Nouzový telefon" type="tel" value={flow.documentValues.emergencyPhone} onChange={(value) => updateDocuments({ emergencyPhone: value })} placeholder="+420 ..." />
                       </div>
-                      <p className="rounded-[16px] bg-white p-4 text-sm leading-6 text-brand-ink-soft">
-                        <span className="font-bold text-brand-ink">Storno podmínky: </span>Více než 14 dní před zahájením – plná náhrada. 7–14 dní – 50 % ceny. Méně než 7 dní nebo nenastoupení – bez náhrady.
+                      <p className="rounded-lg border border-neutral-200 bg-white p-4 text-sm leading-6 text-neutral-500">
+                        <span className="font-medium text-neutral-900">Storno podmínky: </span>Více než 14 dní před zahájením – plná náhrada. 7–14 dní – 50 % ceny. Méně než 7 dní nebo nenastoupení – bez náhrady.
                       </p>
                       <CheckboxRow label="Jako zákonný zástupce souhlasím s účastí dítěte na fyzicky náročné aktivitě, s řádem TeamVYS a storno podmínkami Parkour school." checked={flow.documentValues.workshopTermsAccepted} onChange={(checked) => updateDocuments({ workshopTermsAccepted: checked })} />
                       <CheckboxRow label="Souhlasím se zveřejněním fotografií a videozáznamů dítěte z aktivit na webu a v propagačních materiálech TeamVYS Parkour school." checked={flow.documentValues.photoConsent} onChange={(checked) => updateDocuments({ photoConsent: checked })} />
                     </div>
                   )}
-                </WizardBlock>
+                </CollapsibleDocBlock>
               );
             }) : (
               <WizardBlock number={String(isDocumentOnly ? 3 : 4)} title="Dokumenty">
-                <p className="rounded-[16px] bg-brand-paper p-4 text-sm font-bold text-brand-ink-soft">Tento produkt nemá před platbou povinný dokumentový balíček. Po zaplacení se vytvoří QR ticket.</p>
+                <p className="rounded-lg border border-neutral-200 bg-neutral-50 p-4 text-sm text-neutral-500">Tento produkt nemá před platbou povinný dokumentový balíček. Po zaplacení se vytvoří QR ticket.</p>
               </WizardBlock>
             )}
+
+            {requiredDocuments.some((doc) => !doc.physicalOnly) ? (
+              <button
+                type="button"
+                onClick={saveDocumentsForLater}
+                className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-neutral-200 bg-white px-4 text-sm font-medium text-neutral-700 transition hover:bg-neutral-50"
+              >
+                {savedForLater ? <Check size={17} /> : <RefreshCw size={17} />}
+                {savedForLater ? 'Uloženo – příště se předvyplní' : 'Uložit údaje pro příště'}
+              </button>
+            ) : null}
           </div>
 
-          <aside className="self-start rounded-[16px] border border-brand-purple/10 bg-brand-paper p-4">
-            <h3 className="text-sm font-black uppercase text-brand-purple">Souhrn</h3>
+          <aside className="self-start rounded-xl border border-neutral-200 bg-neutral-50 p-4">
+            <h3 className="text-sm font-medium text-neutral-400">Souhrn</h3>
             <div className="mt-4 space-y-3">
               <SummaryRow label="Produkt" value={selectedProduct.title} />
               <SummaryRow label="Varianta" value={selectedProduct.priceLabel} />
@@ -1484,17 +1656,27 @@ function PurchaseWizard({ flow, usedRewardCodeIds, onChange, onClose, onCheckout
             {requiredDocuments.length > 0 ? (
               <div className="mt-5 space-y-2">
                 {requiredDocuments.map((document) => (
-                  <div key={document.kind} className="flex items-start gap-2 rounded-[16px] bg-white p-3">
-                    <CheckCircle2 className="mt-0.5 shrink-0 text-brand-cyan" size={17} />
-                    <div>
-                      <p className="text-xs font-black text-brand-ink">{document.title}</p>
-                      <p className="mt-1 text-[11px] leading-4 text-brand-ink-soft">{document.description}</p>
+                  document.physicalOnly ? (
+                    <div key={document.kind} className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                      <AlertTriangle className="mt-0.5 shrink-0 text-amber-500" size={16} />
+                      <div>
+                        <p className="text-xs font-medium text-neutral-900">{document.title}</p>
+                        <p className="mt-1 text-[11px] leading-4 text-amber-700">{document.physicalNote ?? document.description}</p>
+                      </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div key={document.kind} className="flex items-start gap-2 rounded-lg border border-neutral-200 bg-white p-3">
+                      <CheckCircle2 className="mt-0.5 shrink-0 text-emerald-500" size={17} />
+                      <div>
+                        <p className="text-xs font-medium text-neutral-900">{document.title}</p>
+                        <p className="mt-1 text-[11px] leading-4 text-neutral-500">{document.description}</p>
+                      </div>
+                    </div>
+                  )
                 ))}
               </div>
             ) : null}
-            {flow.message ? <p className="mt-4 rounded-[16px] bg-brand-paper p-3 text-sm font-bold text-brand-ink-soft">{flow.message}</p> : null}
+            {flow.message ? <p className="mt-4 rounded-lg border border-neutral-200 bg-white p-3 text-sm text-neutral-500">{flow.message}</p> : null}
             {flow.paymentClientSecret && flow.paymentIntentId && !isDocumentOnly ? (
               <div className="mt-5">
                 <EmbeddedPaymentForm
@@ -1506,7 +1688,7 @@ function PurchaseWizard({ flow, usedRewardCodeIds, onChange, onClose, onCheckout
                 />
               </div>
             ) : (
-              <button type="button" disabled={flow.isSubmitting} onClick={onCheckout} className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-[16px] bg-brand-purple px-5 py-3 text-sm font-black text-white shadow-brand transition hover:bg-brand-purple-deep disabled:cursor-not-allowed disabled:opacity-60">
+              <button type="button" disabled={flow.isSubmitting} onClick={onCheckout} className="mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-5 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60">
                 {isDocumentOnly ? <FileCheck2 size={17} /> : <CreditCard size={17} />}
                 {flow.isSubmitting ? (isDocumentOnly ? 'Ukládám dokumenty...' : 'Připravuji platbu...') : (isDocumentOnly ? 'Uložit dokumenty' : `Uložit dokumenty a zaplatit ${formatCurrency(discountPreview.finalAmount)}`)}
               </button>
@@ -1541,14 +1723,14 @@ function RewardDiscountPicker({
         <input
           value={code}
           onChange={(event) => onCodeChange(event.target.value.toUpperCase())}
-          className="rounded-[16px] border border-brand-purple/15 bg-white px-4 py-3 text-sm font-black text-brand-ink outline-none transition focus:border-brand-purple"
+          className="rounded-lg border border-neutral-200 bg-white px-4 py-3 font-mono text-sm outline-none transition focus:border-violet-500 focus:ring-2 focus:ring-violet-500"
           placeholder="Např. ELISKA-KROUZEK-5"
         />
         <button
           type="button"
           disabled={eligibleDiscounts.length === 0}
           onClick={() => onCodeChange(eligibleDiscounts[0]?.code ?? code)}
-          className="rounded-[16px] bg-white px-4 py-3 text-sm font-black text-brand-purple shadow-sm transition hover:bg-brand-purple-light disabled:cursor-not-allowed disabled:opacity-55"
+          className="rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm font-medium text-neutral-700 transition hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-55"
         >
           Vložit dosažený
         </button>
@@ -1556,47 +1738,44 @@ function RewardDiscountPicker({
       {eligibleDiscounts.length > 0 ? (
         <div className="flex flex-wrap gap-2">
           {eligibleDiscounts.map((discount) => (
-            <button key={discount.id} type="button" onClick={() => onCodeChange(discount.code)} className="rounded-[16px] bg-white px-3 py-2 text-xs font-black text-brand-ink shadow-sm transition hover:text-brand-purple">
+            <button key={discount.id} type="button" onClick={() => onCodeChange(discount.code)} className="rounded-lg border border-neutral-200 bg-white px-3 py-2 text-xs text-neutral-700 transition hover:bg-neutral-50">
               {discount.code} · {discount.percent} %
             </button>
           ))}
         </div>
       ) : (
-        <p className="rounded-[16px] bg-white p-3 text-xs font-bold leading-5 text-brand-ink-soft">Pro tenhle typ produktu zatím dítě nemá aktivní slevu. Slevy se odemykají v měsíční cestě podle XP.</p>
+        <p className="rounded-lg border border-neutral-200 bg-white p-3 text-xs leading-5 text-neutral-500">Pro tenhle typ produktu zatím dítě nemá aktivní slevu. Slevy se odemykají v měsíční cestě podle XP.</p>
       )}
       {appliedDiscount ? (
-        <div className="grid gap-2 rounded-[16px] border border-brand-cyan/20 bg-brand-cyan/10 p-3 text-sm font-black text-brand-ink sm:grid-cols-2">
-          <span>Sleva {appliedDiscount.percent} %: <span className="text-brand-cyan">-{formatCurrency(discountPreview.discountAmount)}</span></span>
+        <div className="grid gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm font-medium text-neutral-900 sm:grid-cols-2">
+          <span>Sleva {appliedDiscount.percent} %: <span className="text-emerald-600">-{formatCurrency(discountPreview.discountAmount)}</span></span>
           <span className="sm:text-right">K zaplacení: {formatCurrency(discountPreview.finalAmount)}</span>
         </div>
       ) : code.trim() ? (
-        <p className="rounded-[16px] bg-brand-pink/10 p-3 text-xs font-bold leading-5 text-brand-pink">Kód nejde použít pro vybraný produkt nebo už byl použitý.</p>
+        <p className="rounded-lg border border-red-200 bg-red-50 p-3 text-xs leading-5 text-red-600">Kód nejde použít pro vybraný produkt nebo už byl použitý.</p>
       ) : null}
     </div>
   );
 }
 
 function Panel({ children, className = '' }: { children: React.ReactNode; className?: string }) {
-  return <section className={`self-start rounded-[22px] border border-brand-purple/12 bg-white shadow-brand ${className}`}>{children}</section>;
+  return <section className={`self-start rounded-xl border border-neutral-200 bg-white ${className}`}>{children}</section>;
 }
 
-function SectionTitle({ icon, title, subtitle }: { icon: React.ReactNode; title: string; subtitle: string }) {
+function SectionTitle({ icon: _icon, title, subtitle }: { icon: React.ReactNode; title: string; subtitle: string }) {
   return (
-    <div className="flex items-start gap-3">
-      <span className="rounded-[16px] bg-brand-purple-light p-2 text-brand-purple">{icon}</span>
-      <div>
-        <h2 className="text-lg font-black text-brand-ink">{title}</h2>
-        <p className="mt-1 text-sm font-bold text-brand-ink-soft">{subtitle}</p>
-      </div>
+    <div>
+      <h2 className="text-[15px] font-medium text-neutral-900">{title}</h2>
+      <p className="mt-0.5 text-[13px] text-neutral-400">{subtitle}</p>
     </div>
   );
 }
 
 function Metric({ value, label }: { value: string; label: string }) {
   return (
-    <div className="rounded-[16px] bg-brand-paper px-3 py-3">
-      <p className="text-base font-black text-brand-ink">{value}</p>
-      <p className="mt-1 text-[11px] font-black uppercase text-brand-ink-soft">{label}</p>
+    <div className="rounded-lg border border-neutral-200 bg-white px-3 py-3">
+      <p className="text-base font-semibold text-neutral-900">{value}</p>
+      <p className="mt-1 text-[11px] text-neutral-400">{label}</p>
     </div>
   );
 }
@@ -1619,30 +1798,34 @@ function HeroSignal({ value, label, tone }: { value: string; label: string; tone
 
 function ActionTile({ icon, label, value, onClick }: { icon: React.ReactNode; label: string; value: string; onClick: () => void }) {
   return (
-    <button type="button" onClick={onClick} className="group flex min-w-0 items-center gap-3 rounded-[16px] border border-brand-purple/10 bg-brand-paper p-3 text-left transition hover:-translate-y-0.5 hover:border-brand-purple/28 hover:bg-white hover:shadow-brand-soft">
-      <span className="inline-flex shrink-0 rounded-[12px] bg-white p-2 text-brand-purple shadow-sm transition group-hover:bg-brand-purple group-hover:text-white">{icon}</span>
-      <span className="min-w-0">
-        <span className="block truncate text-sm font-black text-brand-ink">{label}</span>
-        <span className="mt-0.5 block truncate text-xs font-bold text-brand-ink-soft">{value}</span>
+    <button type="button" onClick={onClick} className="group flex items-center gap-3.5 rounded-xl border border-neutral-200 bg-white px-4 py-4 text-left transition-all hover:-translate-y-0.5 hover:border-violet-200 hover:shadow-[0_8px_24px_rgba(107,61,245,0.12)]">
+      <span className={`grid h-12 w-12 shrink-0 place-items-center rounded-full text-white shadow-[0_6px_14px_rgba(232,76,196,0.28)] ${BRAND_GRADIENT}`}>{icon}</span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-semibold text-neutral-900">{label}</span>
+        <span className="mt-1 block text-[13px] leading-relaxed text-neutral-500">{value}</span>
       </span>
+      <ArrowRight size={16} className="shrink-0 text-neutral-300 transition-all group-hover:translate-x-0.5 group-hover:text-violet-500" />
     </button>
   );
 }
 
 function MiniInput({ label, value, onChange, placeholder, type = 'text' }: { label: string; value: string; onChange: (value: string) => void; placeholder: string; type?: string }) {
+  function handleChange(raw: string) {
+    onChange(type === 'tel' ? filterPhone(raw) : raw);
+  }
   return (
-    <label className="grid gap-2 text-sm font-black text-brand-ink">
+    <label className="grid gap-2 text-sm font-medium text-neutral-900">
       {label}
-      <input type={type} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} className="rounded-[16px] border border-brand-purple/15 bg-white px-3 py-2.5 text-sm font-bold outline-none transition focus:border-brand-purple" />
+      <input type={type} value={value} onChange={(event) => handleChange(event.target.value)} placeholder={placeholder} inputMode={type === 'tel' ? 'tel' : undefined} className="rounded-lg border border-neutral-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-violet-500 focus:ring-2 focus:ring-violet-500" />
     </label>
   );
 }
 
 function MiniSelect({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: Array<{ value: string; label: string }> }) {
   return (
-    <label className="grid gap-2 text-sm font-black text-brand-ink">
+    <label className="grid gap-2 text-sm font-medium text-neutral-900">
       {label}
-      <select value={value} onChange={(event) => onChange(event.target.value)} className="rounded-[16px] border border-brand-purple/15 bg-white px-3 py-2.5 text-sm font-bold outline-none transition focus:border-brand-purple">
+      <select value={value} onChange={(event) => onChange(event.target.value)} className="rounded-lg border border-neutral-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-violet-500 focus:ring-2 focus:ring-violet-500">
         {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
       </select>
     </label>
@@ -1651,18 +1834,18 @@ function MiniSelect({ label, value, onChange, options }: { label: string; value:
 
 function MiniTextarea({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (value: string) => void; placeholder?: string }) {
   return (
-    <label className="grid gap-2 text-sm font-black text-brand-ink">
+    <label className="grid gap-2 text-sm font-medium text-neutral-900">
       {label}
-      <textarea value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} rows={3} className="rounded-[16px] border border-brand-purple/15 bg-white px-3 py-2.5 text-sm font-bold outline-none transition focus:border-brand-purple" />
+      <textarea value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} rows={3} className="rounded-lg border border-neutral-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-violet-500 focus:ring-2 focus:ring-violet-500" />
     </label>
   );
 }
 
 function InfoPill({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-[16px] bg-white px-3 py-3">
-      <p className="text-[11px] font-black uppercase text-brand-ink-soft">{label}</p>
-      <p className="mt-1 text-sm font-black text-brand-ink">{value}</p>
+    <div className="rounded-lg border border-neutral-200 bg-white px-3 py-2.5">
+      <p className="text-[11px] font-medium text-neutral-400">{label}</p>
+      <p className="mt-0.5 text-sm font-medium text-neutral-800">{value}</p>
     </div>
   );
 }
@@ -1672,13 +1855,13 @@ function CapacityBar({ current, total }: { current: number; total: number }) {
   const remaining = Math.max(0, total - current);
 
   return (
-    <div className="mt-3 rounded-[16px] bg-white p-3">
-      <div className="flex items-center justify-between gap-3 text-xs font-black">
-        <span className="text-brand-ink">Aktuálně {current}/{total} dětí</span>
-        <span className="text-brand-cyan">{remaining} volných míst</span>
+    <div className="mt-3">
+      <div className="flex items-center justify-between gap-3 text-xs">
+        <span className="text-neutral-500">Aktuálně {current}/{total} dětí</span>
+        <span className="text-neutral-400">{remaining} volných míst</span>
       </div>
-      <div className="mt-2 h-2 overflow-hidden rounded-full bg-brand-purple-light">
-        <div className="h-full rounded-full bg-brand-cyan" style={{ width: `${percent}%` }} />
+      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-neutral-200">
+        <div className="h-full rounded-full bg-violet-500 transition-all" style={{ width: `${percent}%` }} />
       </div>
     </div>
   );
@@ -1686,40 +1869,43 @@ function CapacityBar({ current, total }: { current: number; total: number }) {
 
 function DetailInfoCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="min-h-[72px] rounded-[16px] border border-brand-purple/10 bg-white p-3 shadow-sm">
-      <p className="text-[10px] font-black uppercase text-brand-purple">{label}</p>
-      <p className="mt-1 text-[13px] font-black leading-5 text-brand-ink">{value}</p>
+    <div className="min-h-[72px] rounded-lg border border-neutral-200 bg-white p-3">
+      <p className="text-[10px] font-medium text-neutral-400">{label}</p>
+      <p className="mt-1 text-[13px] font-medium leading-5 text-neutral-900">{value}</p>
     </div>
   );
 }
 
 function EmptyState({ text }: { text: string }) {
-  return <p className="rounded-[16px] border border-brand-purple/10 bg-white p-3 text-sm font-bold leading-6 text-brand-ink-soft">{text}</p>;
+  return <p className="rounded-lg border border-neutral-200 bg-white p-3 text-sm leading-6 text-neutral-500">{text}</p>;
 }
 
 function ProgressBar({ value, max }: { value: number; max: number }) {
   const width = Math.min(100, Math.round((value / max) * 100));
   return (
     <div className="mt-4">
-      <div className="flex justify-between text-xs font-black text-brand-ink-soft">
+      <div className="flex justify-between text-xs text-neutral-400">
         <span>XP {value}</span>
         <span>{max}</span>
       </div>
-      <div className="mt-2 h-2 rounded-full bg-white">
-        <div className="h-full rounded-full bg-brand-cyan" style={{ width: `${width}%` }} />
+      <div className="mt-2 h-1.5 rounded-full bg-neutral-100">
+        <div className={`h-full rounded-full ${BRAND_GRADIENT}`} style={{ width: `${width}%` }} />
       </div>
     </div>
   );
 }
 
-function AccordionPanel({ icon, title, count, children }: { icon: React.ReactNode; title: string; count: number; children: React.ReactNode }) {
+function AccordionPanel({ icon: _icon, title, count, children }: { icon: React.ReactNode; title: string; count: number; children: React.ReactNode }) {
   const [isOpen, setIsOpen] = useState(true);
 
   return (
-    <section className={`self-start rounded-[22px] border border-brand-purple/12 bg-white p-5 shadow-brand transition-all duration-300 ease-out hover:-translate-y-0.5 hover:border-brand-purple/22 hover:shadow-brand-float ${isOpen ? 'shadow-brand' : ''}`}>
-      <button type="button" aria-expanded={isOpen} onClick={() => setIsOpen((current) => !current)} className="flex w-full cursor-pointer items-center justify-between gap-3 rounded-[16px] text-left transition-colors duration-300 hover:bg-brand-paper/60">
-        <SectionTitle icon={icon} title={title} subtitle={`${count} položek`} />
-        <ChevronDown className={`shrink-0 text-brand-purple transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`} size={18} />
+    <section className="self-start rounded-xl border border-neutral-200 bg-white p-5">
+      <button type="button" aria-expanded={isOpen} onClick={() => setIsOpen((current) => !current)} className="flex w-full cursor-pointer items-center justify-between gap-3 text-left">
+        <div className="flex items-center gap-2">
+          <span className="text-[15px] font-medium text-neutral-900">{title}</span>
+          <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-xs text-neutral-500">{count}</span>
+        </div>
+        <ChevronDown className={`shrink-0 text-neutral-400 transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`} size={16} />
       </button>
       <CollapsibleContent open={isOpen} className="mt-4 space-y-2">{children}</CollapsibleContent>
     </section>
@@ -1755,36 +1941,36 @@ function CollapsibleContent({ open, children, className = '' }: { open: boolean;
 
 function Row({ label, value, tone }: { label: string; value: string; tone: 'green' | 'pink' | 'purple' | 'cyan' }) {
   const toneClass = {
-    green: 'bg-emerald-50 text-emerald-700',
-    pink: 'bg-brand-pink/10 text-brand-pink',
-    purple: 'bg-brand-purple-light text-brand-purple',
-    cyan: 'bg-brand-cyan/10 text-brand-cyan',
+    green: 'bg-emerald-100 text-emerald-700',
+    pink: 'bg-red-50 text-red-600',
+    purple: 'bg-neutral-100 text-neutral-600',
+    cyan: 'bg-neutral-100 text-neutral-600',
   }[tone];
 
   return (
-    <div className="grid gap-2 rounded-[16px] border border-brand-purple/10 bg-white p-3 text-sm transition-all duration-300 hover:-translate-y-0.5 hover:border-brand-purple/24 hover:shadow-brand-soft sm:grid-cols-[1fr_auto] sm:items-center">
-      <span className="font-black text-brand-ink">{label}</span>
-      <span className={`rounded-[999px] px-3 py-1 text-xs font-black ${toneClass}`}>{value}</span>
+    <div className="grid gap-2 rounded-lg border border-neutral-200 bg-white p-3 text-sm sm:grid-cols-[1fr_auto] sm:items-center">
+      <span className="text-neutral-800">{label}</span>
+      <span className={`rounded-full px-2 py-0.5 text-xs ${toneClass}`}>{value}</span>
     </div>
   );
 }
 
 function ParticipantDocumentRow({ document, onOpenDocument }: { document: ParentDocument; onOpenDocument: (document: ParentDocument) => void }) {
   const isSigned = document.status === 'signed';
-  const toneClass = isSigned ? 'bg-emerald-50 text-emerald-700' : document.status === 'draft' ? 'bg-brand-pink/10 text-brand-pink' : 'bg-brand-pink/10 text-brand-pink';
+  const toneClass = isSigned ? 'bg-emerald-50 text-emerald-700' : document.status === 'draft' ? 'bg-red-50 text-red-600' : 'bg-red-50 text-red-600';
   const content = (
     <>
-      <span className="font-black text-brand-ink">{document.title}</span>
+      <span className="font-medium text-neutral-900">{document.title}</span>
       <span className="flex flex-wrap items-center gap-2 sm:justify-end">
-        <span className={`rounded-[999px] px-3 py-1 text-xs font-black ${toneClass}`}>{documentStatusLabel(document.status)}</span>
-        {!isSigned ? <span className="rounded-[999px] bg-brand-purple-light px-3 py-1 text-xs font-black text-brand-purple">Doplnit</span> : null}
+        <span className={`rounded-full px-3 py-1 text-xs ${toneClass}`}>{documentStatusLabel(document.status)}</span>
+        {!isSigned ? <span className="rounded-full bg-violet-50 px-3 py-1 text-xs font-medium text-violet-700">Doplnit</span> : null}
       </span>
     </>
   );
 
   if (isSigned) {
     return (
-      <div className="grid gap-2 rounded-[16px] border border-brand-purple/10 bg-white p-3 text-sm transition-all duration-300 sm:grid-cols-[1fr_auto] sm:items-center">
+      <div className="grid gap-2 rounded-lg border border-neutral-200 bg-white p-3 text-sm transition-all duration-300 sm:grid-cols-[1fr_auto] sm:items-center">
         {content}
       </div>
     );
@@ -1794,7 +1980,7 @@ function ParticipantDocumentRow({ document, onOpenDocument }: { document: Parent
     <button
       type="button"
       onClick={() => onOpenDocument(document)}
-      className="grid w-full gap-2 rounded-[16px] border border-brand-purple/10 bg-white p-3 text-left text-sm transition-all duration-300 hover:-translate-y-0.5 hover:border-brand-purple hover:bg-brand-paper hover:shadow-brand-soft sm:grid-cols-[1fr_auto] sm:items-center"
+      className="grid w-full gap-2 rounded-lg border border-neutral-200 bg-white p-3 text-left text-sm transition-all duration-300 hover:-translate-y-0.5 hover:border-violet-300 hover:bg-neutral-50 sm:grid-cols-[1fr_auto] sm:items-center"
     >
       {content}
     </button>
@@ -1806,8 +1992,8 @@ function StatusBadge({ status }: { status: DocumentStatus }) {
     ? 'bg-emerald-50 text-emerald-700'
     : status === 'draft'
       ? 'bg-amber-50 text-amber-700'
-      : 'bg-brand-pink/10 text-brand-pink';
-  return <span className={`inline-flex items-center justify-center rounded-[999px] px-3 py-2 text-xs font-black ${classes}`}>{documentStatusLabel(status)}</span>;
+      : 'bg-red-50 text-red-600';
+  return <span className={`inline-flex items-center justify-center rounded-full px-3 py-2 text-xs ${classes}`}>{documentStatusLabel(status)}</span>;
 }
 
 function DocumentChecklist({ title, productType }: { title: string; productType: ActivityType }) {
@@ -1816,14 +2002,40 @@ function DocumentChecklist({ title, productType }: { title: string; productType:
   const documents = sampleProduct ? requiredDocumentsForProduct(sampleProduct) : [];
 
   return (
-    <div className="rounded-[18px] border border-brand-purple/10 bg-white p-4">
-      <h3 className="text-sm font-black text-brand-ink">{title}</h3>
+    <div className="rounded-lg border border-neutral-200 bg-white p-4">
+      <h3 className="text-sm font-medium text-neutral-900">{title}</h3>
       <div className="mt-3 grid gap-2">
         {documents.map((document) => (
-          <div key={document.kind} className="flex gap-2 rounded-[16px] bg-brand-paper px-3 py-2 text-xs leading-5 text-brand-ink-soft">
-            <Check size={15} className="mt-0.5 shrink-0 text-brand-cyan" />
-            <span><strong className="text-brand-ink">{document.title}</strong> · {document.description}</span>
-          </div>
+          document.physicalOnly ? (
+            <div key={document.kind} className="grid gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-xs leading-5">
+              <div className="flex gap-2">
+                <AlertTriangle size={15} className="mt-0.5 shrink-0 text-amber-500" />
+                <div>
+                  <strong className="text-neutral-900">{document.title}</strong>
+                  <span className="text-neutral-500"> · {document.description}</span>
+                </div>
+              </div>
+              {document.physicalNote ? (
+                <p className="ml-[23px] text-[11px] font-bold leading-4 text-amber-700">{document.physicalNote}</p>
+              ) : null}
+              {document.pdfUrl ? (
+                <a
+                  href={document.pdfUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="ml-[23px] inline-flex w-fit items-center gap-1.5 rounded-lg bg-amber-500 px-3 py-1.5 text-[11px] font-medium text-white transition hover:bg-amber-600"
+                >
+                  <FileDown size={13} />
+                  Stáhnout vzor / tisknout
+                </a>
+              ) : null}
+            </div>
+          ) : (
+            <div key={document.kind} className="flex gap-2 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-xs leading-5 text-neutral-500">
+              <Check size={15} className="mt-0.5 shrink-0 text-emerald-500" />
+              <span><strong className="text-neutral-900">{document.title}</strong><span className="text-neutral-500"> · {document.description}</span></span>
+            </div>
+          )
         ))}
       </div>
     </div>
@@ -1832,15 +2044,15 @@ function DocumentChecklist({ title, productType }: { title: string; productType:
 
 function TrainerRow({ trainer }: { trainer: ParentProductTrainer }) {
   return (
-    <div className="grid items-center gap-3 rounded-[16px] bg-white p-3 shadow-sm sm:grid-cols-[42px_minmax(0,1fr)_auto]">
-      <Image src={trainer.profilePhotoUrl} alt={trainer.name} width={42} height={42} className="h-[42px] w-[42px] rounded-[14px] bg-brand-purple-light object-contain p-1.5" />
+    <div className="grid items-center gap-3 rounded-lg border border-neutral-200 bg-white p-3 sm:grid-cols-[42px_minmax(0,1fr)_auto]">
+      <Image src={trainer.profilePhotoUrl} alt={trainer.name} width={42} height={42} className="h-[42px] w-[42px] rounded-xl bg-neutral-100 object-contain p-1.5" />
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-black leading-5 text-brand-ink">{trainer.name}</p>
-        <p className="mt-1 flex items-center gap-1 text-xs font-bold text-brand-ink-soft"><Phone size={13} /> <span className="truncate">{trainer.phone}</span></p>
+        <p className="text-sm font-medium leading-5 text-neutral-900">{trainer.name}</p>
+        <p className="mt-1 flex items-center gap-1 text-xs text-neutral-500"><Phone size={13} /> <span className="truncate">{trainer.phone}</span></p>
       </div>
-      <div className="w-full rounded-[16px] bg-brand-cyan/10 px-3 py-2 text-left sm:w-auto sm:min-w-[82px] sm:text-center">
-        <p className="text-sm font-black text-brand-cyan">{trainer.qrTricksApproved}</p>
-        <p className="text-[9px] font-black uppercase text-brand-cyan">QR triků</p>
+      <div className="w-full rounded-lg bg-neutral-100 px-3 py-2 text-left sm:w-auto sm:min-w-[82px] sm:text-center">
+        <p className="text-sm font-semibold text-neutral-900">{trainer.qrTricksApproved}</p>
+        <p className="text-[9px] text-neutral-400">QR triků</p>
       </div>
     </div>
   );
@@ -1848,55 +2060,89 @@ function TrainerRow({ trainer }: { trainer: ParentProductTrainer }) {
 
 function CoachReviewProfile({ coach }: { coach: ParentProductTrainer }) {
   return (
-    <div className="grid items-center gap-3 rounded-[18px] border border-brand-purple/10 bg-brand-paper p-4 sm:grid-cols-[64px_minmax(0,1fr)_auto]">
-      <Image src={coach.profilePhotoUrl} alt={coach.name} width={64} height={64} className="h-16 w-16 rounded-[18px] bg-white object-contain p-2 shadow-sm" />
+    <div className="grid items-center gap-3 rounded-lg border border-neutral-200 bg-neutral-50 p-4 sm:grid-cols-[64px_minmax(0,1fr)_auto]">
+      <Image src={coach.profilePhotoUrl} alt={coach.name} width={64} height={64} className="h-16 w-16 rounded-xl border border-neutral-200 bg-white object-contain p-2" />
       <div className="min-w-0">
-        <p className="text-base font-black text-brand-ink">{coach.name}</p>
-        <p className="mt-1 flex items-center gap-1 text-xs font-bold text-brand-ink-soft"><Phone size={13} /> <span>{coach.phone}</span></p>
-        <p className="mt-1 truncate text-xs font-bold text-brand-ink-soft">{coach.locations.join(' · ')}</p>
+        <p className="text-base font-semibold text-neutral-900">{coach.name}</p>
+        <p className="mt-1 flex items-center gap-1 text-xs text-neutral-500"><Phone size={13} /> <span>{coach.phone}</span></p>
+        <p className="mt-1 truncate text-xs text-neutral-500">{coach.locations.join(' · ')}</p>
       </div>
-      <div className="rounded-[16px] bg-white px-3 py-2 text-left shadow-sm sm:text-center">
-        <p className="text-sm font-black text-brand-cyan">{coach.qrTricksApproved}</p>
-        <p className="text-[9px] font-black uppercase text-brand-cyan">QR triků</p>
+      <div className="rounded-lg border border-neutral-200 bg-white px-3 py-2 text-left sm:text-center">
+        <p className="text-sm font-semibold text-neutral-900">{coach.qrTricksApproved}</p>
+        <p className="text-[9px] text-neutral-400">QR triků</p>
       </div>
     </div>
   );
 }
 
-function WizardBlock({ number, title, children }: { number: string; title: string; children: React.ReactNode }) {
+function WizardBlock({ number, title, completed = false, children }: { number: string; title: string; completed?: boolean; children: React.ReactNode }) {
   return (
-    <section className="rounded-[18px] border border-brand-purple/10 bg-brand-paper p-4">
-      <div className="mb-3 flex items-center gap-2">
-        <span className="inline-flex h-7 w-7 items-center justify-center rounded-[12px] bg-brand-purple text-xs font-black text-white">{number}</span>
-        <h3 className="text-base font-black text-brand-ink">{title}</h3>
+    <section className={`rounded-xl border bg-white transition-colors ${completed ? 'border-emerald-300' : 'border-neutral-200'}`}>
+      <div className="mb-3 flex items-center gap-2 p-4 pb-0">
+        <span className={`inline-flex h-7 w-7 items-center justify-center rounded-full text-xs font-medium text-white transition-colors ${completed ? 'bg-emerald-500' : 'bg-violet-600'}`}>{completed ? <Check size={13} /> : number}</span>
+        <h3 className="text-base font-semibold text-neutral-900">{title}</h3>
       </div>
-      {children}
+      <div className="p-4 pt-3">{children}</div>
     </section>
   );
 }
 
-function TextField({ label, value, onChange, placeholder, type = 'text' }: { label: string; value: string; onChange: (value: string) => void; placeholder?: string; type?: string }) {
+function CollapsibleDocBlock({ number, title, physicalOnly, completed = false, defaultOpen = false, children }: { number: string; title: string; physicalOnly?: boolean; completed?: boolean; defaultOpen?: boolean; children: React.ReactNode }) {
+  const [open, setOpen] = useState(defaultOpen);
+  const badgeBg = completed ? 'bg-emerald-500' : physicalOnly ? 'bg-amber-500' : 'bg-violet-600';
+  const borderCls = completed ? 'border-emerald-300' : physicalOnly ? 'border-amber-200' : 'border-neutral-200';
   return (
-    <label className="grid gap-2 text-sm font-black text-brand-ink">
+    <section className={`rounded-xl border bg-white transition-colors ${borderCls}`}>
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        className="flex w-full items-center gap-3 p-4 text-left"
+      >
+        <span className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-medium text-white transition-colors ${badgeBg}`}>
+          {completed ? <Check size={13} /> : number}
+        </span>
+        <span className="flex-1 text-base font-medium text-neutral-900">{title}</span>
+        {!completed && physicalOnly ? <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] text-amber-700">Přinest fyzicky</span> : null}
+        {completed ? <span className="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] text-emerald-700">Hotovo</span> : null}
+        <ChevronDown size={17} className={`shrink-0 text-neutral-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open ? <div className="space-y-4 border-t border-neutral-200 p-4">{children}</div> : null}
+    </section>
+  );
+}
+
+function filterPhone(raw: string): string {
+  // allow leading +, then only digits and spaces
+  const stripped = raw.replace(/[^\d+\s]/g, '');
+  // ensure + only at the start
+  return stripped.startsWith('+') ? '+' + stripped.slice(1).replace(/\+/g, '') : stripped.replace(/\+/g, '');
+}
+
+function TextField({ label, value, onChange, placeholder, type = 'text' }: { label: string; value: string; onChange: (value: string) => void; placeholder?: string; type?: string }) {
+  function handleChange(raw: string) {
+    onChange(type === 'tel' ? filterPhone(raw) : raw);
+  }
+  return (
+    <label className="grid gap-2 text-sm font-medium text-neutral-900">
       {label}
-      <input type={type} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} className="rounded-[16px] border border-brand-purple/15 bg-white px-4 py-3 text-sm font-bold outline-none placeholder:font-normal placeholder:text-brand-ink-soft/70 focus:border-brand-purple" />
+      <input type={type} value={value} onChange={(event) => handleChange(event.target.value)} placeholder={placeholder} inputMode={type === 'tel' ? 'tel' : undefined} className="rounded-lg border border-neutral-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-violet-500 focus:ring-2 focus:ring-violet-500" />
     </label>
   );
 }
 
 function TextareaField({ label, value, onChange, placeholder, rows = 3 }: { label: string; value: string; onChange: (value: string) => void; placeholder?: string; rows?: number }) {
   return (
-    <label className="grid gap-2 text-sm font-black text-brand-ink">
+    <label className="grid gap-2 text-sm font-medium text-neutral-900">
       {label}
-      <textarea value={value} onChange={(event) => onChange(event.target.value)} rows={rows} placeholder={placeholder} className="rounded-[16px] border border-brand-purple/15 bg-white px-4 py-3 text-sm font-bold outline-none placeholder:font-normal placeholder:text-brand-ink-soft/70 focus:border-brand-purple" />
+      <textarea value={value} onChange={(event) => onChange(event.target.value)} rows={rows} placeholder={placeholder} className="rounded-lg border border-neutral-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-violet-500 focus:ring-2 focus:ring-violet-500" />
     </label>
   );
 }
 
 function CheckboxRow({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
   return (
-    <label className="flex cursor-pointer items-start gap-3 rounded-[16px] border border-brand-purple/10 bg-white p-4 text-sm font-bold text-brand-ink-soft">
-      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="mt-1 h-4 w-4 accent-brand-purple" />
+    <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-neutral-200 bg-white p-4 text-sm text-neutral-700">
+      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="mt-1 h-4 w-4 accent-violet-600" />
       <span>{label}</span>
     </label>
   );
@@ -1904,20 +2150,20 @@ function CheckboxRow({ label, checked, onChange }: { label: string; checked: boo
 
 function SummaryRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-start justify-between gap-3 border-b border-brand-purple/10 pb-3 last:border-b-0 last:pb-0">
-      <span className="text-xs font-black uppercase text-brand-ink-soft">{label}</span>
-      <span className="text-right text-sm font-black text-brand-ink">{value}</span>
+    <div className="flex items-start justify-between gap-3 border-b border-neutral-200 pb-3 last:border-b-0 last:pb-0">
+      <span className="text-xs font-medium text-neutral-400">{label}</span>
+      <span className="text-right text-sm font-medium text-neutral-900">{value}</span>
     </div>
   );
 }
 
 function StarRating({ value, onChange }: { value: number; onChange: (value: number) => void }) {
   return (
-    <div className="rounded-[18px] border border-brand-purple/10 bg-brand-paper p-4">
-      <p className="text-sm font-black text-brand-ink">Hodnocení</p>
+    <div className="rounded-lg border border-neutral-200 bg-white p-4">
+      <p className="text-sm font-medium text-neutral-900">Hodnocení</p>
       <div className="mt-3 flex gap-2">
         {[1, 2, 3, 4, 5].map((item) => (
-          <button key={item} type="button" onClick={() => onChange(item)} className="rounded-[14px] bg-white p-2 text-brand-purple transition hover:scale-105" aria-label={`${item} hvězdiček`}>
+          <button key={item} type="button" onClick={() => onChange(item)} className="rounded-lg bg-neutral-50 p-2 text-violet-500 transition hover:scale-105" aria-label={`${item} hvězdiček`}>
             <Star size={28} fill={item <= value ? 'currentColor' : 'none'} />
           </button>
         ))}
@@ -1928,9 +2174,9 @@ function StarRating({ value, onChange }: { value: number; onChange: (value: numb
 
 function ProfileRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-[18px] border border-brand-purple/10 bg-brand-paper p-4">
-      <p className="text-xs font-black uppercase text-brand-ink-soft">{label}</p>
-      <p className="mt-1 text-sm font-black text-brand-ink">{value}</p>
+    <div className="rounded-lg border border-neutral-200 bg-white p-4">
+      <p className="text-xs font-medium text-neutral-400">{label}</p>
+      <p className="mt-1 text-sm font-medium text-neutral-900">{value}</p>
     </div>
   );
 }
@@ -1946,7 +2192,11 @@ function buildProductGroups(products: ParentProduct[]): ProductGroup[] {
   const groups = new Map<string, ProductGroup>();
 
   for (const product of products) {
-    const id = product.type === 'Krouzek' ? product.id.replace(/-15$/, '') : product.id;
+    const id = product.type === 'Krouzek'
+      ? product.id.replace(/-15$/, '')
+      : product.type === 'Tabor'
+        ? product.id.replace(/-t\d+$/, '')
+        : product.id;
     const existing = groups.get(id);
 
     if (existing) {
@@ -1970,6 +2220,8 @@ function buildProductGroups(products: ParentProduct[]): ProductGroup[] {
       gallery: product.gallery.length ? product.gallery : [product.heroImage],
       capacityTotal: product.capacityTotal,
       capacityCurrent: product.capacityCurrent,
+      interestCount: product.interestCount ?? 0,
+      canPurchase: product.canPurchase,
       importantInfo: product.importantInfo,
       trainingFocus: product.trainingFocus,
       trainers: trainersForProduct(product),
@@ -1994,6 +2246,27 @@ function productSortScore(group: ProductGroup, participant?: ParentParticipant) 
   if (participantCourse && participantCourse.includes(groupCity)) return 1;
   if (groupCity === 'vyskov') return 2;
   return 3;
+}
+
+function workshopPurchaseGate(group: ProductGroup) {
+  if (group.type !== 'Workshop') return { canPurchase: true };
+  if (group.canPurchase === true) return { canPurchase: true };
+  if (group.interestCount >= WORKSHOP_INTEREST_THRESHOLD) return { canPurchase: true };
+
+  const eventDate = parseProductDate(group.primaryMeta);
+  if (!eventDate) return { canPurchase: true };
+
+  return { canPurchase: Date.now() >= eventDate.getTime() - WORKSHOP_PAYMENT_OPEN_DAYS * MS_PER_DAY };
+}
+
+function parseProductDate(value: string) {
+  const isoMatch = /(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  if (isoMatch) return new Date(Date.UTC(Number(isoMatch[1]), Number(isoMatch[2]) - 1, Number(isoMatch[3])));
+
+  const czechMatch = /(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{4})/.exec(value);
+  if (czechMatch) return new Date(Date.UTC(Number(czechMatch[3]), Number(czechMatch[2]) - 1, Number(czechMatch[1])));
+
+  return null;
 }
 
 function findDocumentTarget(document: ParentDocument, groups: ProductGroup[], participants: ParentParticipant[]) {
@@ -2033,7 +2306,6 @@ async function saveRequiredDocuments(product: ParentProduct, participant: Parent
     participantName,
     participantFirstName: participant.firstName,
     participantLastName: participant.lastName,
-    birthNumberMasked: participant.birthNumberMasked,
     documents: documents.map((document) => ({
       kind: document.kind,
       title: document.title,
@@ -2169,22 +2441,81 @@ function documentPayload(document: RequiredDocumentTemplate, product: ParentProd
   return common;
 }
 
+// Reusable document fields the parent can save and have auto-prefilled next
+// time. Consent checkboxes are intentionally NOT persisted — they must be
+// actively confirmed for every purchase.
+const SAVED_DOC_DEFAULTS_KEY = 'teamvys-doc-defaults';
+
+type SavedDocumentDefaults = Pick<
+  DocumentFormValues,
+  | 'parentName'
+  | 'emergencyPhone'
+  | 'emergencyPhone2Name'
+  | 'emergencyPhone2'
+  | 'insuranceCompany'
+  | 'insuranceNumber'
+  | 'chronicDiseases'
+  | 'healthLimits'
+  | 'allergies'
+  | 'medication'
+  | 'medicationSchedule'
+  | 'canSwim'
+  | 'tetanus'
+  | 'pickupPeople'
+>;
+
+function readSavedDocumentDefaults(): Partial<SavedDocumentDefaults> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = window.localStorage.getItem(SAVED_DOC_DEFAULTS_KEY);
+    return raw ? (JSON.parse(raw) as Partial<SavedDocumentDefaults>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function persistDocumentDefaults(values: DocumentFormValues) {
+  if (typeof window === 'undefined') return;
+  const toSave: SavedDocumentDefaults = {
+    parentName: values.parentName,
+    emergencyPhone: values.emergencyPhone,
+    emergencyPhone2Name: values.emergencyPhone2Name,
+    emergencyPhone2: values.emergencyPhone2,
+    insuranceCompany: values.insuranceCompany,
+    insuranceNumber: values.insuranceNumber,
+    chronicDiseases: values.chronicDiseases,
+    healthLimits: values.healthLimits,
+    allergies: values.allergies,
+    medication: values.medication,
+    medicationSchedule: values.medicationSchedule,
+    canSwim: values.canSwim,
+    tetanus: values.tetanus,
+    pickupPeople: values.pickupPeople,
+  };
+  try {
+    window.localStorage.setItem(SAVED_DOC_DEFAULTS_KEY, JSON.stringify(toSave));
+  } catch {
+    // Ignore storage failures (private mode, quota) — saving is best-effort.
+  }
+}
+
 function defaultDocumentValues(displayName: string): DocumentFormValues {
+  const saved = readSavedDocumentDefaults();
   return {
-    parentName: displayName,
-    emergencyPhone: '',
-    emergencyPhone2Name: '',
-    emergencyPhone2: '',
-    insuranceCompany: '',
-    insuranceNumber: '',
-    chronicDiseases: 'Žádná',
-    healthLimits: 'Bez omezení',
-    allergies: 'Žádné',
-    medication: 'Bez pravidelných léků',
-    medicationSchedule: '',
-    canSwim: '',
-    tetanus: '',
-    pickupPeople: displayName,
+    parentName: saved.parentName || displayName,
+    emergencyPhone: saved.emergencyPhone || '',
+    emergencyPhone2Name: saved.emergencyPhone2Name || '',
+    emergencyPhone2: saved.emergencyPhone2 || '',
+    insuranceCompany: saved.insuranceCompany || '',
+    insuranceNumber: saved.insuranceNumber || '',
+    chronicDiseases: saved.chronicDiseases || 'Žádná',
+    healthLimits: saved.healthLimits || 'Bez omezení',
+    allergies: saved.allergies || 'Žádné',
+    medication: saved.medication || 'Bez pravidelných léků',
+    medicationSchedule: saved.medicationSchedule || '',
+    canSwim: saved.canSwim || '',
+    tetanus: saved.tetanus || '',
+    pickupPeople: saved.pickupPeople || displayName,
     notes: '',
     gdprConsent: false,
     guardianConsent: false,
@@ -2207,6 +2538,10 @@ function uniqueCoachesFromProducts(products: ParentProduct[]) {
 
 function parentIdFromEmail(email: string) {
   return `web-parent-${email.toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'demo'}`;
+}
+
+function looksLikeEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
 }
 
 function friendlyBackendError(message: string) {
