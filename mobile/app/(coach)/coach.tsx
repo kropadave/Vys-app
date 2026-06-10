@@ -1311,32 +1311,7 @@ export default function CoachHome() {
         </ParentCard>
       )}
 
-      <ParentCard title="Moje workshopy">
-        {myWorkshopSlots.length === 0 ? (
-          <Text style={styles.muted}>Zatím ti není přiřazen žádný workshop.</Text>
-        ) : (
-          myWorkshopSlots.map((s) => (
-            <View key={s.id} style={styles.campBlock}>
-              <View style={styles.campHeader}>
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <Text style={styles.cardTitle}>{s.city} · {s.time}</Text>
-                  <Text style={styles.muted}>{formatWorkshopLongDate(s.date)} · {s.venue}</Text>
-                  {(s.trick1 || s.trick2) ? (
-                    <Text style={[styles.muted, { color: CoachColors.amber, fontWeight: '900', marginTop: 2 }]}>
-                      {s.trick2 ? `${s.trick1} + ${s.trick2}` : s.trick1}
-                    </Text>
-                  ) : null}
-                </View>
-                <StatusPill label={s.city} tone="warning" />
-              </View>
-            </View>
-          ))
-        )}
-        <Pressable style={({ pressed }) => [styles.historyOpenButton, styles.wsOpenButton, { marginTop: 8 }, pressed && { opacity: 0.86 }]} onPress={openWorkshop}>
-          <Feather name="map-pin" size={16} color="#fff" />
-          <Text style={styles.historyOpenButtonText}>Přidat / odebrat workshop</Text>
-        </Pressable>
-      </ParentCard>
+
 
       <ParentCard title="Sdílený kalendář tréninků">
         <View style={[styles.sharedCalendarHero, styles.sharedCalendarHeroTraining]}>
