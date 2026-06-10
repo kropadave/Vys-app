@@ -1,12 +1,13 @@
 import { Feather } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { CoachCard, CoachPageHeader } from '@/components/coach/coach-screen';
 import { StatusPill } from '@/components/parent-card';
 import { useCoachOperations } from '@/hooks/use-coach-operations';
 import { useCoachWards } from '@/hooks/use-coach-wards';
+import { useCourseDocuments } from '@/hooks/use-course-documents';
 import { useManualTrickAwards } from '@/hooks/use-manual-trick-awards';
 import {
     coachTricks,
@@ -14,7 +15,8 @@ import {
     skillTreeProgressForWard,
     type CoachWardSkillTrick,
 } from '@/lib/coach-content';
-import { CoachColors } from '@/lib/coach-theme';
+import { CoachColors, CoachShadow } from '@/lib/coach-theme';
+import { documentStatusLabel } from '@/lib/course-documents';
 import { Radius, Spacing } from '@/lib/theme';
 
 type TrickFilter = 'missing' | 'completed' | 'all';
@@ -31,6 +33,25 @@ export default function CoachWardDetail() {
   const ward = typeof id === 'string' ? wards.find((item) => item.id === id) ?? null : null;
   const { awards, awardManualTrick } = useManualTrickAwards();
   const { childAttendanceRecords } = useCoachOperations();
+  const { documents } = useCourseDocuments();
+
+  // Real documents the parent filled in for this child (GDPR, health, departure
+  // consent, …). Sorted with signed first, then by latest update.
+  const wardDocuments = useMemo(() => {
+    if (!ward) return [];
+    return documents
+      .filter((doc) => doc.participantId === ward.id)
+      .sort((a, b) => {
+        if (a.status !== b.status) return a.status === 'signed' ? -1 : 1;
+        return (b.updatedAt ?? '').localeCompare(a.updatedAt ?? '');
+      });
+  }, [documents, ward]);
+
+  // Departure consent reflects the actual signed "departure" document.
+  const departureDocument = useMemo(
+    () => wardDocuments.find((doc) => doc.kind === 'departure') ?? null,
+    [wardDocuments],
+  );
 
   const wardAwards = useMemo(() => {
     if (!ward) return [];
@@ -106,8 +127,10 @@ export default function CoachWardDetail() {
     );
   }
 
-  const departureTone = !ward.departure.signed ? 'danger' : ward.departure.mode === 'alone' ? 'success' : 'warning';
-  const canLeaveAlone = ward.departure.signed && ward.departure.mode === 'alone';
+  const departureSigned = departureDocument?.status === 'signed';
+  const departureSignedAt = departureDocument?.signedAt ?? '';
+  const departureTone = !departureSigned ? 'danger' : ward.departure.mode === 'alone' ? 'success' : 'warning';
+  const canLeaveAlone = departureSigned && ward.departure.mode === 'alone';
 
   return (
     <ScrollView style={styles.page} contentContainerStyle={styles.container}>
@@ -138,47 +161,78 @@ export default function CoachWardDetail() {
         <View style={styles.headerRow}>
           <View style={{ flex: 1, minWidth: 220 }}>
             <Text style={styles.name}>{ward.name}</Text>
-            <Text style={styles.muted}>{ward.schoolYear} · ročník {ward.birthYear}</Text>
+            <Text style={styles.muted}>{[ward.schoolYear, ward.birthYear ? `ročník ${ward.birthYear}` : ''].filter(Boolean).join(' · ') || 'Bez ročníku'}</Text>
           </View>
           <StatusPill label={ward.paymentStatus} tone={ward.paymentStatus === 'Zaplaceno' ? 'success' : 'warning'} />
         </View>
 
         <View style={styles.summaryGrid}>
-          <InfoBox label="Rodič" value={ward.parentName} subvalue={ward.parentPhone} />
+          <InfoBox label="Rodič" value={ward.parentName || '—'} subvalue={ward.parentPhone || 'Bez telefonu'} />
           <InfoBox label="NFC" value={ward.hasNfcChip ? ward.nfcChipId ?? 'Má čip' : 'Bez čipu'} subvalue={ward.hasNfcChip ? 'Docházka přes telefon' : 'Ruční zápis na místě'} />
-          <InfoBox label="Permanentka" value={`${ward.entriesLeft} vstupů`} subvalue={ward.passTitle} />
-          <InfoBox label="Naposledy" value={ward.lastAttendance} subvalue="Docházka dítěte" />
+          <InfoBox label="Permanentka" value={`${ward.entriesLeft} vstupů`} subvalue={ward.passTitle || 'Bez permanentky'} />
+          <InfoBox label="Naposledy" value={ward.lastAttendance || '—'} subvalue="Docházka dítěte" />
         </View>
       </CoachCard>
 
       <CoachCard title="Odchod a souhlasy">
         <View style={[styles.consentPanel, departureTone === 'success' && styles.consentSuccess, departureTone === 'warning' && styles.consentWarning, departureTone === 'danger' && styles.consentDanger]}>
           <View style={styles.consentIcon}>
-            <Feather name={canLeaveAlone ? 'check-circle' : ward.departure.signed ? 'users' : 'alert-triangle'} size={24} color={CoachColors.slate} />
+            <Feather name={canLeaveAlone ? 'check-circle' : departureSigned ? 'users' : 'alert-triangle'} size={24} color={CoachColors.slate} />
           </View>
           <View style={{ flex: 1, minWidth: 220 }}>
             <Text style={styles.consentTitle}>{departureModeLabel(ward.departure.mode)}</Text>
-            <Text style={styles.muted}>{ward.departure.signed ? `Podepsáno ${ward.departure.signedAt}` : 'Souhlas s odchodem chybí'}</Text>
+            <Text style={styles.muted}>{departureSigned ? `Podepsáno ${departureSignedAt}`.trim() : 'Souhlas s odchodem chybí'}</Text>
           </View>
-          <StatusPill label={canLeaveAlone ? 'Může jít samo' : ward.departure.signed ? 'Kontrolovat osobu' : 'Nepouštět samo'} tone={departureTone} />
+          <StatusPill label={canLeaveAlone ? 'Může jít samo' : departureSigned ? 'Kontrolovat osobu' : 'Nepouštět samo'} tone={departureTone} />
         </View>
 
         <View style={styles.detailGrid}>
-          <InfoBox label="Pověřené osoby" value={ward.departure.authorizedPeople} />
-          <InfoBox label="Poznámka k odchodu" value={ward.departure.note} />
+          <InfoBox label="Pověřené osoby" value={ward.departure.authorizedPeople || '—'} />
+          <InfoBox label="Poznámka k odchodu" value={ward.departure.note || '—'} />
         </View>
       </CoachCard>
 
-      <CoachCard title="Zdraví a docházka">
+      <CollapsibleCard title="Dokumenty od rodičů" badge={wardDocuments.length > 0 ? `${wardDocuments.length}` : undefined} defaultOpen={false}>
+        {wardDocuments.length === 0 ? (
+          <Text style={styles.muted}>Rodič zatím nevyplnil žádné dokumenty k tomuto dítěti.</Text>
+        ) : (
+          <View style={styles.documentList}>
+            {wardDocuments.map((doc) => {
+              const tone = doc.status === 'signed' ? 'success' : 'warning';
+              return (
+                <View key={doc.id} style={styles.documentRow}>
+                  <View style={styles.documentIcon}>
+                    <Feather
+                      name={doc.status === 'signed' ? 'check-circle' : 'edit-3'}
+                      size={18}
+                      color={doc.status === 'signed' ? CoachColors.teal : CoachColors.amber}
+                    />
+                  </View>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={styles.documentTitle}>{doc.title}</Text>
+                    <Text style={styles.muted}>
+                      {doc.parentName ? `${doc.parentName} · ` : ''}
+                      {doc.signedAt ? `Podepsáno ${doc.signedAt}` : `Upraveno ${doc.updatedAt}`}
+                    </Text>
+                  </View>
+                  <StatusPill label={documentStatusLabel(doc.status)} tone={tone} />
+                </View>
+              );
+            })}
+          </View>
+        )}
+      </CollapsibleCard>
+
+      <CollapsibleCard title="Zdraví a docházka" defaultOpen={false}>
         <View style={styles.detailGrid}>
-          <InfoBox label="Alergie" value={ward.health.allergies} />
-          <InfoBox label="Omezení" value={ward.health.limits} />
-          <InfoBox label="Léky" value={ward.health.medication} />
-          <InfoBox label="Nouzový kontakt" value={ward.health.emergencyPhone} />
+          <InfoBox label="Alergie" value={ward.health.allergies || '—'} />
+          <InfoBox label="Omezení" value={ward.health.limits || '—'} />
+          <InfoBox label="Léky" value={ward.health.medication || '—'} />
+          <InfoBox label="Nouzový kontakt" value={ward.health.emergencyPhone || '—'} />
         </View>
         <View style={styles.noteBox}>
           <Text style={styles.detailLabel}>Poznámka trenéra</Text>
-          <Text style={styles.detailValue}>{ward.coachNote}</Text>
+          <Text style={styles.detailValue}>{ward.coachNote || '—'}</Text>
         </View>
         <View style={styles.historyList}>
           {attendance.length === 0 ? <Text style={styles.muted}>Zatím bez docházkového záznamu.</Text> : (
@@ -195,9 +249,9 @@ export default function CoachWardDetail() {
             ))
           )}
         </View>
-      </CoachCard>
+      </CollapsibleCard>
 
-      <CoachCard title="Přidat trik ručně">
+      <CollapsibleCard title="Přidat trik ručně" defaultOpen={false}>
         <View style={styles.manualHeader}>
           <View style={{ flex: 1, minWidth: 220 }}>
             <Text style={styles.cardTitle}>Dítě bez telefonu</Text>
@@ -239,9 +293,9 @@ export default function CoachWardDetail() {
           <Text style={styles.primaryButtonText}>{selectedManualTrick ? `Přidat ${selectedManualTrick.title}` : 'Vyber trik'}</Text>
         </Pressable>
         {message ? <Text style={styles.successText}>{message}</Text> : null}
-      </CoachCard>
+      </CollapsibleCard>
 
-      <CoachCard title="Skill tree">
+      <CollapsibleCard title="Skill tree" badge={`${progress.completedCount}/${progress.total}`} defaultOpen={false}>
         <View style={styles.progressHeader}>
           <View style={{ flex: 1, minWidth: 220 }}>
             <Text style={styles.cardTitle}>{progress.completedCount} hotovo · {progress.missingCount} chybí</Text>
@@ -267,8 +321,31 @@ export default function CoachWardDetail() {
           {visibleTricks.map((trick) => <SkillTreeRow key={trick.id} trick={trick} />)}
           {visibleTricks.length === 0 ? <Text style={styles.muted}>Pro tento filtr není žádný trik.</Text> : null}
         </View>
-      </CoachCard>
+      </CollapsibleCard>
     </ScrollView>
+  );
+}
+
+function CollapsibleCard({ title, badge, defaultOpen = false, children }: { title: string; badge?: string; defaultOpen?: boolean; children: ReactNode }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <View style={styles.collapsibleCard}>
+      <Pressable
+        onPress={() => setOpen((current) => !current)}
+        style={({ pressed }) => [styles.collapsibleHeader, pressed && { opacity: 0.85 }]}
+      >
+        <View style={styles.collapsibleTitleWrap}>
+          <Text style={styles.collapsibleTitle}>{title}</Text>
+          {badge ? (
+            <View style={styles.collapsibleBadge}>
+              <Text style={styles.collapsibleBadgeText}>{badge}</Text>
+            </View>
+          ) : null}
+        </View>
+        <Feather name={open ? 'chevron-up' : 'chevron-down'} size={22} color={CoachColors.slate} />
+      </Pressable>
+      {open ? <View style={styles.collapsibleBody}>{children}</View> : null}
+    </View>
   );
 }
 
@@ -342,6 +419,13 @@ function groupAttendanceByMonth(items: AttendanceRecord[]): { label: string; ite
 const styles = StyleSheet.create({
   page: { backgroundColor: CoachColors.bg },
   container: { width: '100%', maxWidth: 980, alignSelf: 'center', padding: Spacing.lg, gap: Spacing.lg, paddingBottom: 108 },
+  collapsibleCard: { backgroundColor: CoachColors.panel, borderColor: CoachColors.border, borderWidth: 1, borderRadius: Radius.xxl, overflow: 'hidden', ...CoachShadow.panel },
+  collapsibleHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.md, padding: Spacing.lg },
+  collapsibleTitleWrap: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, flex: 1, minWidth: 0 },
+  collapsibleTitle: { color: CoachColors.slate, fontSize: 18, lineHeight: 24, fontWeight: '900' },
+  collapsibleBadge: { backgroundColor: CoachColors.panelAlt, borderColor: CoachColors.border, borderWidth: 1, borderRadius: Radius.pill, paddingHorizontal: 10, paddingVertical: 2 },
+  collapsibleBadgeText: { color: CoachColors.slateMuted, fontSize: 12, fontWeight: '900' },
+  collapsibleBody: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.lg, gap: Spacing.md },
   topActions: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.md, justifyContent: 'space-between', alignItems: 'center' },
   backButton: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, backgroundColor: CoachColors.panel, borderColor: CoachColors.borderStrong, borderWidth: 1, borderRadius: Radius.pill, paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md },
   backText: { color: CoachColors.blue, fontWeight: '900' },
@@ -363,6 +447,10 @@ const styles = StyleSheet.create({
   consentIcon: { width: 48, height: 48, borderRadius: Radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.72)' },
   consentTitle: { color: CoachColors.slate, fontSize: 22, lineHeight: 28, fontWeight: '900' },
   noteBox: { backgroundColor: CoachColors.blueSoft, borderColor: 'rgba(37,99,235,0.22)', borderWidth: 1, borderRadius: Radius.md, padding: Spacing.md, gap: 4 },
+  documentList: { gap: Spacing.sm },
+  documentRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, backgroundColor: CoachColors.panelAlt, borderColor: CoachColors.border, borderWidth: 1, borderRadius: Radius.md, padding: Spacing.md },
+  documentIcon: { width: 34, height: 34, borderRadius: Radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.72)' },
+  documentTitle: { color: CoachColors.slate, fontSize: 15, lineHeight: 20, fontWeight: '900' },
   historyList: { gap: Spacing.sm },
   historyRow: { backgroundColor: CoachColors.panelAlt, borderRadius: Radius.md, padding: Spacing.md, gap: 2 },
   historyDate: { color: CoachColors.slate, fontSize: 15, lineHeight: 21, fontWeight: '900' },
