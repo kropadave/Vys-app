@@ -1,4 +1,5 @@
 import { FontAwesome5 } from '@expo/vector-icons';
+import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -12,7 +13,6 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
-import { BlurView } from 'expo-blur';
 
 import { FadeInUp } from '@/components/animated/motion';
 import { Brand, BrandGradient } from '@/lib/brand';

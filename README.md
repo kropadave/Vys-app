@@ -61,4 +61,6 @@ Schema migrace jsou v `supabase/migrations/`. Edge functions v `supabase/functio
 - `mobile/.env` — Expo `EXPO_PUBLIC_*` proměnné
 - `server/.env` — Stripe secret + Supabase service role
 
+Pro potvrzení plateb e-mailem backend navíc čte `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` a `SMTP_FROM` (případně `PAYMENT_CONFIRMATION_FROM`). E-mail příjemce se bere z aktuálního `app_profiles.email` rodiče.
+
 Vzorové soubory: `.env.example` (root), `web/.env.example`, `mobile/.env.example`, `server/.env.example`.

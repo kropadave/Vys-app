@@ -17,7 +17,6 @@ export default function ContactsPage() {
         eyebrow="Kontakty"
         title="Napiš nám, zavolej nebo se rovnou přihlas"
         body="Potřebuješ vybrat kroužek, tábor nebo řešíš platbu? Ozvi se. Rodičům i trenérům odpovídáme co nejrychleji."
-        mascot={false}
       />
       <section className="section-shell grid gap-4 py-10 lg:grid-cols-[0.85fr_1.15fr]">
         <Reveal>

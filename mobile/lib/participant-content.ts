@@ -46,15 +46,29 @@ export type ParticipantProfile = {
   xp: number;
   nextBraceletXp: number;
   bracelet: BraceletStage;
-  birthNumberMasked: string | null;
+  claimCode: string | null;
+  /** IDs of tricks the participant has explicitly completed via QR scan. */
+  completedTrickIds: string[];
 };
 
+// Leveling thresholds are based on cumulative XP available in completed arenas.
+// That means "next bracelet" requires the sum of all trick XP from previous levels.
+const LEVEL_1_TOTAL_XP = 1880;
+const LEVEL_2_TOTAL_XP = 5800;
+const LEVEL_3_TOTAL_XP = 13050;
+const LEVEL_4_TOTAL_XP = 24550;
+
+const XP_TO_PINK = LEVEL_1_TOTAL_XP;
+const XP_TO_PURPLE = XP_TO_PINK + LEVEL_2_TOTAL_XP;
+const XP_TO_DARK_PURPLE = XP_TO_PURPLE + LEVEL_3_TOTAL_XP;
+const XP_TO_BLACK = XP_TO_DARK_PURPLE + LEVEL_4_TOTAL_XP;
+
 export const braceletStages: BraceletStage[] = [
-  { id: 'beige', title: 'Béžová', xpRequired: 0, color: '#D8C2A3' },
-  { id: 'pink', title: 'Růžová', xpRequired: 600, color: '#F5A7C8' },
-  { id: 'purple', title: 'Fialová', xpRequired: 1400, color: '#8A62D6' },
-  { id: 'darkPurple', title: 'Tmavě fialová', xpRequired: 2400, color: '#4C2B86' },
-  { id: 'black', title: 'Černá', xpRequired: 3800, color: '#16151A' },
+  { id: 'beige',      title: 'Béžová',         xpRequired: 0,    color: '#D8C2A3' },
+  { id: 'pink',       title: 'Růžová',         xpRequired: XP_TO_PINK,        color: '#F5A7C8' },
+  { id: 'purple',     title: 'Fialová',        xpRequired: XP_TO_PURPLE,      color: '#8A62D6' },
+  { id: 'darkPurple', title: 'Tmavě fialová',  xpRequired: XP_TO_DARK_PURPLE, color: '#4C2B86' },
+  { id: 'black',      title: 'Černá',          xpRequired: XP_TO_BLACK,       color: '#16151A' },
 ];
 
 export const participantProfile: ParticipantProfile = {
@@ -68,9 +82,10 @@ export const participantProfile: ParticipantProfile = {
   nextTraining: 'Středa 16:30',
   level: 7,
   xp: 920,
-  nextBraceletXp: 1400,
-  bracelet: braceletStages[1],
-  birthNumberMasked: null,
+  nextBraceletXp: 1800,
+  bracelet: braceletStages[2],
+  claimCode: null,
+  completedTrickIds: [],
 };
 
 export const purchases = [
@@ -139,16 +154,16 @@ export const skillTreeLevels: SkillTreeLevel[] = [
     level: 1,
     title: 'Základy',
     stage: braceletStages[0],
-    requiredTricksToUnlockNext: 7,
+    requiredTricksToUnlockNext: 6,
     tricks: [
-      { id: 'safety-roll', title: 'Safety roll', discipline: 'Parkour', description: 'Bezpečný dopad přes rameno.', xp: 80 },
-      { id: 'safety-vault', title: 'Safety vault', discipline: 'Parkour', description: 'Přeskok s oporou ruky a nohy.', xp: 150 },
-      { id: 'precision-jump', title: 'Precision jump', discipline: 'Parkour', description: 'Skok snožmo na přesnost.', xp: 220 },
-      { id: 'wall-run', title: 'Wall run', discipline: 'Parkour', description: 'Výběh na zeď a výlez nahoru.', xp: 290 },
-      { id: 'cartwheel', title: 'Cartwheel', discipline: 'Tricking', description: 'Klasická hvězda.', xp: 360 },
-      { id: 'roundhouse-kick', title: 'Roundhouse kick', discipline: 'Tricking', description: 'Základní obloukový kop.', xp: 430 },
-      { id: 'backward-roll', title: 'Backward roll', discipline: 'Parkour', description: 'Kotoul vzad pro orientaci.', xp: 500 },
-      { id: 'reverse-vault', title: 'Reverse vault', discipline: 'Parkour', description: 'Přeskok s otočkou o 360 stupňů.', xp: 570 },
+      { id: 'safety-roll',      title: 'Safety roll',      discipline: 'Parkour',           description: 'Bezpečný dopad přes rameno.',                    xp: 50  },
+      { id: 'safety-vault',     title: 'Safety vault',     discipline: 'Parkour',           description: 'Přeskok s oporou ruky a nohy.',                  xp: 100 },
+      { id: 'precision-jump',   title: 'Precision jump',   discipline: 'Parkour',           description: 'Skok snožmo na přesnost.',                       xp: 150 },
+      { id: 'wall-run',         title: 'Wall run',         discipline: 'Parkour',           description: 'Výběh na zeď a výlez nahoru.',                   xp: 200 },
+      { id: 'cartwheel',        title: 'Cartwheel',        discipline: 'Tricking',          description: 'Klasická hvězda.',                               xp: 250 },
+      { id: 'roundhouse-kick',  title: 'Roundhouse kick',  discipline: 'Tricking',          description: 'Základní obloukový kop.',                        xp: 300 },
+      { id: 'backward-roll',    title: 'Backward roll',    discipline: 'Parkour',           description: 'Kotoul vzad pro orientaci.',                     xp: 380 },
+      { id: 'reverse-vault',    title: 'Reverse vault',    discipline: 'Parkour',           description: 'Přeskok s otočkou o 360 stupňů.',               xp: 450 },
     ],
   },
   {
@@ -156,16 +171,16 @@ export const skillTreeLevels: SkillTreeLevel[] = [
     level: 2,
     title: 'Mírně pokročilý',
     stage: braceletStages[1],
-    requiredTricksToUnlockNext: 7,
+    requiredTricksToUnlockNext: 6,
     tricks: [
-      { id: 'tic-tac', title: 'Tic-tac', discipline: 'Parkour', description: 'Odraz od stěny do dálky nebo výšky.', xp: 680 },
-      { id: 'kong-vault', title: 'Kong vault', discipline: 'Parkour', description: 'Přeskok opičák oběma rukama najednou.', xp: 760 },
-      { id: 'lazy-vault', title: 'Lazy vault', discipline: 'Parkour', description: 'Přeskok překážky z úhlu.', xp: 840 },
-      { id: 'butterfly-kick', title: 'Butterfly kick', discipline: 'Tricking', description: 'Horizontální skok s nohama do nůžek.', xp: 920 },
-      { id: 'tornado-kick', title: 'Tornado kick', discipline: 'Tricking', description: 'Výskok s otočkou a kopem vnější nohou.', xp: 1000 },
-      { id: 'macaco', title: 'Macaco', discipline: 'Tricking', description: 'Přemet vzad přes jednu ruku z dřepu.', xp: 1080 },
-      { id: 'wall-spin', title: 'Wall spin', discipline: 'Parkour', description: 'Rotace o 360 stupňů dlaněmi o zeď.', xp: 1160 },
-      { id: 'frontflip', title: 'Frontflip', discipline: 'Tricking/Parkour', description: 'Salto vpřed.', xp: 1240 },
+      { id: 'tic-tac',          title: 'Tic-tac',          discipline: 'Parkour',           description: 'Odraz od stěny do dálky nebo výšky.',            xp: 500 },
+      { id: 'kong-vault',       title: 'Kong vault',       discipline: 'Parkour',           description: 'Přeskok opičák oběma rukama najednou.',          xp: 560 },
+      { id: 'lazy-vault',       title: 'Lazy vault',       discipline: 'Parkour',           description: 'Přeskok překážky z úhlu.',                       xp: 620 },
+      { id: 'butterfly-kick',   title: 'Butterfly kick',   discipline: 'Tricking',          description: 'Horizontální skok s nohama do nůžek.',           xp: 680 },
+      { id: 'tornado-kick',     title: 'Tornado kick',     discipline: 'Tricking',          description: 'Výskok s otočkou a kopem vnější nohou.',         xp: 740 },
+      { id: 'macaco',           title: 'Macaco',           discipline: 'Tricking',          description: 'Přemet vzad přes jednu ruku z dřepu.',           xp: 800 },
+      { id: 'wall-spin',        title: 'Wall spin',        discipline: 'Parkour',           description: 'Rotace o 360 stupňů dlaněmi o zeď.',             xp: 900 },
+      { id: 'frontflip',        title: 'Frontflip',        discipline: 'Tricking/Parkour',  description: 'Salto vpřed.',                                   xp: 1000 },
     ],
   },
   {
@@ -173,18 +188,16 @@ export const skillTreeLevels: SkillTreeLevel[] = [
     level: 3,
     title: 'Pokročilý',
     stage: braceletStages[2],
-    requiredTricksToUnlockNext: 8,
+    requiredTricksToUnlockNext: 6,
     tricks: [
-      { id: 'backflip', title: 'Backflip', discipline: 'Tricking', description: 'Salto vzad z místa.', xp: 1500 },
-      { id: 'full-twist', title: 'Full twist', discipline: 'Tricking', description: 'Salto vzad s jednou celou vrutovou rotací 360 stupňů.', xp: 1580 },
-      { id: 'sideflip', title: 'Sideflip', discipline: 'Parkour/Tricking', description: 'Salto stranou.', xp: 1660 },
-      { id: 'wall-flip', title: 'Wall flip', discipline: 'Parkour', description: 'Salto vzad s odrazem od zdi.', xp: 1740 },
-      { id: 'aerial', title: 'Aerial', discipline: 'Tricking', description: 'Hvězda bez rukou.', xp: 1820 },
-      { id: '540-kick', title: '540 kick', discipline: 'Tricking', description: 'Kop s dopadem na kopající nohu.', xp: 1900 },
-      { id: 'pop-360-kick', title: 'Pop 360 kick', discipline: 'Tricking', description: 'Kop z odrazu snožmo s rotací.', xp: 1980 },
-      { id: 'scoot', title: 'Scoot', discipline: 'Tricking', description: 'Setupový prvek, odraz z ruky a nohy do švihu.', xp: 2060 },
-      { id: 'dash-vault', title: 'Dash vault', discipline: 'Parkour', description: 'Přeskok nohama napřed.', xp: 2140 },
-      { id: 'webster', title: 'Webster', discipline: 'Tricking/Parkour', description: 'Salto vpřed z jedné nohy.', xp: 2220 },
+      { id: 'backflip',         title: 'Backflip',         discipline: 'Tricking',          description: 'Salto vzad z místa.',                            xp: 1050 },
+      { id: 'full-twist',       title: 'Full twist',       discipline: 'Tricking',          description: 'Salto vzad s celou vrutovou rotací 360°.',       xp: 1200 },
+      { id: 'sideflip',         title: 'Sideflip',         discipline: 'Parkour/Tricking',  description: 'Salto stranou.',                                 xp: 1350 },
+      { id: 'wall-flip',        title: 'Wall flip',        discipline: 'Parkour',           description: 'Salto vzad s odrazem od zdi.',                   xp: 1500 },
+      { id: 'aerial',           title: 'Aerial',           discipline: 'Tricking',          description: 'Hvězda bez rukou.',                              xp: 1650 },
+      { id: '540-kick',         title: '540 kick',         discipline: 'Tricking',          description: 'Kop s dopadem na kopající nohu.',                xp: 1800 },
+      { id: 'dash-vault',       title: 'Dash vault',       discipline: 'Parkour',           description: 'Přeskok nohama napřed.',                         xp: 2100 },
+      { id: 'webster',          title: 'Webster',          discipline: 'Tricking/Parkour',  description: 'Salto vpřed z jedné nohy.',                      xp: 2400 },
     ],
   },
   {
@@ -192,18 +205,16 @@ export const skillTreeLevels: SkillTreeLevel[] = [
     level: 4,
     title: 'Expert',
     stage: braceletStages[3],
-    requiredTricksToUnlockNext: 9,
+    requiredTricksToUnlockNext: 6,
     tricks: [
-      { id: 'corkscrew', title: 'Corkscrew', discipline: 'Tricking', description: 'Salto vzad s vrutem z rozběhu a švihem nohy.', xp: 2500 },
-      { id: 'scoot-full', title: 'Scoot Full', discipline: 'Tricking', description: 'Kombinace scootu a salta s vrutem.', xp: 2580 },
-      { id: 'shuriken-twist', title: 'Shuriken twist', discipline: 'Tricking', description: 'B-twist, kde ve vzduchu proběhne kop shuriken.', xp: 2660 },
-      { id: 'butterfly-twist', title: 'Butterfly twist', discipline: 'Tricking', description: 'B-kick s plnou rotací vrutem.', xp: 2740 },
-      { id: 'raiz', title: 'Raiz', discipline: 'Tricking', description: 'Horizontální rotace těla se švihem nohou.', xp: 2820 },
-      { id: 'gainer', title: 'Gainer', discipline: 'Parkour/Tricking', description: 'Salto vzad při pohybu vpřed.', xp: 2900 },
-      { id: 'cheat-720-kick', title: 'Cheat 720 kick', discipline: 'Tricking', description: 'Rotace o 720 stupňů zakončená kopem.', xp: 2980 },
-      { id: 'castaway', title: 'Castaway', discipline: 'Parkour', description: 'Salto vzad z odrazu rukama o překážku.', xp: 3060 },
-      { id: 'double-kong', title: 'Double Kong', discipline: 'Parkour', description: 'Dlouhý skok se dvěma dotyky rukou o překážku.', xp: 3140 },
-      { id: 'flashkick', title: 'Flashkick', discipline: 'Tricking', description: 'Salto vzad s kopem ve vzduchu.', xp: 3220 },
+      { id: 'corkscrew',        title: 'Corkscrew',        discipline: 'Tricking',          description: 'Salto vzad s vrutem z rozběhu a švihem nohy.',   xp: 2500 },
+      { id: 'shuriken-twist',   title: 'Shuriken twist',   discipline: 'Tricking',          description: 'B-twist, kde ve vzduchu proběhne kop shuriken.',  xp: 2700 },
+      { id: 'butterfly-twist',  title: 'Butterfly twist',  discipline: 'Tricking',          description: 'B-kick s plnou rotací vrutem.',                  xp: 2900 },
+      { id: 'raiz',             title: 'Raiz',             discipline: 'Tricking',          description: 'Horizontální rotace těla se švihem nohou.',      xp: 3050 },
+      { id: 'gainer',           title: 'Gainer',           discipline: 'Parkour/Tricking',  description: 'Salto vzad při pohybu vpřed.',                   xp: 3150 },
+      { id: 'cheat-720-kick',   title: 'Cheat 720 kick',   discipline: 'Tricking',          description: 'Rotace o 720 stupňů zakončená kopem.',           xp: 3250 },
+      { id: 'double-kong',      title: 'Double Kong',      discipline: 'Parkour',           description: 'Dlouhý skok se dvěma dotyky rukou o překážku.',   xp: 3400 },
+      { id: 'flashkick',        title: 'Flashkick',        discipline: 'Tricking',          description: 'Salto vzad s kopem ve vzduchu.',                 xp: 3600 },
     ],
   },
   {
@@ -213,16 +224,16 @@ export const skillTreeLevels: SkillTreeLevel[] = [
     stage: braceletStages[4],
     requiredTricksToUnlockNext: 10,
     tricks: [
-      { id: 'double-full', title: 'Double Full', discipline: 'Tricking', description: 'Salto vzad se dvěma vruty.', xp: 3900 },
-      { id: 'double-cork', title: 'Double Cork', discipline: 'Tricking', description: 'Cork se dvěma vruty.', xp: 4000 },
-      { id: 'touchdown-raiz-tdr', title: 'Touchdown Raiz / TDR', discipline: 'Tricking', description: 'Raiz s dotykem ruky pro extrémní švih.', xp: 4100 },
-      { id: 'double-b-twist', title: 'Double B-twist', discipline: 'Tricking', description: 'Butterfly twist se dvěma vruty.', xp: 4200 },
-      { id: 'cheat-1080-kick', title: 'Cheat 1080 kick', discipline: 'Tricking', description: 'Tři plné rotace ve vzduchu s kopem.', xp: 4300 },
-      { id: 'jackknife', title: 'Jackknife', discipline: 'Tricking', description: '540 kick s přidaným kopem druhou nohou ve vzduchu.', xp: 4400 },
-      { id: 'snapuswipe', title: 'Snapuswipe', discipline: 'Tricking', description: '540 kick s horizontální rotací navíc.', xp: 4500 },
-      { id: 'palm-flip', title: 'Palm flip', discipline: 'Parkour', description: 'Salto vzad pouze z odrazu dlaněmi o svislou zeď.', xp: 4600 },
-      { id: 'double-backflip', title: 'Double Backflip', discipline: 'Tricking', description: 'Dvojité salto vzad.', xp: 4700 },
-      { id: 'cartwheel-full', title: 'Cartwheel Full', discipline: 'Tricking', description: 'Hvězda následovaná okamžitým saltem s vrutem.', xp: 4800 },
+      { id: 'double-full',        title: 'Double Full',          discipline: 'Tricking', description: 'Salto vzad se dvěma vruty.',                                   xp: 3700 },
+      { id: 'double-cork',        title: 'Double Cork',          discipline: 'Tricking', description: 'Cork se dvěma vruty.',                                          xp: 3900 },
+      { id: 'touchdown-raiz-tdr', title: 'Touchdown Raiz / TDR', discipline: 'Tricking', description: 'Raiz s dotykem ruky pro extrémní švih.',                        xp: 4100 },
+      { id: 'double-b-twist',     title: 'Double B-twist',       discipline: 'Tricking', description: 'Butterfly twist se dvěma vruty.',                               xp: 4300 },
+      { id: 'cheat-1080-kick',    title: 'Cheat 1080 kick',      discipline: 'Tricking', description: 'Tři plné rotace ve vzduchu s kopem.',                          xp: 4500 },
+      { id: 'jackknife',          title: 'Jackknife',            discipline: 'Tricking', description: '540 kick s přidaným kopem druhou nohou ve vzduchu.',            xp: 4700 },
+      { id: 'snapuswipe',         title: 'Snapuswipe',           discipline: 'Tricking', description: '540 kick s horizontální rotací navíc.',                         xp: 4900 },
+      { id: 'palm-flip',          title: 'Palm flip',            discipline: 'Parkour',  description: 'Salto vzad pouze z odrazu dlaněmi o svislou zeď.',               xp: 5100 },
+      { id: 'double-backflip',    title: 'Double Backflip',      discipline: 'Tricking', description: 'Dvojité salto vzad.',                                           xp: 5300 },
+      { id: 'cartwheel-full',     title: 'Cartwheel Full',       discipline: 'Tricking', description: 'Hvězda následovaná okamžitým saltem s vrutem.',                 xp: 5500 },
     ],
   },
 ];

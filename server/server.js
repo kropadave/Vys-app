@@ -1,6 +1,8 @@
+const crypto = require('crypto');
 const cors = require('cors');
 const dotenv = require('dotenv');
 const express = require('express');
+const nodemailer = require('nodemailer');
 const Stripe = require('stripe');
 const { createClient } = require('@supabase/supabase-js');
 
@@ -31,12 +33,18 @@ const supabaseUrl = envValue('SUPABASE_URL') || envValue('EXPO_PUBLIC_SUPABASE_U
 const supabaseServiceKey = envValue('SUPABASE_SERVICE_ROLE_KEY');
 const stripeSecretKey = envValue('STRIPE_SECRET_KEY');
 const stripeWebhookSecret = envValue('STRIPE_WEBHOOK_SECRET');
+const smtpHost = envValue('SMTP_HOST');
+const smtpPort = Number(envValue('SMTP_PORT') || 587);
+const smtpUser = envValue('SMTP_USER');
+const smtpPass = envValue('SMTP_PASS');
+const smtpFrom = envValue('SMTP_FROM') || envValue('PAYMENT_CONFIRMATION_FROM') || smtpUser;
 const isProduction = envValue('NODE_ENV') === 'production';
 
 const supabase = supabaseUrl && supabaseServiceKey
   ? createClient(supabaseUrl, supabaseServiceKey, { auth: { persistSession: false } })
   : null;
 const stripe = stripeSecretKey ? new Stripe(stripeSecretKey) : null;
+let paymentEmailTransporter = null;
 
 app.use(cors({
   origin(origin, callback) {
@@ -103,6 +111,9 @@ const rewardDiscountRules = [
   { suffix: 'KROUZEK-20', type: 'Krouzek', percent: 20 },
 ];
 
+const WORKSHOP_INTEREST_THRESHOLD = 9;
+const WORKSHOP_PAYMENT_OPEN_DAYS = 2;
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const DEFAULT_COURSE_ATTENDANCE_RATE = 500;
 const SOLO_COURSE_ATTENDANCE_RATE = 750;
 const IGNORED_COACH_SESSION_IDS = new Set(['coach-demo']);
@@ -193,6 +204,14 @@ function normalizePersonNamePart(value) {
 
 function birthNumberSuffix(value) {
   return String(value || '').replace(/\D/g, '').slice(-4);
+}
+
+function generateClaimCode() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const bytes = crypto.randomBytes(8);
+  let code = '';
+  for (let i = 0; i < 8; i++) code += chars[bytes[i] % chars.length];
+  return `${code.slice(0, 4)}-${code.slice(4)}`;
 }
 
 function asyncRoute(handler) {
@@ -310,7 +329,7 @@ async function getProduct(productId) {
 
   const { data, error } = await supabase
     .from('products')
-    .select('id,type,title,price,price_label,place,event_date,expires_at,entries_total,capacity_total,capacity_current')
+    .select('id,type,title,price,price_label,place,primary_meta,event_date,expires_at,entries_total,capacity_total,capacity_current')
     .eq('id', productId)
     .single();
 
@@ -353,6 +372,151 @@ function createdAtText() {
   return new Date().toLocaleString('cs-CZ', { timeZone: 'Europe/Prague', day: 'numeric', month: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
+async function profileReceiptEmail(parentProfileId, fallbackEmail) {
+  const fallback = normalizedEmail(fallbackEmail);
+  if (!parentProfileId) return fallback;
+
+  const { data, error } = await supabase
+    .from('app_profiles')
+    .select('email')
+    .eq('id', parentProfileId)
+    .maybeSingle();
+
+  if (error) throw error;
+  return normalizedEmail(data?.email) || fallback;
+}
+
+function normalizedEmail(value) {
+  const email = optionalString(value)?.toLowerCase();
+  return email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : null;
+}
+
+function paymentEmailer() {
+  if (!smtpHost || !smtpFrom) return null;
+  if (smtpUser && !smtpPass) return null;
+  if (!paymentEmailTransporter) {
+    paymentEmailTransporter = nodemailer.createTransport({
+      host: smtpHost,
+      port: smtpPort,
+      secure: smtpPort === 465,
+      auth: smtpUser ? { user: smtpUser, pass: smtpPass } : undefined,
+    });
+  }
+  return paymentEmailTransporter;
+}
+
+async function sendPaymentConfirmationEmail(purchase, fallbackEmail) {
+  const to = await profileReceiptEmail(purchase.parent_profile_id, fallbackEmail);
+  if (!to) return;
+
+  const emailer = paymentEmailer();
+  if (!emailer) {
+    console.info(`Payment confirmation email skipped for ${purchase.id}: SMTP is not configured.`);
+    return;
+  }
+
+  const subject = `Potvrzení platby TeamVYS - ${purchase.title}`;
+  const lines = [
+    'Dobrý den,',
+    '',
+    'potvrzujeme přijetí platby v rodičovském portálu TeamVYS.',
+    '',
+    `Produkt: ${purchase.title}`,
+    `Účastník: ${purchase.participant_name}`,
+    `Částka: ${purchase.price_label || `${purchase.amount} Kč`}`,
+    `Místo: ${purchase.place}`,
+    purchase.event_date ? `Termín: ${purchase.event_date}` : null,
+    '',
+    'Děkujeme, TeamVYS',
+  ].filter(Boolean);
+
+  await emailer.sendMail({
+    from: smtpFrom,
+    to,
+    subject,
+    text: lines.join('\n'),
+    html: `<p>Dobrý den,</p><p>potvrzujeme přijetí platby v rodičovském portálu TeamVYS.</p><table>${[
+      ['Produkt', purchase.title],
+      ['Účastník', purchase.participant_name],
+      ['Částka', purchase.price_label || `${purchase.amount} Kč`],
+      ['Místo', purchase.place],
+      purchase.event_date ? ['Termín', purchase.event_date] : null,
+    ].filter(Boolean).map(([label, value]) => `<tr><td style="padding:4px 12px 4px 0;font-weight:700">${escapeHtml(label)}</td><td style="padding:4px 0">${escapeHtml(value)}</td></tr>`).join('')}</table><p>Děkujeme,<br>TeamVYS</p>`,
+  });
+}
+
+async function safelySendPaymentConfirmationEmail(purchase, fallbackEmail) {
+  try {
+    await sendPaymentConfirmationEmail(purchase, fallbackEmail);
+  } catch (error) {
+    console.error(`Payment confirmation email failed for ${purchase?.id || 'unknown purchase'}:`, error);
+  }
+}
+
+function escapeHtml(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function isWorkshopProduct(product) {
+  return normalizeActivityType(product?.type) === 'Workshop';
+}
+
+function parseProductDate(value) {
+  const text = String(value || '').trim();
+  if (!text) return null;
+
+  const isoMatch = /(\d{4})-(\d{2})-(\d{2})/.exec(text);
+  if (isoMatch) return new Date(Date.UTC(Number(isoMatch[1]), Number(isoMatch[2]) - 1, Number(isoMatch[3])));
+
+  const czechMatch = /(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{4})/.exec(text);
+  if (czechMatch) return new Date(Date.UTC(Number(czechMatch[3]), Number(czechMatch[2]) - 1, Number(czechMatch[1])));
+
+  return null;
+}
+
+function workshopEventDate(product) {
+  return parseProductDate(product?.event_date) || parseProductDate(product?.primary_meta) || parseProductDate(product?.expires_at);
+}
+
+function workshopPurchaseGate(product, interestCount) {
+  if (!isWorkshopProduct(product)) return { canPurchase: true, interestCount };
+
+  const eventDate = workshopEventDate(product);
+  const opensByInterest = interestCount >= WORKSHOP_INTEREST_THRESHOLD;
+  const opensByDate = eventDate ? Date.now() >= eventDate.getTime() - WORKSHOP_PAYMENT_OPEN_DAYS * MS_PER_DAY : true;
+
+  return {
+    canPurchase: opensByInterest || opensByDate,
+    interestCount,
+    threshold: WORKSHOP_INTEREST_THRESHOLD,
+    opensByInterest,
+    opensByDate,
+    eventDate: eventDate ? eventDate.toISOString().slice(0, 10) : null,
+  };
+}
+
+async function countWorkshopInterests(productId) {
+  const { data, error } = await supabase
+    .from('workshop_interests')
+    .select('id,parent_profile_id,participant_id,participant_name')
+    .eq('product_id', productId);
+
+  if (error) throw error;
+
+  const participants = new Set();
+  for (const interest of data || []) {
+    if (isDemoAdminRecord(interest.id, interest.parent_profile_id, interest.participant_id, interest.participant_name)) continue;
+    participants.add(interest.participant_id || normalizeAdminSeedText(interest.participant_name) || interest.id);
+  }
+
+  return participants.size;
+}
+
 function purchaseRowFromPaymentIntent(paymentIntent, metadata, status = 'Čeká na platbu') {
   const amount = Number(metadata.amount || Math.round((paymentIntent.amount || 0) / 100));
 
@@ -386,6 +550,14 @@ async function finalizePaymentIntent(paymentIntent) {
 
   const metadata = paymentIntent.metadata || {};
   const row = purchaseRowFromPaymentIntent(paymentIntent, metadata, 'Zaplaceno');
+  const { data: existingPurchase, error: existingPurchaseError } = await supabase
+    .from('parent_purchases')
+    .select('status')
+    .eq('id', row.id)
+    .maybeSingle();
+
+  if (existingPurchaseError) throw existingPurchaseError;
+
   const { data, error } = await supabase
     .from('parent_purchases')
     .upsert(row, { onConflict: 'id' })
@@ -394,6 +566,9 @@ async function finalizePaymentIntent(paymentIntent) {
 
   if (error) throw error;
   await syncPaidPurchaseSideEffects(data);
+  if (existingPurchase?.status !== 'Zaplaceno') {
+    await safelySendPaymentConfirmationEmail(data, metadata.receipt_email || paymentIntent.receipt_email);
+  }
   return data;
 }
 
@@ -448,6 +623,15 @@ async function createDigitalPassForPurchase(purchase, productOverride) {
 
 async function ensureProductCapacity(productId) {
   const product = await getProduct(productId);
+
+  if (isWorkshopProduct(product)) {
+    const interestCount = await countWorkshopInterests(product.id);
+    const gate = workshopPurchaseGate(product, interestCount);
+    if (!gate.canPurchase) {
+      throw httpError(`Workshop zatím nejde zaplatit. Platba se otevře ${WORKSHOP_PAYMENT_OPEN_DAYS} dny před termínem nebo při ${WORKSHOP_INTEREST_THRESHOLD} zájemcích. Teď má ${interestCount} zájemců.`, 409);
+    }
+  }
+
   if (!product.capacity_total) return product;
 
   const used = await countPaidProductParticipants(product);
@@ -496,33 +680,62 @@ async function countPaidProductParticipants(product) {
 }
 
 async function applyLiveProductCapacities(products) {
-  const capacityProducts = (products || []).filter((product) => product.capacity_total);
-  if (capacityProducts.length === 0) return products || [];
+  const productList = products || [];
+  const capacityProducts = productList.filter((product) => product.capacity_total);
+  const workshopProducts = productList.filter(isWorkshopProduct);
+  if (capacityProducts.length === 0 && workshopProducts.length === 0) return productList;
 
   const allProductIds = Array.from(new Set(capacityProducts.flatMap(capacityProductIds).filter(Boolean)));
-  const { data, error } = await supabase
-    .from('parent_purchases')
-    .select('id,parent_profile_id,participant_id,participant_name,product_id')
-    .in('product_id', allProductIds)
-    .eq('status', 'Zaplaceno');
+  const workshopProductIds = Array.from(new Set(workshopProducts.map((product) => product.id).filter(Boolean)));
+  const [purchaseResult, interestResult] = await Promise.all([
+    allProductIds.length > 0
+      ? supabase
+        .from('parent_purchases')
+        .select('id,parent_profile_id,participant_id,participant_name,product_id')
+        .in('product_id', allProductIds)
+        .eq('status', 'Zaplaceno')
+      : Promise.resolve({ data: [], error: null }),
+    workshopProductIds.length > 0
+      ? supabase
+        .from('workshop_interests')
+        .select('id,parent_profile_id,participant_id,participant_name,product_id')
+        .in('product_id', workshopProductIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
 
-  if (error) throw error;
+  if (purchaseResult.error) throw purchaseResult.error;
+  if (interestResult.error) throw interestResult.error;
 
   const participantsByProductId = new Map();
-  for (const purchase of data || []) {
+  for (const purchase of purchaseResult.data || []) {
     if (isDemoAdminRecord(purchase.id, purchase.parent_profile_id, purchase.participant_id, purchase.participant_name)) continue;
     const participantKey = purchase.participant_id || normalizeAdminSeedText(purchase.participant_name) || purchase.id;
     if (!participantsByProductId.has(purchase.product_id)) participantsByProductId.set(purchase.product_id, new Set());
     participantsByProductId.get(purchase.product_id).add(participantKey);
   }
 
-  return (products || []).map((product) => {
-    if (!product.capacity_total) return product;
+  const interestsByProductId = new Map();
+  for (const interest of interestResult.data || []) {
+    if (isDemoAdminRecord(interest.id, interest.parent_profile_id, interest.participant_id, interest.participant_name)) continue;
+    const participantKey = interest.participant_id || normalizeAdminSeedText(interest.participant_name) || interest.id;
+    if (!interestsByProductId.has(interest.product_id)) interestsByProductId.set(interest.product_id, new Set());
+    interestsByProductId.get(interest.product_id).add(participantKey);
+  }
+
+  return productList.map((product) => {
     const participants = new Set();
-    for (const productId of capacityProductIds(product)) {
-      for (const participantKey of participantsByProductId.get(productId) || []) participants.add(participantKey);
+    if (product.capacity_total) {
+      for (const productId of capacityProductIds(product)) {
+        for (const participantKey of participantsByProductId.get(productId) || []) participants.add(participantKey);
+      }
     }
-    return { ...product, capacity_current: participants.size };
+    const interestCount = interestsByProductId.get(product.id)?.size ?? 0;
+    return {
+      ...product,
+      capacity_current: product.capacity_total ? participants.size : product.capacity_current,
+      interest_count: isWorkshopProduct(product) ? interestCount : 0,
+      can_purchase: workshopPurchaseGate(product, interestCount).canPurchase,
+    };
   });
 }
 
@@ -643,6 +856,40 @@ app.get('/api/public/products', asyncRoute(async (_request, response) => {
   if (error) throw error;
   const products = await applyLiveProductCapacities(data || []);
   response.json({ products });
+}));
+
+app.post('/api/workshop-interests', asyncRoute(async (request, response) => {
+  requireServices();
+  const actor = await requireParentOrAdmin(request);
+
+  const parentProfileId = parentProfileIdForActor(actor, request.body.parentProfileId);
+  const productId = requiredString(request.body.productId, 'productId');
+  const participantId = requiredString(request.body.participantId, 'participantId');
+  await assertParticipantAccessible(actor, participantId);
+
+  const participantName = requiredString(request.body.participantName, 'participantName');
+  const product = await getProduct(productId);
+  if (!isWorkshopProduct(product)) throw httpError('Zájem lze zapsat jen u workshopu.', 400);
+
+  const row = {
+    id: `workshop-interest-${product.id}-${participantId}`,
+    parent_profile_id: parentProfileId,
+    product_id: product.id,
+    participant_id: participantId,
+    participant_name: participantName,
+  };
+
+  const { data, error } = await supabase
+    .from('workshop_interests')
+    .upsert(row, { onConflict: 'product_id,participant_id' })
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  const interestCount = await countWorkshopInterests(product.id);
+  const gate = workshopPurchaseGate(product, interestCount);
+  response.status(201).json({ interest: data, interestCount, canPurchase: gate.canPurchase, threshold: WORKSHOP_INTEREST_THRESHOLD });
 }));
 
 app.get('/api/public/coaches', asyncRoute(async (_request, response) => {
@@ -806,6 +1053,7 @@ app.post('/api/payments/checkout', asyncRoute(async (request, response) => {
   const successUrl = requiredString(request.body.successUrl, 'successUrl');
   const cancelUrl = requiredString(request.body.cancelUrl, 'cancelUrl');
   const parentProfileId = parentProfileIdForActor(actor, request.body.parentProfileId);
+  const receiptEmail = await profileReceiptEmail(parentProfileId, request.body.receiptEmail || actor.email);
   const product = await ensureProductCapacity(productId);
   const originalAmount = Math.round(Number(product.price));
   const discountCode = optionalString(request.body.discountCode);
@@ -821,6 +1069,8 @@ app.post('/api/payments/checkout', asyncRoute(async (request, response) => {
     locale: 'cs',
     success_url: successUrl,
     cancel_url: cancelUrl,
+    customer_email: receiptEmail || undefined,
+    payment_intent_data: receiptEmail ? { receipt_email: receiptEmail } : undefined,
     line_items: [
       {
         quantity: 1,
@@ -846,6 +1096,7 @@ app.post('/api/payments/checkout', asyncRoute(async (request, response) => {
       discount_code: discountCode || '',
       discount_percent: discount ? String(discount.percent) : '',
       discount_amount: discountAmount ? String(discountAmount) : '',
+      receipt_email: receiptEmail || '',
       price_label: discount ? `${product.price_label} · sleva ${discount.percent} %` : product.price_label,
       place: product.place,
       event_date: product.event_date || '',
@@ -866,6 +1117,8 @@ app.post('/api/payments/payment-intent', asyncRoute(async (request, response) =>
   await assertParticipantAccessible(actor, participantId);
 
   const participantName = requiredString(request.body.participantName, 'participantName');
+  const parentProfileId = parentProfileIdForActor(actor, request.body.parentProfileId);
+  const receiptEmail = await profileReceiptEmail(parentProfileId, request.body.receiptEmail || actor.email);
   const product = await ensureProductCapacity(productId);
   const originalAmount = Math.round(Number(product.price));
   const discountCode = optionalString(request.body.discountCode);
@@ -879,7 +1132,7 @@ app.post('/api/payments/payment-intent', asyncRoute(async (request, response) =>
 
   const priceLabel = discount ? `${product.price_label} · sleva ${discount.percent} %` : product.price_label;
   const metadata = {
-    parent_profile_id: parentProfileIdForActor(actor, request.body.parentProfileId),
+    parent_profile_id: parentProfileId,
     product_id: product.id,
     participant_id: participantId,
     participant_name: participantName,
@@ -890,6 +1143,7 @@ app.post('/api/payments/payment-intent', asyncRoute(async (request, response) =>
     discount_code: discountCode || '',
     discount_percent: discount ? String(discount.percent) : '',
     discount_amount: discountAmount ? String(discountAmount) : '',
+    receipt_email: receiptEmail || '',
     price_label: priceLabel,
     place: product.place,
     event_date: product.event_date || '',
@@ -900,7 +1154,7 @@ app.post('/api/payments/payment-intent', asyncRoute(async (request, response) =>
     amount: amount * 100,
     currency: 'czk',
     description: `TeamVYS · ${product.title} · ${participantName}`,
-    receipt_email: optionalString(request.body.receiptEmail) || undefined,
+    receipt_email: receiptEmail || undefined,
     metadata,
     automatic_payment_methods: { enabled: true, allow_redirects: 'never' },
   });
@@ -965,7 +1219,6 @@ app.post('/api/participants/manual', asyncRoute(async (request, response) => {
     parent_profile_id: parentProfileId,
     first_name: firstName,
     last_name: lastName,
-    birth_number_masked: optionalString(request.body.birthNumberMasked),
     date_of_birth: dateOfBirth,
     school_year: schoolYear,
     parent_name: parentName,
@@ -985,10 +1238,14 @@ app.post('/api/participants/manual', asyncRoute(async (request, response) => {
     active_purchases: [],
   };
 
+  // Generate claim_code for new participants (do not overwrite existing code on upsert)
+  const { data: existing } = await supabase.from('participants').select('id,claim_code').eq('id', participantId).maybeSingle();
+  if (!existing?.claim_code) row.claim_code = generateClaimCode();
+
   const { data, error } = await supabase
     .from('participants')
     .upsert(row, { onConflict: 'id' })
-    .select('id,first_name,last_name,active_course')
+    .select('id,first_name,last_name,active_course,claim_code')
     .single();
 
   if (error) throw error;
@@ -1000,61 +1257,16 @@ app.post('/api/participants/link', asyncRoute(async (request, response) => {
   const actor = await requireParentOrAdmin(request);
 
   const parentProfileId = parentProfileIdForActor(actor, request.body.parentProfileId);
-  const firstName = requiredString(request.body.firstName, 'firstName');
-  const lastName = requiredString(request.body.lastName, 'lastName');
-  const rawBirthNumber = optionalString(request.body.birthNumber);
-  const birthSuffix = rawBirthNumber ? birthNumberSuffix(rawBirthNumber) : '';
-  const hasBirthNumber = birthSuffix.length >= 4;
+  const claimCode = requiredString(request.body.claimCode, 'claimCode').toUpperCase().trim();
 
-  const normalizedFirstName = normalizePersonNamePart(firstName);
-  const normalizedLastName = normalizePersonNamePart(lastName);
+  const { data: participant, error: findError } = await supabase
+    .from('participants')
+    .select('id,parent_profile_id,first_name,last_name,active_course')
+    .eq('claim_code', claimCode)
+    .maybeSingle();
 
-  let candidates, candidatesError;
-
-  if (hasBirthNumber) {
-    // Birth number provided: filter by suffix in DB, then match name + suffix
-    ({ data: candidates, error: candidatesError } = await supabase
-      .from('participants')
-      .select('id,parent_profile_id,first_name,last_name,birth_number_masked,active_course')
-      .ilike('birth_number_masked', `%${birthSuffix}`)
-      .limit(50));
-  } else {
-    // No birth number: fetch by exact name match (case-insensitive)
-    ({ data: candidates, error: candidatesError } = await supabase
-      .from('participants')
-      .select('id,parent_profile_id,first_name,last_name,birth_number_masked,active_course')
-      .ilike('first_name', firstName)
-      .ilike('last_name', lastName)
-      .limit(50));
-  }
-
-  if (candidatesError) throw candidatesError;
-
-  let participant;
-  if (hasBirthNumber) {
-    participant = (candidates || []).find((candidate) => {
-      const firstMatches = normalizePersonNamePart(candidate.first_name) === normalizedFirstName;
-      const lastMatches = normalizePersonNamePart(candidate.last_name) === normalizedLastName;
-      const birthMatches = birthNumberSuffix(candidate.birth_number_masked) === birthSuffix;
-      return firstMatches && lastMatches && birthMatches;
-    });
-    if (!participant) throw new Error('Účastník se podle jména a rodného čísla nenašel.');
-  } else {
-    // No birth number provided — only match participants who also have no birth number set
-    const nameMatches = (candidates || []).filter((candidate) => {
-      const firstMatches = normalizePersonNamePart(candidate.first_name) === normalizedFirstName;
-      const lastMatches = normalizePersonNamePart(candidate.last_name) === normalizedLastName;
-      const hasNoBirthNumber = !candidate.birth_number_masked || candidate.birth_number_masked.trim() === '';
-      return firstMatches && lastMatches && hasNoBirthNumber;
-    });
-    if (nameMatches.length === 0) {
-      throw new Error('Účastník se podle jména nenašel. Pokud má účastník nastavené rodné číslo, zadej ho pro přesnější vyhledávání.');
-    }
-    if (nameMatches.length > 1) {
-      throw new Error('Bylo nalezeno více účastníků se stejným jménem. Zadej rodné číslo pro přesné rozlišení.');
-    }
-    participant = nameMatches[0];
-  }
+  if (findError) throw findError;
+  if (!participant) throw new Error('Účastník s tímto kódem nebyl nalezen. Zkontroluj kód a zkus to znovu.');
 
   if (participant.parent_profile_id && participant.parent_profile_id !== parentProfileId) {
     throw new Error('Účastník už je připojený k jinému rodičovskému účtu.');
@@ -1096,7 +1308,6 @@ app.post('/api/course-documents', asyncRoute(async (request, response) => {
       parent_profile_id: parentProfileId,
       first_name: participantFirstName,
       last_name: participantLastName,
-      birth_number_masked: optionalString(request.body.birthNumberMasked),
       active_course: product.place,
       next_training: product.event_date || product.expires_at || 'Doplní se po registraci',
     }, { onConflict: 'id' });
@@ -1178,6 +1389,14 @@ app.post('/api/payments/confirm', asyncRoute(async (request, response) => {
     stripe_payment_intent_id: typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id || null,
   };
 
+  const { data: existingPurchase, error: existingPurchaseError } = await supabase
+    .from('parent_purchases')
+    .select('status')
+    .eq('id', row.id)
+    .maybeSingle();
+
+  if (existingPurchaseError) throw existingPurchaseError;
+
   const { data, error } = await supabase
     .from('parent_purchases')
     .upsert(row, { onConflict: 'id' })
@@ -1186,6 +1405,9 @@ app.post('/api/payments/confirm', asyncRoute(async (request, response) => {
 
   if (error) throw error;
   await syncPaidPurchaseSideEffects(data);
+  if (existingPurchase?.status !== 'Zaplaceno') {
+    await safelySendPaymentConfirmationEmail(data, metadata.receipt_email || session.customer_details?.email || session.customer_email);
+  }
   response.json({ purchase: toClientPurchase(data) });
 }));
 
@@ -1362,13 +1584,36 @@ app.post('/api/admin/trainer-payouts', asyncRoute(async (request, response) => {
   response.status(201).json({ transfer: data });
 }));
 
+app.post('/api/admin/invoices/upload-url', asyncRoute(async (request, response) => {
+  requireServices();
+  await requireAdmin(request);
+
+  const filename = optionalString(request.body.filename) || 'invoice.pdf';
+  const path = `${Date.now()}_${filename.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+  const { data, error } = await supabase.storage.from('invoices').createSignedUploadUrl(path);
+  if (error) throw error;
+  response.json({ signedUrl: data.signedUrl, path: data.path });
+}));
+
+app.post('/api/admin/products/video-upload-url', asyncRoute(async (request, response) => {
+  requireServices();
+  await requireAdmin(request);
+
+  const filename = optionalString(request.body.filename) || 'video.mp4';
+  const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const path = `${Date.now()}_${safeName}`;
+  const { data, error } = await supabase.storage.from('product-videos').createSignedUploadUrl(path);
+  if (error) throw error;
+  response.json({ signedUrl: data.signedUrl, path: data.path });
+}));
+
 app.get('/api/admin/invoices', asyncRoute(async (request, response) => {
   requireServices();
   await requireAdmin(request);
 
   const { data, error } = await supabase
     .from('invoices')
-    .select('id,dodavatel,castka,mena,datum_vystaveni,datum_splatnosti,cislo_faktury,popis,file_url,zaplaceno,datum_zaplaceni,odeslal,created_at')
+    .select('id,dodavatel,castka,mena,datum_vystaveni,datum_splatnosti,cislo_faktury,popis,file_url,kategorie,zaplaceno,datum_zaplaceni,odeslal,created_at')
     .order('created_at', { ascending: false });
 
   if (error) throw error;
@@ -1385,19 +1630,21 @@ app.post('/api/admin/invoices', asyncRoute(async (request, response) => {
 
   const row = {
     dodavatel: requiredString(invoice.supplier, 'dodavatel'),
-    popis: requiredString(invoice.description, 'popis'),
+    popis: optionalString(invoice.description) || null,
     castka: String(amount),
     mena: 'CZK',
     datum_vystaveni: optionalString(invoice.issuedDate),
     datum_splatnosti: optionalString(invoice.dueDate),
     zaplaceno: Boolean(invoice.paid),
     datum_zaplaceni: invoice.paid ? optionalString(invoice.paidDate) || todayIsoDate() : null,
+    kategorie: optionalString(invoice.category),
+    file_url: optionalString(invoice.fileUrl),
   };
 
   const { data, error } = await supabase
     .from('invoices')
     .insert(row)
-    .select('id,dodavatel,castka,mena,datum_vystaveni,datum_splatnosti,cislo_faktury,popis,file_url,zaplaceno,datum_zaplaceni,odeslal,created_at')
+    .select('id,dodavatel,castka,mena,datum_vystaveni,datum_splatnosti,cislo_faktury,popis,file_url,kategorie,zaplaceno,datum_zaplaceni,odeslal,created_at')
     .single();
 
   if (error) throw error;
@@ -1414,7 +1661,7 @@ app.patch('/api/admin/invoices/:id', asyncRoute(async (request, response) => {
     .from('invoices')
     .update({ zaplaceno: paid, datum_zaplaceni: paid ? todayIsoDate() : null })
     .eq('id', id)
-    .select('id,dodavatel,castka,mena,datum_vystaveni,datum_splatnosti,cislo_faktury,popis,file_url,zaplaceno,datum_zaplaceni,odeslal,created_at')
+    .select('id,dodavatel,castka,mena,datum_vystaveni,datum_splatnosti,cislo_faktury,popis,file_url,kategorie,zaplaceno,datum_zaplaceni,odeslal,created_at')
     .single();
 
   if (error) throw error;

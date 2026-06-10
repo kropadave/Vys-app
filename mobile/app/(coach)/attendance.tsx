@@ -5,10 +5,13 @@ import { Animated, Pressable, ScrollView, StyleSheet, Text, TextInput, View } fr
 import { CoachCard, CoachPageHeader } from '@/components/coach/coach-screen';
 import { StatusPill } from '@/components/parent-card';
 import { useCoachOperations } from '@/hooks/use-coach-operations';
+import { useCoachSessions } from '@/hooks/use-coach-sessions';
+import { useCoachWards } from '@/hooks/use-coach-wards';
 import { type DigitalPassScanResult } from '@/hooks/use-digital-passes';
 import { addParentAttendanceNotification } from '@/hooks/use-parent-notifications';
-import { coachSessions, coachWards, sessionLocation, wardsForLocation, type ChildAttendanceRecord, type CoachSession } from '@/lib/coach-content';
+import { coachWards, sessionLocation, wardsForLocation, type ChildAttendanceRecord, type CoachSession, type CoachWard } from '@/lib/coach-content';
 import { CoachColors } from '@/lib/coach-theme';
+import { startNfcScan, type StopNfcFn } from '@/lib/nfc';
 import { Radius, Spacing } from '@/lib/theme';
 
 const AUTH_PROFILE_KEY = 'vys.authProfile';
@@ -38,13 +41,46 @@ type TrainingCalendarDay = {
 };
 
 export default function CoachAttendance() {
-  const [selectedSessionId, setSelectedSessionId] = useState(coachSessions[0]?.id ?? '');
+  const { sessions: coachSessions, loading: sessionsLoading } = useCoachSessions();
+  const { wards: liveWards } = useCoachWards();
+  const [selectedSessionId, setSelectedSessionId] = useState('');
   const [manualName, setManualName] = useState('');
   const [message, setMessage] = useState<string | null>(null);
   const [childrenAttendanceStarted, setChildrenAttendanceStarted] = useState(false);
   const [nfcListening, setNfcListening] = useState(false);
   const [locationOpen, setLocationOpen] = useState(false);
+  const [unknownChip, setUnknownChip] = useState<{ chipId: string } | null>(null);
+  const [assigningWardId, setAssigningWardId] = useState<string | null>(null);
   const dropdownAnim = useRef(new Animated.Value(0)).current;
+  const stopNfcRef = useRef<StopNfcFn | null>(null);
+
+  // Stop NFC when component unmounts
+  useEffect(() => () => { stopNfcRef.current?.(); }, []);
+
+  // Auto-select first session when sessions load
+  useEffect(() => {
+    if (coachSessions.length === 0) return;
+
+    AsyncStorage.getItem(AUTH_PROFILE_KEY).then((value) => {
+      if (value) {
+        try {
+          const parsed = JSON.parse(value) as { role?: string; coachLocation?: string };
+          if (parsed.role === 'coach' && parsed.coachLocation) {
+            const savedSession = coachSessions.find((session) => sessionLocation(session) === parsed.coachLocation);
+            if (savedSession) {
+              setSelectedSessionId(savedSession.id);
+              return;
+            }
+          }
+        } catch {
+          // Invalid local draft should not block attendance.
+        }
+      }
+      // Fall back to first session if no saved location
+      if (!selectedSessionId) setSelectedSessionId(coachSessions[0].id);
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [coachSessions]);
 
   const openDropdown = () => {
     setLocationOpen(true);
@@ -56,29 +92,31 @@ export default function CoachAttendance() {
     Animated.timing(dropdownAnim, { toValue: 0, duration: 140, useNativeDriver: true }).start(() => setLocationOpen(false));
   };
   const [calendarMonth, setCalendarMonth] = useState(() => startOfMonth(new Date()));
-  const [selectedCalendarDate, setSelectedCalendarDate] = useState(() => nearestTrainingDateKey(new Date()));
-  const { childAttendanceRecords, addChildAttendanceEntry, scanChildNfcChip } = useCoachOperations();
+  const [selectedCalendarDate, setSelectedCalendarDate] = useState(() => nearestTrainingDateKey(new Date(), []));
+  const { childAttendanceRecords, addChildAttendanceEntry, scanChildNfcChip, assignNfcChipToWard, nfcChipAssignments } = useCoachOperations();
   const selectedSession = coachSessions.find((session) => session.id === selectedSessionId) ?? coachSessions[0];
   const selectedLocation = selectedSession ? sessionLocation(selectedSession) : '';
   const isTodayTraining = selectedSession ? czechWeekdayIndex[selectedSession.day] === new Date().getDay() : false;
-  const calendarDays = useMemo(() => buildTrainingCalendar(calendarMonth, childAttendanceRecords), [calendarMonth, childAttendanceRecords]);
+  const calendarDays = useMemo(() => buildTrainingCalendar(calendarMonth, childAttendanceRecords, coachSessions), [calendarMonth, childAttendanceRecords, coachSessions]);
   const selectedCalendarDay = calendarDays.find((day) => day.dateKey === selectedCalendarDate) ?? calendarDays.find((day) => day.sessions.length > 0) ?? calendarDays[0];
 
-  useEffect(() => {
-    AsyncStorage.getItem(AUTH_PROFILE_KEY).then((value) => {
-      if (!value) return;
-
-      try {
-        const parsed = JSON.parse(value) as { role?: string; coachLocation?: string };
-        if (parsed.role !== 'coach' || !parsed.coachLocation) return;
-
-        const savedSession = coachSessions.find((session) => sessionLocation(session) === parsed.coachLocation);
-        if (savedSession) setSelectedSessionId(savedSession.id);
-      } catch {
-        // Invalid local draft should not block attendance.
-      }
-    });
-  }, []);
+  if (sessionsLoading) {
+    return (
+      <ScrollView style={styles.page} contentContainerStyle={styles.container}>
+        <CoachPageHeader
+          kicker="Trenér · Docházka"
+          title="Docházka dětí"
+          subtitle="Načítám přiřazené kroužky z databáze…"
+          icon="check-square"
+          metrics={[
+            { label: 'Lokalit', value: '…', tone: 'blue' },
+            { label: 'Svěřenců', value: String(coachWards.length), tone: 'teal' },
+            { label: 'Stav', value: 'Načítám', tone: 'amber' },
+          ]}
+        />
+      </ScrollView>
+    );
+  }
 
   if (!selectedSession) {
     return (
@@ -86,7 +124,7 @@ export default function CoachAttendance() {
         <CoachPageHeader
           kicker="Trenér · Docházka"
           title="Docházka dětí"
-          subtitle="Po přiřazení reálné tréninkové lokality se tady zobrazí zápis docházky."
+          subtitle="Nejdřív se zapište do kroužku v sekci Rozvrh na hlavní obrazovce."
           icon="check-square"
           metrics={[
             { label: 'Lokalit', value: '0', tone: 'blue' },
@@ -95,7 +133,7 @@ export default function CoachAttendance() {
           ]}
         />
         <CoachCard title="Žádná lokalita">
-          <Text style={styles.muted}>Trenér zatím nemá v databázi přiřazenou žádnou tréninkovou lokalitu.</Text>
+          <Text style={styles.muted}>Zatím nemáš zapsaný žádný kroužek. Přidej se v sekci Rozvrh na hlavní obrazovce trenéra.</Text>
         </CoachCard>
       </ScrollView>
     );
@@ -135,6 +173,41 @@ export default function CoachAttendance() {
     setManualName('');
   };
 
+  const assignWardToUnknownChip = async (wardId: string) => {
+    if (!unknownChip) return;
+    setAssigningWardId(wardId);
+    const ward = (liveWards.length > 0 ? liveWards : coachWards).find((w) => w.id === wardId);
+    const assignment = await assignNfcChipToWard({
+      chipId: unknownChip.chipId,
+      wardId,
+      participantName: ward?.name,
+      location: selectedLocation,
+    });
+    if (!assignment) {
+      setMessage('Přiřazení se nezdařilo. Zkus to znovu.');
+      setAssigningWardId(null);
+      return;
+    }
+    // Now that the chip is mapped, run the normal scan so the secure RPC also
+    // increments participants.attendance_done and decrements the permanentka.
+    // Pass the freshly created assignment so we don't read a stale closure.
+    const scan = await scanChildNfcChip({ chipId: unknownChip.chipId, sessionId: selectedSession?.id, location: selectedLocation, knownAssignment: assignment });
+    if (scan.status === 'already-registered') {
+      setUnknownChip(null);
+      setAssigningWardId(null);
+      setMessage(`${assignment.participantName} už má dnes zapsanou docházku. Vstup se podruhé neodečítá.`);
+      return;
+    }
+    if (scan.status !== 'logged') {
+      // Fallback: at least record the attendance for the coach view.
+      await addChildAttendanceEntry({ sessionId: selectedSession?.id, location: selectedLocation, participantName: assignment.participantName, method: 'NFC' });
+    }
+    await addParentAttendanceNotification({ participantName: assignment.participantName, location: selectedLocation, method: 'NFC' });
+    setUnknownChip(null);
+    setAssigningWardId(null);
+    setMessage(`Čip přiřazen k ${assignment.participantName} a docházka zapsána. Příště se zapíše automaticky.`);
+  };
+
   const startChildrenAttendance = () => {
     setChildrenAttendanceStarted(true);
     setMessage(`Zápis dětí zahájen pro ${selectedLocation}. Zapni NFC čtečku a děti jen přikládají čip k telefonu.`);
@@ -154,12 +227,18 @@ export default function CoachAttendance() {
 
     const result = await scanChildNfcChip({ chipId: trimmedChipId, sessionId: selectedSession?.id, location: selectedLocation });
     if (result.status === 'unknown') {
-      setMessage(`Čip ${result.chipId} ještě není přiřazený k dítěti. Docházka se nezapsala, čip je potřeba přiřadit v administraci účastníka.`);
+      setUnknownChip({ chipId: result.chipId });
+      setMessage(null);
       return;
     }
 
     if (result.status === 'wrong-location') {
       setMessage(`${result.assignment.participantName} patří do lokality ${result.expectedLocations.join(', ')}, ne do ${selectedLocation}.`);
+      return;
+    }
+
+    if (result.status === 'already-registered') {
+      setMessage(`${result.assignment.participantName} už má dnes zapsanou docházku. Vstup se podruhé neodečítá.`);
       return;
     }
 
@@ -175,30 +254,24 @@ export default function CoachAttendance() {
   const startNfcListening = async () => {
     if (!childrenAttendanceStarted) startChildrenAttendance();
 
-    const ndefReader = createNfcReader();
-    if (!ndefReader) {
-      setNfcListening(true);
-      setMessage('NFC čtečka je v prototypu připravená. Webový náhled neumí číst čipy na každém zařízení; v mobilní appce bude stačit přiložit čip k telefonu a docházka se zapíše sama.');
-      return;
-    }
+    // Stop any previous session before starting a new one
+    stopNfcRef.current?.();
+    stopNfcRef.current = null;
 
     setNfcListening(true);
+    setMessage('NFC čtečka se spouští…');
+
+    const stop = await startNfcScan(
+      (chipId) => { void scanNfc(chipId); },
+      (msg) => {
+        setNfcListening(false);
+        setMessage(msg);
+        stopNfcRef.current = null;
+      },
+    );
+
+    stopNfcRef.current = stop;
     setMessage('NFC čtečka běží. Přiložte čip dítěte k telefonu.');
-    try {
-      await ndefReader.scan();
-      ndefReader.onreading = (event) => {
-        const chipId = chipIdFromNfcEvent(event);
-        if (!chipId) {
-          setMessage('Čip se načetl, ale neobsahuje ID. Zkontroluj nastavení čipu v administraci.');
-          return;
-        }
-        void scanNfc(chipId);
-      };
-      ndefReader.onreadingerror = () => setMessage('Čip se nepodařilo načíst. Přilož ho znovu k horní části telefonu.');
-    } catch {
-      setNfcListening(false);
-      setMessage('NFC čtečku se nepodařilo zapnout. Zkontroluj, že má telefon NFC povolené.');
-    }
   };
 
   return (
@@ -209,7 +282,7 @@ export default function CoachAttendance() {
         subtitle="Vyber lokalitu, zapni NFC a zapisuj děti rovnou do správného kroužku. Ruční zápis zůstává po ruce pro dítě bez čipu."
         icon="check-square"
         metrics={[
-          { label: 'Lokalit', value: String(coachSessions.length), tone: 'blue' },
+          { label: 'Lokalit', value: String(coachSessions.length), tone: 'blue' as const },
           { label: 'Svěřenců', value: String(coachWards.length), tone: 'teal' },
           { label: childrenAttendanceStarted ? 'Stav zápisu' : 'Připraveno', value: childrenAttendanceStarted ? 'Běží' : 'Čeká', tone: childrenAttendanceStarted ? 'teal' : 'amber' },
         ]}
@@ -229,7 +302,7 @@ export default function CoachAttendance() {
         </Pressable>
         {locationOpen && (
           <Animated.View style={[styles.locationOptionsList, { opacity: dropdownAnim, transform: [{ translateY: dropdownAnim.interpolate({ inputRange: [0, 1], outputRange: [-8, 0] }) }] }]}>
-            {coachSessions.map((session) => {
+            {coachSessions.map((session: CoachSession) => {
               const selected = session.id === selectedSessionId;
               return (
                 <Pressable
@@ -276,6 +349,17 @@ export default function CoachAttendance() {
           </Text>
         )}
         {message ? <Text style={styles.message}>{message}</Text> : null}
+        {unknownChip ? (
+          <UnassignedChipPanel
+            chipId={unknownChip.chipId}
+            location={selectedLocation}
+            wards={liveWards.length > 0 ? liveWards : coachWards}
+            nfcChipAssignments={nfcChipAssignments}
+            assigningWardId={assigningWardId}
+            onAssign={assignWardToUnknownChip}
+            onDismiss={() => setUnknownChip(null)}
+          />
+        ) : null}
       </CoachCard>
 
       <CoachCard title="Ruční zápis bez čipu">
@@ -358,6 +442,7 @@ export default function CoachAttendance() {
 
 function passScanMessage(result: DigitalPassScanResult) {
   if (result.status === 'updated') return `Na permanentce ${result.pass.title} je teď zaškrtnuto ${result.pass.usedEntries}/${result.pass.totalEntries} vstupů.`;
+  if (result.status === 'already-registered') return 'Dnes už bylo zapsáno, vstup se podruhé neodečítá.';
   if (result.status === 'all-passes-used') return 'Všechny permanentky pro tuto lokalitu jsou už vyčerpané.';
   if (result.status === 'wrong-location') return 'Permanentka patří na jinou lokalitu.';
   return 'U účastníka není aktivní permanentka pro tuto lokalitu.';
@@ -438,7 +523,7 @@ function CalendarDayDetail({ day }: { day: TrainingCalendarDay }) {
   );
 }
 
-function buildTrainingCalendar(month: Date, childRecords: ChildAttendanceRecord[]): TrainingCalendarDay[] {
+function buildTrainingCalendar(month: Date, childRecords: ChildAttendanceRecord[], sessions: CoachSession[]): TrainingCalendarDay[] {
   const monthStart = startOfMonth(month);
   const gridStart = startOfCalendarGrid(monthStart);
   const attendanceByDayAndLocation = new Map<string, ChildAttendanceRecord>();
@@ -455,7 +540,7 @@ function buildTrainingCalendar(month: Date, childRecords: ChildAttendanceRecord[
   return Array.from({ length: 42 }, (_, index) => {
     const date = addDays(gridStart, index);
     const dateKey = dateKeyFromDate(date);
-    const scheduledSessions = coachSessions
+    const scheduledSessions = sessions
       .filter((session) => czechWeekdayIndex[session.day] === date.getDay())
       .map((session) => {
         const location = sessionLocation(session);
@@ -469,18 +554,18 @@ function buildTrainingCalendar(month: Date, childRecords: ChildAttendanceRecord[
     const recordedSessions = (recordsByDay.get(dateKey) ?? [])
       .filter((record) => !scheduledLocations.has(record.location))
       .map((record) => {
-        const session = coachSessions.find((item) => sessionLocation(item) === record.location) ?? coachSessions[0];
+        const session = sessions.find((item) => sessionLocation(item) === record.location) ?? sessions[0];
         return { session, location: record.location, record };
       });
-    const sessions = [...scheduledSessions, ...recordedSessions];
-    const hasRecord = sessions.some((item) => item.record);
-    const status: TrainingCalendarDay['status'] = sessions.length === 0 ? 'empty' : hasRecord ? 'done' : startOfDay(date) < startOfDay(new Date()) ? 'missed' : 'planned';
+    const daySessions = [...scheduledSessions, ...recordedSessions];
+    const hasRecord = daySessions.some((item) => item.record);
+    const status: TrainingCalendarDay['status'] = daySessions.length === 0 ? 'empty' : hasRecord ? 'done' : startOfDay(date) < startOfDay(new Date()) ? 'missed' : 'planned';
 
     return {
       date,
       dateKey,
       inMonth: date.getMonth() === monthStart.getMonth(),
-      sessions,
+      sessions: daySessions,
       status,
     };
   });
@@ -499,16 +584,16 @@ function calendarDayTone(day: TrainingCalendarDay): 'neutral' | 'success' | 'war
   return 'neutral';
 }
 
-function nearestTrainingDateKey(fromDate: Date) {
+function nearestTrainingDateKey(fromDate: Date, sessions: CoachSession[]) {
   const today = startOfDay(fromDate);
   for (let offset = 0; offset <= 14; offset += 1) {
     const date = addDays(today, offset);
-    if (coachSessions.some((session) => czechWeekdayIndex[session.day] === date.getDay())) return dateKeyFromDate(date);
+    if (sessions.some((session) => czechWeekdayIndex[session.day] === date.getDay())) return dateKeyFromDate(date);
   }
 
   for (let offset = 1; offset <= 14; offset += 1) {
     const date = addDays(today, -offset);
-    if (coachSessions.some((session) => czechWeekdayIndex[session.day] === date.getDay())) return dateKeyFromDate(date);
+    if (sessions.some((session) => czechWeekdayIndex[session.day] === date.getDay())) return dateKeyFromDate(date);
   }
 
   return dateKeyFromDate(today);
@@ -563,37 +648,6 @@ type GeolocationLike = {
     options?: { enableHighAccuracy?: boolean; timeout?: number; maximumAge?: number },
   ) => void;
 };
-
-type NfcReadingEventLike = {
-  serialNumber?: string;
-  message?: {
-    records?: {
-      data?: BufferSource;
-      recordType?: string;
-    }[];
-  };
-};
-
-type NfcReaderLike = {
-  scan: () => Promise<void>;
-  onreading: ((event: NfcReadingEventLike) => void) | null;
-  onreadingerror: (() => void) | null;
-};
-
-function createNfcReader(): NfcReaderLike | null {
-  const Reader = (globalThis as typeof globalThis & { NDEFReader?: new () => NfcReaderLike }).NDEFReader;
-  return Reader ? new Reader() : null;
-}
-
-function chipIdFromNfcEvent(event: NfcReadingEventLike) {
-  const textRecord = event.message?.records?.find((record) => record.data && (record.recordType === 'text' || !record.recordType));
-  if (textRecord?.data) {
-    const decoded = new TextDecoder().decode(textRecord.data).replace(/^\u0002?[a-z]{2}/i, '').trim();
-    if (decoded) return decoded;
-  }
-
-  return event.serialNumber?.trim() ?? '';
-}
 
 function findWardByFullName(name: string) {
   const normalizedName = normalizeFullName(name);
@@ -688,3 +742,130 @@ const styles = StyleSheet.create({
   sectionLabel: { color: CoachColors.slateMuted, fontSize: 11, lineHeight: 15, fontWeight: '900', textTransform: 'uppercase' },
   input: { backgroundColor: CoachColors.panelAlt, borderColor: CoachColors.border, borderWidth: 1, borderRadius: Radius.md, color: CoachColors.slate, padding: Spacing.md, fontSize: 15 },
 });
+
+// ─── Unassigned chip panel ────────────────────────────────────────────────────
+
+function UnassignedChipPanel({
+  chipId,
+  location,
+  wards,
+  nfcChipAssignments,
+  assigningWardId,
+  onAssign,
+  onDismiss,
+}: {
+  chipId: string;
+  location: string;
+  wards: CoachWard[];
+  nfcChipAssignments: import('@/hooks/use-coach-operations').NfcChipAssignment[];
+  assigningWardId: string | null;
+  onAssign: (wardId: string) => void;
+  onDismiss: () => void;
+}) {
+  // Wards at this location — show everyone so trainer can assign
+  const locationNorm = location.toLowerCase().trim();
+  const matchedByLocation = wards.filter(
+    (ward) => ward.locations.some((l) => l.toLowerCase().trim() === locationNorm)
+  );
+  // Fallback: if location strings differ, show all wards so the trainer can still assign
+  const candidatesAtLocation = matchedByLocation.length > 0 ? matchedByLocation : wards;
+
+  // Hide wards that already have a chip assigned — a new chip should only be
+  // offered to children who don't have one yet.
+  const assignedWardIds = new Set(nfcChipAssignments.map((a) => a.wardId));
+  const candidates = candidatesAtLocation.filter((ward) => !assignedWardIds.has(ward.id));
+
+  const [search, setSearch] = useState('');
+  const searchNorm = search.trim().toLowerCase();
+  const filteredCandidates = searchNorm
+    ? candidates.filter((ward) => ward.name.toLowerCase().includes(searchNorm))
+    : candidates;
+
+  return (
+    <View style={up.wrap}>
+      <View style={up.header}>
+        <View style={{ flex: 1 }}>
+          <Text style={up.title}>Nový čip — přiřadit účastníka</Text>
+          <Text style={up.sub}>ID: {chipId}</Text>
+        </View>
+        <Pressable onPress={onDismiss} style={up.dismissBtn}>
+          <Text style={up.dismissText}>✕</Text>
+        </Pressable>
+      </View>
+      <Text style={up.location}>Lokalita: {location}</Text>
+      {candidates.length === 0 ? (
+        <Text style={up.empty}>
+          Všichni svěřenci na této lokalitě už mají čip. Jakmile rodič koupí dítěti permanentku na tuto lokalitu, objeví se tady k přiřazení čipu.
+        </Text>
+      ) : (
+        <>
+          <Text style={up.hint}>Vyber dítě, ke kterému patří tento čip:</Text>
+          <View style={up.searchBox}>
+            <Text style={up.searchIcon}>🔍</Text>
+            <TextInput
+              value={search}
+              onChangeText={setSearch}
+              placeholder="Začni psát jméno…"
+              placeholderTextColor={CoachColors.slateMuted}
+              style={up.searchInput}
+              autoCorrect={false}
+            />
+            {search.length > 0 ? (
+              <Pressable onPress={() => setSearch('')} hitSlop={8}>
+                <Text style={up.searchClear}>✕</Text>
+              </Pressable>
+            ) : null}
+          </View>
+          {filteredCandidates.length === 0 ? (
+            <Text style={up.empty}>Žádné dítě neodpovídá „{search}“.</Text>
+          ) : (
+            filteredCandidates.map((ward) => {
+              const isAssigning = assigningWardId === ward.id;
+              return (
+                <Pressable
+                  key={ward.id}
+                  style={({ pressed }) => [up.wardRow, isAssigning && up.wardRowActive, pressed && { opacity: 0.82 }]}
+                  onPress={() => onAssign(ward.id)}
+                  disabled={assigningWardId !== null}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={up.wardName}>{ward.name}</Text>
+                    <Text style={up.wardMeta}>
+                      {ward.passTitle ? `${ward.passTitle} · ${ward.entriesLeft} vstupů` : 'Bez čipu'}
+                    </Text>
+                  </View>
+                  {isAssigning
+                    ? <Text style={up.assigningText}>Přiřazuji…</Text>
+                    : <Text style={up.assignBtn}>Přiřadit →</Text>}
+                </Pressable>
+              );
+            })
+          )}
+        </>
+      )}
+    </View>
+  );
+}
+
+const up = StyleSheet.create({
+  wrap: { backgroundColor: CoachColors.tealSoft, borderWidth: 1.5, borderColor: CoachColors.teal, borderRadius: Radius.lg, padding: Spacing.lg, gap: Spacing.sm, marginTop: Spacing.md },
+  header: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm },
+  title: { fontSize: 15, fontWeight: '900', color: CoachColors.slate },
+  sub: { fontSize: 11, fontWeight: '700', color: CoachColors.slateMuted, fontFamily: 'monospace', marginTop: 2 },
+  location: { fontSize: 12, fontWeight: '700', color: CoachColors.slateMuted },
+  hint: { fontSize: 13, fontWeight: '900', color: CoachColors.slate, marginTop: 4 },
+  searchBox: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#fff', borderRadius: Radius.md, borderWidth: 1, borderColor: CoachColors.border, paddingHorizontal: Spacing.md, paddingVertical: 2 },
+  searchIcon: { fontSize: 14 },
+  searchInput: { flex: 1, fontSize: 15, fontWeight: '700', color: CoachColors.slate, paddingVertical: 10 },
+  searchClear: { fontSize: 13, color: CoachColors.slateMuted, fontWeight: '900' },
+  empty: { fontSize: 13, fontWeight: '700', color: CoachColors.amber, lineHeight: 19 },
+  wardRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, backgroundColor: '#fff', borderRadius: Radius.md, padding: Spacing.md, borderWidth: 1, borderColor: CoachColors.border },
+  wardRowActive: { backgroundColor: CoachColors.teal, borderColor: CoachColors.teal },
+  wardName: { fontSize: 15, fontWeight: '900', color: CoachColors.slate },
+  wardMeta: { fontSize: 12, fontWeight: '700', color: CoachColors.slateMuted, marginTop: 2 },
+  assignBtn: { fontSize: 13, fontWeight: '900', color: CoachColors.teal },
+  assigningText: { fontSize: 13, fontWeight: '900', color: '#fff' },
+  dismissBtn: { width: 30, height: 30, borderRadius: 15, backgroundColor: CoachColors.panelAlt, alignItems: 'center', justifyContent: 'center' },
+  dismissText: { fontSize: 14, color: CoachColors.slateMuted, fontWeight: '900' },
+});
+

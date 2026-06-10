@@ -1,36 +1,56 @@
+import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useNavigation } from 'expo-router';
+import { useNavigation, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, ImageBackground, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+
+const POZADI_ARENY = require('../../assets/images/pozadi_areny.png');
+const POZADI_ARENA = require('../../assets/images/pozadi_arena.png');
+
+const ARENA_IMAGES = [
+  require('../../assets/images/arena_1.png'),
+  require('../../assets/images/arena_2.png'),
+  require('../../assets/images/arena_3.png'),
+  require('../../assets/images/arena_4.png'),
+  require('../../assets/images/arena_5.png'),
+];
+const STAGE_COLORS = ['#D8C2A3', '#F5A7C8', '#8A62D6', '#4C2B86', '#16151A'];
 
 import { AnimatedProgressBar, FadeInUp, Float, PulseGlow } from '@/components/animated/motion';
-import { CatPattern } from '@/components/brand/cat-pattern';
 import { TeamVysLogo } from '@/components/brand/team-vys-logo';
+import { QrScanner } from '@/components/qr-scanner';
 import { useParticipantProfile } from '@/hooks/use-participant-profile';
+import { parseQrPayload } from '@/hooks/use-qr-events';
 import { Brand, BrandGradient } from '@/lib/brand';
 import { skillTreeLevels, type ParticipantProfile, type SkillTreeLevel } from '@/lib/participant-content';
 import { Palette, Radius, Shadow, Spacing } from '@/lib/theme';
 import { useBreakpoint } from '@/lib/use-breakpoint';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type SkillTrick = SkillTreeLevel['tricks'][number];
 
 export default function SkillTreeScreen() {
   const { width, isMobile } = useBreakpoint();
+  const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const { profile, profileReady, loading } = useParticipantProfile();
   const [expanded, setExpanded] = useState(false);
   const levels = useMemo(() => skillTreeLevels.slice(), []);
-  const currentIndex = useMemo(() => findCurrentLevelIndex(levels, profile), [levels, profile]);
+  const levelRequiredXp = useMemo(() => buildLevelRequiredXp(levels), [levels]);
+  const currentIndex = useMemo(() => findCurrentLevelIndex(levels, profile, levelRequiredXp), [levels, profile, levelRequiredXp]);
   const currentLevel = levels[currentIndex];
   const nextLevel = levels[currentIndex + 1];
+  const currentRequiredXp = levelRequiredXp.get(currentLevel.id) ?? 0;
+  const nextRequiredXp = nextLevel ? (levelRequiredXp.get(nextLevel.id) ?? profile.xp) : profile.xp;
   const futureLevels = levels.slice(currentIndex + 1);
   const completedLevels = levels.slice(0, currentIndex).reverse();
   const collapsedFutureLevels = futureLevels.slice(0, 2);
-  const completedCurrent = currentLevel.tricks.filter((trick) => isUnlocked(trick.xp, profile));
-  const missingCurrent = currentLevel.tricks.filter((trick) => !isUnlocked(trick.xp, profile));
-  const progress = nextLevel ? progressBetween(currentLevel.stage.xpRequired, nextLevel.stage.xpRequired, profile) : 1;
-  const missingXp = nextLevel ? Math.max(nextLevel.stage.xpRequired - profile.xp, 0) : 0;
-  const braceletSize = isMobile ? 152 : 226;
+  const completedCurrent = currentLevel.tricks.filter((trick) => isUnlocked(trick.id, profile));
+  const missingCurrent = currentLevel.tricks.filter((trick) => !isUnlocked(trick.id, profile));
+  const progress = nextLevel ? progressBetween(currentRequiredXp, nextRequiredXp, profile) : 1;
+  const missingXp = nextLevel ? Math.max(nextRequiredXp - profile.xp, 0) : 0;
+  const braceletSize = isMobile ? 240 : 320;
 
   useEffect(() => {
     navigation.setOptions({ tabBarStyle: expanded ? { display: 'none' } : getTabBarStyle(width, isMobile) });
@@ -46,16 +66,9 @@ export default function SkillTreeScreen() {
   }
 
   return (
-    <View style={styles.screen}>
-      <LinearGradient colors={BrandGradient.paper} style={StyleSheet.absoluteFill} />
-      <View style={StyleSheet.absoluteFill} pointerEvents="none">
-        <CatPattern color={Brand.purple} opacity={0.022} />
-        <View style={styles.ribbonOne} />
-        <View style={styles.ribbonTwo} />
-        <View style={styles.ribbonThree} />
-      </View>
+    <ImageBackground source={POZADI_ARENA} style={styles.screen} resizeMode="cover">
 
-      <ScrollView style={styles.scroll} contentContainerStyle={[styles.container, isMobile && styles.containerMobile]} showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.scroll} contentContainerStyle={[styles.container, isMobile && styles.containerMobile, { paddingTop: insets.top + 12 }]} showsVerticalScrollIndicator={false}>
         <FadeInUp>
           <ProfileHud profile={profile} currentLevel={currentLevel} nextLevel={nextLevel} progress={progress} missingXp={missingXp} />
         </FadeInUp>
@@ -69,7 +82,7 @@ export default function SkillTreeScreen() {
 
             <View style={styles.futurePath}>
               {collapsedFutureLevels.slice().reverse().map((level, index) => (
-                <TrailNode key={level.id} profile={profile} level={level} compact={index === 0 && collapsedFutureLevels.length > 1} />
+                <TrailNode key={level.id} profile={profile} level={level} requiredXp={levelRequiredXp.get(level.id) ?? 0} compact={index === 0 && collapsedFutureLevels.length > 1} />
               ))}
             </View>
 
@@ -114,14 +127,14 @@ export default function SkillTreeScreen() {
 
             <View style={styles.trickGrid}>
               {currentLevel.tricks.map((trick, index) => (
-                <TrickCard key={trick.id} trick={trick} index={index} completed={isUnlocked(trick.xp, profile)} />
+                <TrickCard key={trick.id} trick={trick} index={index} completed={isUnlocked(trick.id, profile)} />
               ))}
             </View>
 
             <View style={styles.progressPanel}>
               <View style={styles.progressTextRow}>
                 <Text style={styles.progressLabel}>{completedCurrent.length}/{currentLevel.tricks.length} hotovo</Text>
-                <Text style={styles.progressMeta}>{profile.xp} / {nextLevel?.stage.xpRequired ?? profile.xp} XP</Text>
+                <Text style={styles.progressMeta}>{profile.xp} / {nextRequiredXp} XP</Text>
               </View>
               <AnimatedProgressBar progress={progress} fillColor={Brand.purple} trackColor="rgba(26,19,38,0.10)" height={12} />
               <Text style={styles.progressCopy}>{nextLevel ? `${missingCurrent.length} chybí · ${missingXp} XP do dalšího náramku` : 'Všechno je hotové.'}</Text>
@@ -142,12 +155,53 @@ export default function SkillTreeScreen() {
           profile={profile}
           futureLevels={futureLevels}
           completedLevels={completedLevels}
+          levelRequiredXp={levelRequiredXp}
           isMobile={isMobile}
           braceletSize={braceletSize}
           onClose={() => setExpanded(false)}
         />
       ) : null}
-    </View>
+    </ImageBackground>
+  );
+}
+
+function QrScanButton() {
+  const router = useRouter();
+  const [scannerOpen, setScannerOpen] = useState(false);
+  return (
+    <>
+      <Pressable
+        onPress={() => setScannerOpen(true)}
+        style={({ pressed }) => [styles.qrScanBtn, pressed && { opacity: 0.80 }]}
+      >
+        <MaterialCommunityIcons name="qrcode-scan" size={18} color="#fff" />
+        <Text style={styles.qrScanBtnText}>Naskenovat QR trik</Text>
+      </Pressable>
+      <Modal visible={scannerOpen} animationType="slide" onRequestClose={() => setScannerOpen(false)}>
+        <QrScanner
+          onScanned={(raw) => {
+            setScannerOpen(false);
+            const payload = parseQrPayload(raw);
+            if (payload.workshop) {
+              router.push({
+                pathname: '/qr-claim',
+                params: {
+                  workshop: payload.workshop,
+                  title: payload.title ?? '',
+                  ts: payload.ts ?? '',
+                  coach: payload.coach ?? '',
+                },
+              });
+              return;
+            }
+            const code = (payload.event ?? '').trim();
+            if (!code) return;
+            router.push({ pathname: '/qr-claim', params: { event: code } });
+          }}
+          onClose={() => setScannerOpen(false)}
+        />
+      </Modal>
+    </>
   );
 }
 
@@ -175,20 +229,22 @@ function ProfileHud({ profile, currentLevel, nextLevel, progress, missingXp }: {
         </View>
         <AnimatedProgressBar progress={progress} fillColor={Brand.cyan} trackColor="rgba(26,19,38,0.10)" height={10} />
       </View>
+
+      <QrScanButton />
     </View>
   );
 }
 
-function TrailNode({ profile, level, completed, compact }: { profile: ParticipantProfile; level: SkillTreeLevel; completed?: boolean; compact?: boolean }) {
-  const unlocked = profile.xp >= level.stage.xpRequired;
-  const completedTricks = level.tricks.filter((trick) => isUnlocked(trick.xp, profile)).length;
+function TrailNode({ profile, level, requiredXp, completed, compact }: { profile: ParticipantProfile; level: SkillTreeLevel; requiredXp: number; completed?: boolean; compact?: boolean }) {
+  const unlocked = profile.xp >= requiredXp;
+  const completedTricks = level.tricks.filter((trick) => isUnlocked(trick.id, profile)).length;
 
   return (
     <View style={[styles.trailNode, compact && styles.trailNodeCompact, completed && styles.trailNodeCompleted]}>
       <MiniBracelet color={level.stage.color} dark={level.stage.id === 'black'} />
       <View style={styles.trailNodeCopy}>
         <Text style={styles.trailNodeTitle}>{level.stage.title}</Text>
-        <Text style={styles.trailNodeSub}>{unlocked ? `${completedTricks}/${level.tricks.length} triků` : `${level.stage.xpRequired} XP`}</Text>
+        <Text style={styles.trailNodeSub}>{unlocked ? `${completedTricks}/${level.tricks.length} triků` : `${requiredXp} XP`}</Text>
       </View>
     </View>
   );
@@ -199,6 +255,7 @@ function FocusedPathOverlay({
   profile,
   futureLevels,
   completedLevels,
+  levelRequiredXp,
   isMobile,
   braceletSize,
   onClose,
@@ -207,6 +264,7 @@ function FocusedPathOverlay({
   profile: ParticipantProfile;
   futureLevels: SkillTreeLevel[];
   completedLevels: SkillTreeLevel[];
+  levelRequiredXp: Map<string, number>;
   isMobile: boolean;
   braceletSize: number;
   onClose: () => void;
@@ -214,6 +272,7 @@ function FocusedPathOverlay({
   const futurePath = futureLevels;
   const scrollRef = useRef<ScrollView>(null);
   const currentOffsetRef = useRef(0);
+  const insets = useSafeAreaInsets();
 
   const handleCurrentLayout = useCallback((e: { nativeEvent: { layout: { y: number } } }) => {
     currentOffsetRef.current = e.nativeEvent.layout.y;
@@ -225,15 +284,8 @@ function FocusedPathOverlay({
 
   return (
     <FadeInUp offset={0} duration={260} style={styles.focusOverlay}>
-      <LinearGradient colors={['#16051F', '#2D1450', '#12051C']} style={StyleSheet.absoluteFill} />
-      <View style={StyleSheet.absoluteFill} pointerEvents="none">
-        <CatPattern color="#FFFFFF" opacity={0.035} />
-        <View style={styles.focusAuraOne} />
-        <View style={styles.focusAuraTwo} />
-        <View style={styles.focusRibbonOne} />
-        <View style={styles.focusRibbonTwo} />
-      </View>
-      <Pressable accessibilityRole="button" onPress={onClose} style={({ pressed }) => [styles.focusOkButton, pressed && styles.focusOkButtonPressed]}>
+      <ImageBackground source={POZADI_ARENY} style={StyleSheet.absoluteFill} resizeMode="cover" />
+      <Pressable accessibilityRole="button" onPress={onClose} style={({ pressed }) => [styles.focusOkButton, { top: insets.top + 8 }, pressed && styles.focusOkButtonPressed]}>
         <Text style={styles.focusOkText}>OK</Text>
       </Pressable>
       <ScrollView ref={scrollRef} style={styles.focusScroll} contentContainerStyle={[styles.focusContent, isMobile && styles.focusContentMobile]} showsVerticalScrollIndicator={false}>
@@ -244,7 +296,7 @@ function FocusedPathOverlay({
 
         {[...futurePath].reverse().map((level, index) => (
           <View key={level.id} style={styles.focusPathGroup}>
-            <FocusedPathStage profile={profile} level={level} kind="future" braceletSize={braceletSize} isMobile={isMobile} delay={index * 45} />
+            <FocusedPathStage profile={profile} level={level} requiredXp={levelRequiredXp.get(level.id) ?? 0} kind="future" braceletSize={braceletSize} isMobile={isMobile} delay={index * 45} />
             {index < futurePath.length - 1 ? <PathConnector /> : null}
           </View>
         ))}
@@ -252,14 +304,14 @@ function FocusedPathOverlay({
         {futurePath.length > 0 ? <PathConnector /> : null}
 
         <View onLayout={handleCurrentLayout}>
-          <FocusedPathStage profile={profile} level={currentLevel} kind="current" braceletSize={braceletSize} isMobile={isMobile} delay={futurePath.length * 45} />
+          <FocusedPathStage profile={profile} level={currentLevel} requiredXp={levelRequiredXp.get(currentLevel.id) ?? 0} kind="current" braceletSize={braceletSize} isMobile={isMobile} delay={futurePath.length * 45} />
         </View>
 
         {completedLevels.length > 0 ? <PathConnector /> : null}
 
         {completedLevels.map((level, index) => (
           <View key={level.id} style={styles.focusPathGroup}>
-            <FocusedPathStage profile={profile} level={level} kind="completed" braceletSize={braceletSize} isMobile={isMobile} delay={(futurePath.length + index + 1) * 45} />
+            <FocusedPathStage profile={profile} level={level} requiredXp={levelRequiredXp.get(level.id) ?? 0} kind="completed" braceletSize={braceletSize} isMobile={isMobile} delay={(futurePath.length + index + 1) * 45} />
             {index < completedLevels.length - 1 ? <PathConnector /> : null}
           </View>
         ))}
@@ -271,6 +323,7 @@ function FocusedPathOverlay({
 function FocusedPathStage({
   profile,
   level,
+  requiredXp,
   kind,
   braceletSize,
   isMobile,
@@ -279,16 +332,17 @@ function FocusedPathStage({
 }: {
   profile: ParticipantProfile;
   level: SkillTreeLevel;
+  requiredXp: number;
   kind: 'future' | 'current' | 'completed';
   braceletSize: number;
   isMobile: boolean;
   delay: number;
   onPress?: () => void;
 }) {
-  const completedCount = level.tricks.filter((trick) => isUnlocked(trick.xp, profile)).length;
+  const completedCount = level.tricks.filter((trick) => isUnlocked(trick.id, profile)).length;
   const label = kind === 'current' ? 'Aktuální náramek' : kind === 'completed' ? 'Hotový náramek' : 'Další náramek';
   const badgeText = kind === 'current' ? 'Aktuální' : kind === 'completed' ? 'Hotovo' : 'Čeká';
-  const statusText = kind === 'future' ? `${level.stage.xpRequired} XP` : `${completedCount}/${level.tricks.length} hotovo`;
+  const statusText = kind === 'future' ? `${requiredXp} XP` : `${completedCount}/${level.tricks.length} hotovo`;
   const stage = (
     <FadeInUp delay={delay} offset={18} duration={420}>
       <View style={[styles.focusStageCard, isMobile && styles.focusStageCardMobile, kind === 'current' && styles.focusStageCurrent, kind === 'completed' && styles.focusStageCompleted]}>
@@ -333,18 +387,22 @@ function PathConnector() {
   );
 }
 
-function PathTrickPill({ profile, trick, kind }: { profile: ParticipantProfile; trick: SkillTrick; kind: 'future' | 'current' | 'completed' }) {
-  const completed = kind === 'completed' || (kind === 'current' && isUnlocked(trick.xp, profile));
+function PathTrickPill({ profile, trick, kind, onLight }: { profile: ParticipantProfile; trick: SkillTrick; kind: 'future' | 'current' | 'completed'; onLight?: boolean }) {
+  const completed = kind === 'completed' || (kind === 'current' && isUnlocked(trick.id, profile));
   const waiting = kind === 'future';
   const color = completed ? Brand.cyan : waiting ? Brand.purple : Brand.pink;
-  const text = completed ? 'Hotovo' : waiting ? 'Čeká' : 'Chybí';
+  const text = completed ? 'Hotovo' : waiting ? null : 'Chybí';
 
   return (
     <View style={[styles.pathTrickPill, { borderColor: soften(color, 0.30), backgroundColor: soften(color, completed ? 0.11 : 0.08) }]}>
-      <Text style={styles.pathTrickTitle}>{trick.title}</Text>
+      <Text style={[styles.pathTrickTitle, onLight && styles.pathTrickTitleOnLight]}>{trick.title}</Text>
       <View style={styles.pathTrickMetaRow}>
         <Text style={styles.pathTrickXp}>{trick.xp} XP</Text>
-        <Text style={[styles.pathTrickState, { color: darken(color, completed ? 70 : 36) }]}>{text}</Text>
+        {waiting ? (
+          <MaterialCommunityIcons name="lock-outline" size={14} color={darken(color, 36)} />
+        ) : (
+          <Text style={[styles.pathTrickState, { color: darken(color, completed ? 70 : 36) }]}>{text}</Text>
+        )}
       </View>
     </View>
   );
@@ -402,7 +460,7 @@ function CompletedBraceletCard({ profile, level, isMobile, braceletSize }: { pro
         <Text style={styles.completedMeta}>{level.tricks.length}/{level.tricks.length} triků hotovo</Text>
         <View style={styles.completedTrickGrid}>
           {level.tricks.map((trick) => (
-            <PathTrickPill key={trick.id} profile={profile} trick={trick} kind="completed" />
+            <PathTrickPill key={trick.id} profile={profile} trick={trick} kind="completed" onLight />
           ))}
         </View>
       </View>
@@ -434,45 +492,44 @@ function TrickCard({ trick, index, completed }: { trick: SkillTrick; index: numb
 }
 
 function MiniBracelet({ color, dark }: { color: string; dark: boolean }) {
+  const idx = Math.max(0, STAGE_COLORS.indexOf(color));
   return (
-    <View style={[styles.miniBracelet, { backgroundColor: dark ? '#050507' : darken(color, 34) }]}>
-      <LinearGradient colors={[soften(color, 0.95), color, dark ? '#050507' : darken(color, 28)]} style={styles.miniBraceletFace}>
-        <View style={styles.miniBraceletHole} />
-      </LinearGradient>
-    </View>
+    <Image source={ARENA_IMAGES[idx]} style={{ width: 56, height: 56 }} contentFit="contain" />
   );
 }
 
 function BraceletModel({ color, dark, size }: { color: string; dark: boolean; size: number }) {
-  const outer = size;
-  const inner = size * 0.54;
-  const depth = size * 0.12;
-
+  const idx = Math.max(0, STAGE_COLORS.indexOf(color));
   return (
-    <View style={[styles.braceletModel, { width: outer, height: outer + depth }]}>
-      <View style={[styles.braceletDepth, { width: outer * 0.94, height: outer * 0.94, borderRadius: outer, top: depth, backgroundColor: dark ? '#050507' : darken(color, 64) }]} />
-      <LinearGradient colors={[soften(color, 0.95), color, dark ? '#050507' : darken(color, 38)]} style={[styles.braceletOuter, { width: outer, height: outer, borderRadius: outer / 2 }]}>
-        <View style={[styles.braceletCutoutShadow, { width: inner * 1.08, height: inner * 1.08, borderRadius: inner, backgroundColor: dark ? '#050507' : darken(color, 66) }]} />
-        <View style={[styles.braceletInnerHole, { width: inner, height: inner, borderRadius: inner / 2 }]} />
-        <View style={[styles.braceletGloss, { width: outer * 0.38, height: outer * 0.12, borderRadius: outer * 0.12 }]} />
-      </LinearGradient>
-    </View>
+    <Image source={ARENA_IMAGES[idx]} style={{ width: size, height: size }} contentFit="contain" />
   );
 }
 
-function findCurrentLevelIndex(levels: SkillTreeLevel[], profile: ParticipantProfile) {
+function findCurrentLevelIndex(levels: SkillTreeLevel[], profile: ParticipantProfile, levelRequiredXp: Map<string, number>) {
   const braceletIndex = levels.findIndex((level) => level.stage.id === profile.bracelet.id);
   if (braceletIndex >= 0) return braceletIndex;
 
   let currentIndex = 0;
   levels.forEach((level, index) => {
-    if (profile.xp >= level.stage.xpRequired) currentIndex = index;
+    const requiredXp = levelRequiredXp.get(level.id) ?? 0;
+    if (profile.xp >= requiredXp) currentIndex = index;
   });
   return currentIndex;
 }
 
-function isUnlocked(xp: number, profile: ParticipantProfile) {
-  return profile.xp >= xp;
+function buildLevelRequiredXp(levels: SkillTreeLevel[]) {
+  let cumulativeXp = 0;
+  return new Map(
+    levels.map((level) => {
+      const requiredXp = cumulativeXp;
+      cumulativeXp += level.tricks.reduce((sum, trick) => sum + trick.xp, 0);
+      return [level.id, requiredXp] as const;
+    }),
+  );
+}
+
+function isUnlocked(trickId: string, profile: ParticipantProfile) {
+  return profile.completedTrickIds.includes(trickId);
 }
 
 function progressBetween(fromXp: number, toXp: number, profile: ParticipantProfile) {
@@ -558,10 +615,13 @@ const styles = StyleSheet.create({
   xpLabel: { color: Brand.orangeDeep, fontSize: 10, lineHeight: 13, fontWeight: '900' },
   hudProgressBlock: { gap: 6 },
   hudProgressTop: { flexDirection: 'row', justifyContent: 'space-between', gap: Spacing.md },
+  qrScanBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: Brand.purple, borderRadius: Radius.pill, paddingVertical: 12, paddingHorizontal: Spacing.lg },
+  qrScanBtnText: { color: '#fff', fontSize: 15, fontWeight: '900' },
   hudProgressTitle: { color: Brand.purple, fontSize: 13, lineHeight: 18, fontWeight: '900' },
   hudProgressMeta: { color: Palette.textMuted, fontSize: 13, lineHeight: 18, fontWeight: '900' },
 
-  pathStage: { width: '100%', minHeight: 560, borderRadius: Radius.xxl, backgroundColor: 'rgba(255,255,255,0.74)', borderWidth: 1, borderColor: Palette.border, overflow: 'hidden', alignItems: 'center', padding: Spacing.lg, position: 'relative', ...Shadow.card },
+  pathStage: { width: '100%', minHeight: 560, borderRadius: Radius.xxl, backgroundColor: 'transparent', alignItems: 'center', padding: Spacing.lg, position: 'relative', overflow: 'hidden' },
+  pathStageBg: { borderRadius: Radius.xxl },
   pathStageMobile: { alignSelf: 'stretch', maxWidth: '100%', minHeight: 430, paddingHorizontal: 10, paddingTop: 10, paddingBottom: 10 },
   stageHeader: { alignItems: 'center', gap: 1, marginBottom: 6 },
   stageKicker: { color: Brand.purple, fontSize: 12, lineHeight: 16, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0 },
@@ -603,28 +663,29 @@ const styles = StyleSheet.create({
   focusKicker: { color: Brand.cyan, fontSize: 12, lineHeight: 16, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0 },
   focusTitle: { color: '#FFFFFF', fontSize: 24, lineHeight: 29, fontWeight: '900', textAlign: 'center' },
   focusPathGroup: { gap: Spacing.md, alignSelf: 'stretch' },
-  focusStageCard: { alignSelf: 'stretch', borderRadius: Radius.xxl, borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.18)', backgroundColor: 'rgba(255,255,255,0.92)', padding: Spacing.md, flexDirection: 'row', alignItems: 'center', gap: Spacing.lg, ...Shadow.hero },
+  focusStageCard: { alignSelf: 'stretch', borderRadius: Radius.xxl, borderWidth: 0, backgroundColor: 'transparent', padding: Spacing.md, flexDirection: 'row', alignItems: 'center', gap: Spacing.lg },
   focusStageCardMobile: { flexDirection: 'column', alignItems: 'stretch', gap: Spacing.md, paddingHorizontal: 12 },
-  focusStageCurrent: { backgroundColor: '#FFFFFF', borderColor: 'rgba(245,167,200,0.72)' },
-  focusStageCompleted: { backgroundColor: 'rgba(255,255,255,0.86)' },
+  focusStageCurrent: { backgroundColor: 'transparent', borderWidth: 0 },
+  focusStageCompleted: { backgroundColor: 'transparent' },
   focusStagePressed: { transform: [{ scale: 0.985 }] },
   focusBraceletColumn: { alignItems: 'center', justifyContent: 'center', minWidth: 246, gap: 8 },
   focusBraceletColumnMobile: { minWidth: 0, width: '100%' },
   focusStageBadge: { borderRadius: Radius.pill, backgroundColor: 'rgba(26,19,38,0.08)', borderWidth: 1, borderColor: 'rgba(26,19,38,0.08)', paddingHorizontal: 12, paddingVertical: 6 },
   focusStageBadgeCurrent: { backgroundColor: Brand.ink, borderColor: Brand.ink },
-  focusStageBadgeText: { color: Palette.textMuted, fontSize: 11, lineHeight: 14, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0 },
+  focusStageBadgeText: { color: 'rgba(255,255,255,0.65)', fontSize: 11, lineHeight: 14, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0 },
   focusStageBadgeTextCurrent: { color: Brand.cyan },
-  focusStageCopy: { flex: 1, minWidth: 0, gap: 8 },
+  focusStageCopy: { flex: 1, minWidth: 0, gap: 8, backgroundColor: 'rgba(0,0,0,0.65)', borderRadius: Radius.xl, padding: Spacing.md },
   focusStageKicker: { color: Brand.pink, fontSize: 11, lineHeight: 15, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0 },
-  focusStageTitle: { color: Palette.text, fontSize: 30, lineHeight: 35, fontWeight: '900' },
+  focusStageTitle: { color: '#FFFFFF', fontSize: 30, lineHeight: 35, fontWeight: '900' },
   focusStageTitleMobile: { textAlign: 'center' },
-  focusStageMeta: { color: Palette.textMuted, fontSize: 13, lineHeight: 18, fontWeight: '900' },
+  focusStageMeta: { color: 'rgba(255,255,255,0.92)', fontSize: 13, lineHeight: 18, fontWeight: '900' },
   focusTrickList: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   focusConnector: { alignItems: 'center', alignSelf: 'stretch', marginVertical: -2 },
   focusConnectorDot: { width: 13, height: 13, borderRadius: 7, backgroundColor: Brand.pink },
   focusConnectorLine: { width: 5, height: 34, borderRadius: 5, backgroundColor: 'rgba(255,255,255,0.36)' },
-  pathTrickPill: { flexGrow: 1, flexBasis: 124, minWidth: 108, maxWidth: '100%', borderRadius: Radius.md, borderWidth: 1, backgroundColor: '#FFFFFF', paddingHorizontal: 10, paddingVertical: 8, gap: 3 },
-  pathTrickTitle: { color: Palette.text, fontSize: 12, lineHeight: 16, fontWeight: '900' },
+  pathTrickPill: { flexGrow: 1, flexBasis: 124, minWidth: 108, maxWidth: '100%', borderRadius: Radius.md, borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)', backgroundColor: 'transparent', paddingHorizontal: 10, paddingVertical: 8, gap: 3 },
+  pathTrickTitle: { color: '#FFFFFF', fontSize: 12, lineHeight: 16, fontWeight: '900' },
+  pathTrickTitleOnLight: { color: Palette.text },
   pathTrickMetaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   pathTrickXp: { color: Brand.orangeDeep, fontSize: 10, lineHeight: 13, fontWeight: '900' },
   pathTrickState: { fontSize: 10, lineHeight: 13, fontWeight: '900' },

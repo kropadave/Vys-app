@@ -14,7 +14,7 @@ const icons = [ShieldCheck, Trophy, Users, Smartphone];
 export default function AboutPage() {
   return (
     <>
-      <PageHero eyebrow="O nás" title="TeamVYS je komunita, která učí pohyb s hlavou" body={aboutText} mascot={false} />
+      <PageHero eyebrow="O nás" title="TeamVYS je komunita, která učí pohyb s hlavou" body={aboutText} />
 
       <section className="section-shell py-10">
         <Reveal>

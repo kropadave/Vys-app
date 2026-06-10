@@ -22,7 +22,8 @@ const emptyParticipantProfile: ParticipantProfile = {
   xp: 0,
   nextBraceletXp: nextBraceletXpForXp(0),
   bracelet: braceletForXp(0),
-  birthNumberMasked: null,
+  claimCode: null,
+  completedTrickIds: [],
 };
 
 type ParticipantRow = {
@@ -38,10 +39,10 @@ type ParticipantRow = {
   next_bracelet_xp: number | null;
   bracelet: string | null;
   bracelet_color: string | null;
-  birth_number_masked: string | null;
+  claim_code: string | null;
 };
 
-function profileFromRow(row: ParticipantRow): ParticipantProfile {
+function profileFromRow(row: ParticipantRow, completedTrickIds: string[] = []): ParticipantProfile {
   const xp = Number(row.xp ?? 0);
   const name = `${row.first_name ?? ''} ${row.last_name ?? ''}`.trim();
   return {
@@ -55,8 +56,10 @@ function profileFromRow(row: ParticipantRow): ParticipantProfile {
     level: Number(row.level ?? 1),
     xp,
     nextBraceletXp: nextBraceletXpForXp(xp, row.next_bracelet_xp),
-    bracelet: braceletForXp(xp, row.bracelet, row.bracelet_color),
-    birthNumberMasked: row.birth_number_masked ?? null,
+    // Compute bracelet purely from XP so stale DB values can't show a maxed-out bracelet.
+    bracelet: braceletForXp(xp),
+    claimCode: row.claim_code ?? null,
+    completedTrickIds,
   };
 }
 
@@ -92,7 +95,7 @@ export function useParticipantProfile() {
     setLoading(true);
     const { data, error: profileError } = await supabase
       .from('participants')
-      .select('id,first_name,last_name,parent_name,parent_phone,active_course,next_training,level,xp,next_bracelet_xp,bracelet,bracelet_color,birth_number_masked')
+      .select('id,first_name,last_name,parent_name,parent_phone,active_course,next_training,level,xp,next_bracelet_xp,bracelet,bracelet_color,claim_code')
       .eq('id', session.userId)
       .maybeSingle();
 
@@ -110,7 +113,14 @@ export function useParticipantProfile() {
       return;
     }
 
-    setProfile(profileFromRow(data as ParticipantRow));
+    // Load trick IDs the participant has specifically completed via QR scan.
+    const { data: awardRows } = await supabase
+      .from('coach_manual_trick_awards')
+      .select('trick_id')
+      .eq('participant_id', session.userId);
+    const completedTrickIds = (awardRows ?? []).map((r: { trick_id: string }) => r.trick_id);
+
+    setProfile(profileFromRow(data as ParticipantRow, completedTrickIds));
     setError(null);
     setLoading(false);
   }, [session?.userId]);
@@ -120,6 +130,17 @@ export function useParticipantProfile() {
     if (authLoading) return;
     void loadProfile();
   }, [authLoading, loadProfile]);
+
+  // Optimistically mark a trick as completed so the UI unlocks it instantly,
+  // before the DB round-trip / realtime event arrives.
+  const markTrickCompleted = useCallback((trickId: string) => {
+    if (!trickId) return;
+    setProfile((current) => {
+      if (!current) return current;
+      if (current.completedTrickIds.includes(trickId)) return current;
+      return { ...current, completedTrickIds: [...current.completedTrickIds, trickId] };
+    });
+  }, []);
 
   useEffect(() => {
     const supabaseClient = supabase;
@@ -135,6 +156,9 @@ export function useParticipantProfile() {
       channel = supabaseClient
         .channel(channelId)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'participants', filter: `id=eq.${session.userId}` }, () => {
+          void loadProfile();
+        })
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'coach_manual_trick_awards', filter: `participant_id=eq.${session.userId}` }, () => {
           void loadProfile();
         })
         .subscribe();
@@ -157,6 +181,7 @@ export function useParticipantProfile() {
     authLoading,
     error,
     refresh: loadProfile,
+    markTrickCompleted,
   };
 
 }

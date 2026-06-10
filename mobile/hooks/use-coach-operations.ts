@@ -51,6 +51,7 @@ export type NfcChipAssignment = {
 
 export type NfcScanResult =
   | { status: 'logged'; chipId: string; assignment: NfcChipAssignment; record: ChildAttendanceRecord; passResult: DigitalPassScanResult }
+  | { status: 'already-registered'; chipId: string; assignment: NfcChipAssignment; passResult: DigitalPassScanResult }
   | { status: 'pass-rejected'; chipId: string; assignment: NfcChipAssignment; passResult: DigitalPassScanResult }
   | { status: 'unknown'; chipId: string }
   | { status: 'wrong-location'; chipId: string; assignment: NfcChipAssignment; expectedLocations: string[] };
@@ -496,18 +497,21 @@ export function useCoachOperations() {
     return nextRecord;
   };
 
-  const assignNfcChipToWard = async ({ chipId, wardId }: { chipId: string; wardId: string }) => {
+  const assignNfcChipToWard = async ({ chipId, wardId, participantName, location }: { chipId: string; wardId: string; participantName?: string; location?: string }) => {
     const normalizedChipId = normalizeChipId(chipId);
-    const ward = coachWards.find((item) => item.id === wardId);
+    // Prefer explicit details (live Supabase participant). Fall back to static demo ward.
+    const staticWard = coachWards.find((item) => item.id === wardId);
+    const resolvedName = participantName ?? staticWard?.name;
+    const resolvedLocation = location ?? staticWard?.locations[0] ?? '';
 
-    if (!normalizedChipId || !ward) return null;
+    if (!normalizedChipId || !wardId || !resolvedName) return null;
 
     const assignment: NfcChipAssignment = {
       id: normalizedChipId,
       chipId: normalizedChipId,
-      wardId: ward.id,
-      participantName: ward.name,
-      location: ward.locations[0] ?? '',
+      wardId,
+      participantName: resolvedName,
+      location: resolvedLocation,
       assignedAt: new Date().toLocaleString('cs-CZ', { day: 'numeric', month: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
     };
     const nextAssignments = [assignment, ...state.nfcChipAssignments.filter((item) => item.chipId !== normalizedChipId && item.wardId !== wardId)];
@@ -524,9 +528,9 @@ export function useCoachOperations() {
     return assignment;
   };
 
-  const scanChildNfcChip = async ({ chipId, sessionId, location }: { chipId: string; sessionId?: string; location: string }): Promise<NfcScanResult> => {
+  const scanChildNfcChip = async ({ chipId, sessionId, location, knownAssignment }: { chipId: string; sessionId?: string; location: string; knownAssignment?: NfcChipAssignment }): Promise<NfcScanResult> => {
     const normalizedChipId = normalizeChipId(chipId);
-    let assignment = state.nfcChipAssignments.find((item) => item.chipId === normalizedChipId);
+    let assignment = knownAssignment ?? state.nfcChipAssignments.find((item) => item.chipId === normalizedChipId);
 
     if (!assignment) {
       const passes = await loadDigitalPasses();
@@ -548,11 +552,14 @@ export function useCoachOperations() {
     if (ward && !ward.locations.includes(location)) {
       return { status: 'wrong-location', chipId: normalizedChipId, assignment, expectedLocations: ward.locations };
     }
-    if (!ward && assignment.location !== location) {
+    if (!ward && assignment.location && assignment.location !== location) {
       return { status: 'wrong-location', chipId: normalizedChipId, assignment, expectedLocations: [assignment.location] };
     }
 
     const passResult = await recordDigitalPassScan({ chipId: normalizedChipId, holderName: assignment.participantName, location, sessionId });
+    if (passResult.status === 'already-registered') {
+      return { status: 'already-registered', chipId: normalizedChipId, assignment, passResult };
+    }
     if (passResult.status !== 'updated') return { status: 'pass-rejected', chipId: normalizedChipId, assignment, passResult };
 
     const record = await addChildAttendanceEntry({ sessionId, location, participantName: assignment.participantName, method: 'NFC', syncBackend: !passResult.attendanceSynced });

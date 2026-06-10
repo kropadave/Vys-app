@@ -5,7 +5,7 @@ import { SignInForm } from '@/components/auth/sign-in-form';
 
 export const metadata = {
   title: 'Přihlášení',
-  description: 'Přihlášení rodiče nebo admina do webu TeamVYS přes Supabase Auth.',
+  description: 'Přihlášení rodičů a administrátorů TeamVYS.',
 };
 
 export default function SignInPage() {
@@ -15,13 +15,13 @@ export default function SignInPage() {
         <span className="inline-flex rounded-[16px] bg-brand-purple-light px-3 py-2 text-xs font-black uppercase text-brand-purple-deep">
           Web profil
         </span>
-        <h1 className="mt-5 text-3xl font-black leading-tight md:text-5xl">Přihlášení pro rodiče a admina</h1>
+        <h1 className="mt-5 text-3xl font-black leading-tight md:text-5xl">Přihlášení</h1>
         <p className="mt-4 max-w-[620px] text-base leading-7 text-brand-ink-soft md:text-lg">
-          Rodič pokračuje k platbě, dokumentům a přehledu dítěte. Admin se dostane do zjednodušeného webového přehledu plateb a backend stavů.
+          Rodičovský portál i admin sekce v jednom místě.
         </p>
         <div className="mt-7 grid gap-3 sm:grid-cols-3">
-          <Info icon={<CreditCard size={19} />} title="Platby" body="Rezervace a Stripe checkout." />
-          <Info icon={<ShieldCheck size={19} />} title="Dokumenty" body="Příprava pro kroužky a tábory." />
+          <Info icon={<CreditCard size={19} />} title="Platby" body="Kroužky, tábory a workshopy přes Stripe." />
+          <Info icon={<ShieldCheck size={19} />} title="Dokumenty" body="Souhlasy a anamnézy online." />
           <Info icon={<Gauge size={19} />} title="Admin" body="Finance a provozní kontrola." />
         </div>
       </div>

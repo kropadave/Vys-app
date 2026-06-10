@@ -29,7 +29,7 @@ export const rarityColor: Record<MascotRarity, string> = {
   uncommon: '#D84A8F',
   rare: '#7B1DDD',
   epic: '#4C1A9A',
-  legendary: '#16151A',
+  legendary: '#C8C0D8',
 };
 
 // Short label for the loot modal badge
@@ -96,6 +96,7 @@ const m = (id: string) => ALL_MASCOTS.find((x) => x.id === id)!;
 export type LootResult =
   | { kind: 'mascot'; mascot: OwnedMascot }
   | { kind: 'coins'; amount: number }
+  | { kind: 'xp'; amount: number }
   | { kind: 'discount'; percent: number; label: string };
 
 // ─── Crate types ──────────────────────────────────────────────────────────────
@@ -133,6 +134,7 @@ export const crateDefinitions: CrateDefinition[] = [
       { weight: 20, result: { kind: 'mascot', mascot: m('beige-wave') } },
       { weight: 5,  result: { kind: 'mascot', mascot: m('pink-sit') } },
       { weight: 14, result: { kind: 'coins', amount: 20 } },
+      { weight: 7,  result: { kind: 'xp', amount: 10 } },
       { weight: 9,  result: { kind: 'discount', percent: 5, label: '5 % na workshop' } },
     ],
   },
@@ -152,6 +154,7 @@ export const crateDefinitions: CrateDefinition[] = [
       { weight: 12, result: { kind: 'mascot', mascot: m('purple-sit') } },
       { weight: 8,  result: { kind: 'mascot', mascot: m('purple-cool') } },
       { weight: 13, result: { kind: 'coins', amount: 45 } },
+      { weight: 6,  result: { kind: 'xp', amount: 25 } },
       { weight: 5,  result: { kind: 'discount', percent: 5, label: '5 % na workshop' } },
     ],
   },
@@ -173,6 +176,7 @@ export const crateDefinitions: CrateDefinition[] = [
       { weight: 5,  result: { kind: 'mascot', mascot: m('black-shadow') } },
       { weight: 3,  result: { kind: 'mascot', mascot: m('black-magic') } },
       { weight: 18, result: { kind: 'coins', amount: 100 } },
+      { weight: 5,  result: { kind: 'xp', amount: 50 } },
       { weight: 6,  result: { kind: 'discount', percent: 5, label: '5 % na workshop' } },
     ],
   },

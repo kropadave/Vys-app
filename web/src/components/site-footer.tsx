@@ -14,7 +14,7 @@ const navLinks = [
 
 export function SiteFooter() {
   return (
-    <footer className="relative mt-16 overflow-hidden border-t border-white/10 bg-brand-ink px-6 pt-10 pb-8 text-white">
+    <footer className="relative overflow-hidden border-t border-white/10 bg-brand-ink px-6 pt-10 pb-8 text-white">
       <div aria-hidden className="absolute inset-x-0 top-0 h-1 bg-gradient-brand" />
       <div aria-hidden className="absolute inset-0 diagonal-rails opacity-[0.08]" />
 

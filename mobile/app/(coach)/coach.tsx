@@ -15,7 +15,7 @@ import { useCoachOperations, type StoredCoachAttendanceRecord } from '@/hooks/us
 import { useCoachProfile } from '@/hooks/use-coach-profile';
 import { useAllCoachSessions } from '@/hooks/use-coach-sessions';
 import { useCoachWards } from '@/hooks/use-coach-wards';
-import { needsPhysicalBracelet, sessionLocation, verifyCoachAtTrainingVenue, WORKSHOP_HOURLY_RATE, WORKSHOP_MAX_COACHES, workshopCalendar, type CoachSession, type SharedTrainingSlot, type TrainingVenueCheck, type WorkshopCity, type WorkshopSlot } from '@/lib/coach-content';
+import { needsPhysicalBracelet, sessionLocation, verifyCoachAtTrainingVenue, WORKSHOP_HOURLY_RATE, WORKSHOP_MAX_COACHES, type CoachSession, type SharedTrainingSlot, type TrainingVenueCheck, type WorkshopCity, type WorkshopSlot } from '@/lib/coach-content';
 import { coachInitials } from '@/lib/course-coaches';
 import { hasSupabaseConfig, supabase } from '@/lib/supabase';
 import { Palette, Radius, Spacing } from '@/lib/theme';
@@ -116,17 +116,49 @@ function formatWorkshopLongDate(dateIso: string) {
   const date = new Date(`${dateIso}T12:00:00`);
   return `${workshopDayLabel(dateIso)} ${date.getDate()}. ${date.getMonth() + 1}. ${date.getFullYear()}`;
 }
+function parseWorkshopMeta(primaryMeta: string): { dateIso: string; time: string } {
+  const isoDates = primaryMeta.match(/\d{4}-\d{2}-\d{2}/g) ?? [];
+  const czechDates = Array.from(primaryMeta.matchAll(/(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{4})?/g)).map((m) => {
+    const year = m[3] ? Number(m[3]) : new Date().getFullYear();
+    return `${year}-${String(Number(m[2])).padStart(2, '0')}-${String(Number(m[1])).padStart(2, '0')}`;
+  });
+  const dateIso = isoDates[0] ?? czechDates[0] ?? new Date().toISOString().slice(0, 10);
+  const timeMatch = primaryMeta.match(/\d{1,2}:\d{2}\s*(?:[-–]\s*\d{1,2}:\d{2})?/);
+  const time = timeMatch ? timeMatch[0].replace(/\s*[-–]\s*/, ' - ') : '10:00 - 17:00';
+  return { dateIso, time };
+}
+function workshopCityFromString(city: string): WorkshopCity {
+  if (city === 'Praha' || city === 'Ostrava' || city === 'Brno') return city;
+  return 'Brno';
+}
+type WorkshopProductRow = {
+  id: string;
+  city: string;
+  venue: string;
+  primary_meta: string;
+  capacity_current: number;
+  important_info: Array<{ label: string; value: string }> | null;
+  coach_ids: string[] | null;
+};
 async function loadPersistedWorkshopState(): Promise<WorkshopSlot[]> {
-  if (!hasSupabaseConfig || !supabase) return workshopCalendar;
+  if (!hasSupabaseConfig || !supabase) return [];
 
-  const { data: rowsData, error } = await supabase
+  const { data: productsData, error: productsError } = await supabase
+    .from('products')
+    .select('id, city, venue, primary_meta, capacity_current, important_info, coach_ids')
+    .eq('type', 'Workshop');
+
+  if (productsError || !productsData) return [];
+
+  const products = productsData as WorkshopProductRow[];
+
+  // Load coach sign-ups from coach_sessions
+  const { data: rowsData } = await supabase
     .from('coach_sessions')
     .select('id, coach_id')
     .like('id', `${WORKSHOP_SESSION_PREFIX}%`);
 
-  if (error || !rowsData) return workshopCalendar;
-
-  const rows = rowsData as WorkshopSessionRow[];
+  const rows = (rowsData as WorkshopSessionRow[] | null) ?? [];
   const coachIds = Array.from(new Set(rows.map((row) => row.coach_id).filter(Boolean)));
   const nameById = new Map<string, string>();
 
@@ -146,20 +178,33 @@ async function loadPersistedWorkshopState(): Promise<WorkshopSlot[]> {
     const slotId = workshopSlotIdFromSession(row);
     if (!slotId) continue;
     const coaches = coachesBySlotId.get(slotId) ?? [];
-    if (!coaches.some((coach) => coach.coachId === row.coach_id)) {
+    if (!coaches.some((c) => c.coachId === row.coach_id)) {
       coaches.push({ coachId: row.coach_id, coachName: nameById.get(row.coach_id) ?? 'Trenér' });
     }
     coachesBySlotId.set(slotId, coaches);
   }
 
-  return workshopCalendar.map((slot) => {
-    const persistedCoaches = coachesBySlotId.get(slot.id) ?? [];
-    const coaches = [...slot.coaches];
-    for (const coach of persistedCoaches) {
-      if (!coaches.some((item) => item.coachId === coach.coachId)) coaches.push(coach);
-    }
-    return { ...slot, coaches, updatedAt: persistedCoaches.length > 0 ? 'uloženo v databázi' : slot.updatedAt };
-  });
+  return products.map((product) => {
+    const { dateIso, time } = parseWorkshopMeta(product.primary_meta);
+    const info = Array.isArray(product.important_info) ? product.important_info : [];
+    const trick1 = info.find((item) => item.label === 'Trik 1')?.value;
+    const trick2 = info.find((item) => item.label === 'Trik 2')?.value;
+    const persistedCoaches = coachesBySlotId.get(product.id) ?? [];
+    return {
+      id: product.id,
+      date: dateIso,
+      dateTo: dateIso,
+      time,
+      city: workshopCityFromString(product.city),
+      venue: product.venue,
+      coaches: persistedCoaches,
+      maxCoaches: WORKSHOP_MAX_COACHES,
+      trick1,
+      trick2,
+      enrolledKids: product.capacity_current,
+      updatedAt: persistedCoaches.length > 0 ? 'uloženo v databázi' : '',
+    };
+  }).sort((a, b) => a.date.localeCompare(b.date));
 }
 async function persistWorkshopSignup(slot: WorkshopSlot, coachId: string, siblingSlotIds: string[]) {
   if (!hasSupabaseConfig || !supabase) return;
@@ -406,7 +451,7 @@ export default function CoachHome() {
   const [wsViewYear, setWsViewYear] = useState(() => new Date().getFullYear());
   const [wsViewMonth, setWsViewMonth] = useState(() => new Date().getMonth());
   const [wsSelectedId, setWsSelectedId] = useState<string | null>(null);
-  const [workshopState, setWorkshopState] = useState<WorkshopSlot[]>(workshopCalendar);
+  const [workshopState, setWorkshopState] = useState<WorkshopSlot[]>([]);
   const [wsActionMessage, setWsActionMessage] = useState('');
   const wsYmVal = (y: number, m: number) => y * 12 + m;
   const wsCanGoPrev = wsYmVal(wsViewYear, wsViewMonth) > wsYmVal(SEASON_START.year, SEASON_START.month);
@@ -722,7 +767,7 @@ export default function CoachHome() {
           <View style={styles.historyPanelHeader}>
             <View>
               <Text style={styles.historyPanelTitle}>Workshopy</Text>
-              <Text style={styles.muted}>{WORKSHOP_HOURLY_RATE} Kč/h · {WORKSHOP_MAX_COACHES} volná místa</Text>
+              <Text style={styles.muted}>{WORKSHOP_HOURLY_RATE} Kč/h · odměna za workshop</Text>
             </View>
             <Pressable onPress={closeWorkshop} style={({ pressed }) => [styles.historyCloseBtn, pressed && { opacity: 0.7 }]}>
               <Feather name="x" size={16} color={Palette.textMuted} />
@@ -847,6 +892,14 @@ export default function CoachHome() {
                         <Text style={[styles.muted, { fontWeight: '900' }]}>{formatWorkshopLongDate(slot.date)}</Text>
                         <Text style={styles.cardTitle}>{slot.time}</Text>
                         <Text style={styles.muted}>{slot.venue}</Text>
+                        {slot.trick1 ? (
+                          <Text style={[styles.muted, { marginTop: 4, color: CoachColors.amber, fontWeight: '900' }]}>
+                            {slot.trick2 ? `${slot.trick1} + ${slot.trick2}` : slot.trick1}
+                          </Text>
+                        ) : null}
+                        {typeof slot.enrolledKids === 'number' ? (
+                          <Text style={[styles.muted, { marginTop: 2 }]}>{slot.enrolledKids} dětí přihlášeno</Text>
+                        ) : null}
                         {slot.notes ? <Text style={[styles.muted, { marginTop: 4, fontStyle: 'italic' }]}>{slot.notes}</Text> : null}
                       </View>
                       <StatusPill label={`${slot.coaches.length}/${slot.maxCoaches} trenérů`} tone={isFull ? 'success' : 'warning'} />
@@ -892,7 +945,9 @@ export default function CoachHome() {
                   </View>
                 </View>
               );
-            })() : (
+            })() : workshopState.filter((s) => s.city === wsCity).length === 0 ? (
+              <Text style={[styles.muted, { textAlign: 'center', marginTop: Spacing.lg }]}>Admin zatím nevytvořil žádný workshop pro {wsCity}.</Text>
+            ) : (
               <Text style={[styles.muted, { textAlign: 'center', marginTop: Spacing.lg }]}>Klepni na datum pro zobrazení workshopu.</Text>
             )}
 
@@ -1255,6 +1310,33 @@ export default function CoachHome() {
           ))}
         </ParentCard>
       )}
+
+      <ParentCard title="Moje workshopy">
+        {myWorkshopSlots.length === 0 ? (
+          <Text style={styles.muted}>Zatím ti není přiřazen žádný workshop.</Text>
+        ) : (
+          myWorkshopSlots.map((s) => (
+            <View key={s.id} style={styles.campBlock}>
+              <View style={styles.campHeader}>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={styles.cardTitle}>{s.city} · {s.time}</Text>
+                  <Text style={styles.muted}>{formatWorkshopLongDate(s.date)} · {s.venue}</Text>
+                  {(s.trick1 || s.trick2) ? (
+                    <Text style={[styles.muted, { color: CoachColors.amber, fontWeight: '900', marginTop: 2 }]}>
+                      {s.trick2 ? `${s.trick1} + ${s.trick2}` : s.trick1}
+                    </Text>
+                  ) : null}
+                </View>
+                <StatusPill label={s.city} tone="warning" />
+              </View>
+            </View>
+          ))
+        )}
+        <Pressable style={({ pressed }) => [styles.historyOpenButton, styles.wsOpenButton, { marginTop: 8 }, pressed && { opacity: 0.86 }]} onPress={openWorkshop}>
+          <Feather name="map-pin" size={16} color="#fff" />
+          <Text style={styles.historyOpenButtonText}>Přidat / odebrat workshop</Text>
+        </Pressable>
+      </ParentCard>
 
       <ParentCard title="Sdílený kalendář tréninků">
         <View style={[styles.sharedCalendarHero, styles.sharedCalendarHeroTraining]}>

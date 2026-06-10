@@ -7,3 +7,5 @@ dist/
 # @end expo-cli
 .vercel
 .env*.local
+# Google Play service account key — NEVER commit this
+google-service-account.json

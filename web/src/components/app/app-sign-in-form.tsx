@@ -410,6 +410,17 @@ export function AppSignInForm() {
           setMessage('Tenhle účet patří na webový profil. Rodič a admin pokračují přes běžný web TeamVYS.');
           return;
         }
+
+        // Role mismatch — uživatel se přihlašoval jako jiná role než jakou má účet
+        if (resolvedRole !== role) {
+          await supabase.auth.signOut();
+          if (role === 'coach') {
+            setMessage('Tenhle e-mail patří účastnickému účtu, ne trenérskému. Vyber roli Účastník, nebo použij jiný e-mail.');
+          } else {
+            setMessage('Tenhle kontakt patří trenérskému účtu. Přihlas se jako Trenér, nebo použij jiný kontakt.');
+          }
+          return;
+        }
       } else {
         await upsertAppProfile(user.id, (user.email ?? form.parentEmail.trim()) || null, role);
         await upsertRoleProfile(user.id, role);

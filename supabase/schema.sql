@@ -65,6 +65,10 @@ alter table public.participants add column if not exists health_limits text;
 alter table public.participants add column if not exists medication_note text;
 alter table public.participants add column if not exists coach_note text;
 alter table public.participants add column if not exists without_phone boolean not null default false;
+alter table public.participants add column if not exists claim_code text unique;
+alter table public.participants add column if not exists coins integer not null default 0;
+alter table public.participants add column if not exists converted_attendance integer not null default 0;
+alter table public.participants add column if not exists owned_mascots jsonb not null default '[]'::jsonb;
 
 do $$
 begin
@@ -161,6 +165,34 @@ alter table public.parent_purchases add column if not exists stripe_checkout_ses
 alter table public.parent_purchases add column if not exists stripe_payment_intent_id text;
 create unique index if not exists parent_purchases_stripe_checkout_session_id_key on public.parent_purchases (stripe_checkout_session_id) where stripe_checkout_session_id is not null;
 create unique index if not exists parent_purchases_stripe_payment_intent_id_key on public.parent_purchases (stripe_payment_intent_id) where stripe_payment_intent_id is not null;
+
+create table if not exists public.workshop_interests (
+  id text primary key,
+  parent_profile_id text references public.app_profiles(id) on delete cascade,
+  product_id text not null references public.products(id) on delete cascade,
+  participant_id text not null references public.participants(id) on delete cascade,
+  participant_name text not null,
+  created_at timestamptz not null default now()
+);
+
+create unique index if not exists workshop_interests_product_participant_key
+  on public.workshop_interests (product_id, participant_id);
+
+create table if not exists public.workshop_xp_awards (
+  id text primary key,
+  participant_id text not null,
+  participant_name text not null,
+  product_id text not null,
+  product_title text not null,
+  tricks_completed integer not null,
+  xp_awarded integer not null,
+  coach_id text,
+  awarded_at_text text not null,
+  created_at timestamptz not null default now()
+);
+
+create unique index if not exists workshop_xp_awards_participant_product
+  on public.workshop_xp_awards (participant_id, product_id);
 
 create table if not exists public.course_documents (
   id text primary key,
@@ -468,7 +500,7 @@ create table if not exists public.qr_events (
 
 create table if not exists public.coach_manual_trick_awards (
   id text primary key,
-  ward_id text not null references public.coach_wards(id) on delete cascade,
+  ward_id text references public.coach_wards(id) on delete cascade,
   participant_name text not null,
   trick_id text not null,
   trick_title text not null,
@@ -599,7 +631,7 @@ declare
 begin
   foreach table_name in array array[
     'app_profiles', 'participants', 'products', 'product_faqs', 'parent_payments', 'parent_purchases',
-    'course_documents', 'digital_passes', 'parent_notifications', 'coach_profiles', 'coach_sessions', 'coach_wards',
+    'workshop_interests', 'workshop_xp_awards', 'course_documents', 'digital_passes', 'parent_notifications', 'coach_profiles', 'coach_sessions', 'coach_wards',
     'nfc_chip_assignments', 'bracelet_confirmations', 'coach_attendance_records', 'child_attendance_records',
     'coach_tricks', 'qr_events', 'coach_manual_trick_awards', 'coach_leaderboard', 'coach_reward_path', 'coach_payouts',
     'coach_reviews', 'admin_coach_access_keys', 'admin_attendance_adjustments', 'admin_product_drafts',

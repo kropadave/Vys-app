@@ -85,14 +85,16 @@ export default async function ParentDashboardPage() {
 type SupabaseClient = Awaited<ReturnType<typeof createServerSupabaseClient>>;
 
 async function loadParentPortalData(supabase: SupabaseClient, parentId: string): Promise<ParentPortalData> {
-  const [{ data: participantRows }, { data: productRows }, { data: purchaseRows }, { data: reviewRows }] = await Promise.all([
+  const [{ data: participantRows }, { data: productRows }, { data: purchaseRows }, { data: reviewRows }, { data: interestRows }] = await Promise.all([
     supabase.from('participants').select('*').eq('parent_profile_id', parentId).order('created_at', { ascending: true }),
     supabase.from('products').select('*').eq('is_published', true).order('created_at', { ascending: true }),
     supabase.from('parent_purchases').select('*').eq('parent_profile_id', parentId).order('created_at', { ascending: false }),
     supabase.from('coach_reviews').select('*').eq('parent_id', parentId).order('created_at', { ascending: false }),
+    supabase.from('workshop_interests').select('id,parent_profile_id,participant_id,participant_name,product_id'),
   ]);
 
   const participants = (participantRows || []).map(mapParticipantRow);
+  const interestCounts = workshopInterestCounts(interestRows || []);
   const participantIds = participants.map((participant) => participant.id);
   const participantNames = new Set(participants.map((participant) => `${participant.firstName} ${participant.lastName}`));
 
@@ -129,11 +131,11 @@ async function loadParentPortalData(supabase: SupabaseClient, parentId: string):
 
   return {
     participants,
-    products: (productRows || []).map(mapProductRow),
-    payments: [
+    products: (productRows || []).map((row) => mapProductRow(row, interestCounts)),
+    payments: dedupePayments([
       ...(purchaseRows || []).map(mapPurchaseRow),
       ...(paymentRows || []).map(mapPaymentRow),
-    ],
+    ]),
     documents: (documentRows || []).map(mapDocumentRow),
     digitalPasses: (passRows || []).map((row) => ({
       id: String(row.id),
@@ -202,7 +204,7 @@ function mapParticipantRow(row: DbRow): ParentParticipant {
     id: text(row.id),
     firstName: text(row.first_name, 'Účastník'),
     lastName: text(row.last_name),
-    birthNumberMasked: text(row.birth_number_masked, 'Bez rodného čísla'),
+    claimCode: text(row.claim_code, ''),
     level: numberValue(row.level, 1),
     bracelet: text(row.bracelet, 'bílý'),
     braceletColor: text(row.bracelet_color, '#8B5CF6'),
@@ -220,7 +222,7 @@ function mapParticipantRow(row: DbRow): ParentParticipant {
   };
 }
 
-function mapProductRow(row: DbRow): ParentProduct {
+function mapProductRow(row: DbRow, interestCounts: Map<string, number> = new Map()): ParentProduct {
   const fallback = parentProducts.find((product) => product.id === row.id);
   const type = activityTypeFromDb(row.type);
   const title = text(row.title, fallback?.title || 'TeamVYS produkt');
@@ -239,6 +241,8 @@ function mapProductRow(row: DbRow): ParentProduct {
     entriesTotal: optionalNumber(row.entries_total, fallback?.entriesTotal),
     capacityTotal: numberValue(row.capacity_total, fallback?.capacityTotal || 0),
     capacityCurrent: numberValue(row.capacity_current, fallback?.capacityCurrent || 0),
+    interestCount: type === 'Workshop' ? interestCounts.get(text(row.id)) ?? numberValue(row.interest_count, fallback?.interestCount || 0) : 0,
+    canPurchase: typeof row.can_purchase === 'boolean' ? row.can_purchase : fallback?.canPurchase,
     primaryMeta: text(row.primary_meta, fallback?.primaryMeta || ''),
     secondaryMeta: text(row.secondary_meta, fallback?.secondaryMeta || 'QR ticket po zaplacení'),
     description: text(row.description, fallback?.description || ''),
@@ -249,6 +253,36 @@ function mapProductRow(row: DbRow): ParentProduct {
     importantInfo: typedArray<ParentProduct['importantInfo'][number]>(row.important_info, fallback?.importantInfo || []),
     trainingFocus: stringArray(row.training_focus, fallback?.trainingFocus || []),
   };
+}
+
+function workshopInterestCounts(rows: DbRow[]): Map<string, number> {
+  const byProduct = new Map<string, Set<string>>();
+  for (const row of rows) {
+    const productId = text(row.product_id);
+    if (!productId) continue;
+    const participantKey = text(row.participant_id) || text(row.participant_name) || text(row.id);
+    if (!participantKey) continue;
+    if (!byProduct.has(productId)) byProduct.set(productId, new Set());
+    byProduct.get(productId)?.add(participantKey);
+  }
+
+  return new Map(Array.from(byProduct.entries()).map(([productId, participants]) => [productId, participants.size]));
+}
+
+// Deduplicate payments that exist in both `parent_purchases` (Stripe) and
+// `parent_payments` (manual/admin) for the same product+participant+amount, so
+// the parent doesn't see each paid course listed twice.
+function dedupePayments(payments: ParentPayment[]): ParentPayment[] {
+  const seen = new Map<string, ParentPayment>();
+  for (const payment of payments) {
+    const key = `${payment.title.trim().toLowerCase()}|${payment.participantName.trim().toLowerCase()}|${payment.amount}`;
+    const existing = seen.get(key);
+    // Prefer the row that is already marked paid over a pending duplicate.
+    if (!existing || (existing.status !== 'paid' && payment.status === 'paid')) {
+      seen.set(key, payment);
+    }
+  }
+  return Array.from(seen.values());
 }
 
 function mapPurchaseRow(row: DbRow): ParentPayment {

@@ -1,10 +1,12 @@
 import { FontAwesome5, MaterialCommunityIcons } from '@expo/vector-icons';
+import { BlurView } from 'expo-blur';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { Animated, Easing, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Animated, Easing, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { AnimatedCounter, FadeInUp, PulseGlow, ScaleIn, StaggeredList } from '@/components/animated/motion';
+import { useParticipantRewards } from '@/hooks/use-participant-rewards';
 import {
     COINS_PER_SESSION,
     crateDefinitions,
@@ -20,14 +22,19 @@ import {
 import { Brand, BrandGradient } from '@/lib/brand';
 import { Radius, Shadow, Spacing } from '@/lib/theme';
 import { useBreakpoint } from '@/lib/use-breakpoint';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // ─── Crate images ────────────────────────────────────────────────────────────
 const crateImageCommon  = require('@/assets/images/crate-common.png');
 const crateImageRare    = require('@/assets/images/crate-rare.png');
 const crateImageGold    = require('@/assets/images/crate-gold.png');
 const yarnBallImage     = require('@/assets/images/yarn-ball.png');
+const crateBgImage      = require('@/assets/images/crate-bg.png');
 
 // ─── Mascot images ───────────────────────────────────────────────────────────
+const obchodImage = require('@/assets/images/obchod.png');
+const pozadiArenaImage = require('@/assets/images/pozadi_arena.png');
+
 const mascotBeigeSit    = require('@/assets/images/maskoti/maskot-beige-sit.png');
 const mascotBeigeSleep  = require('@/assets/images/maskoti/maskot-beige-sleep.png');
 const mascotBeigeWave   = require('@/assets/images/maskoti/maskot-beige-wave.png');
@@ -115,11 +122,11 @@ function AttendanceRow({
   const handlePress = useCallback(() => {
     // Quick squeeze then fade-out immediately — total ~180 ms
     Animated.sequence([
-      Animated.timing(scaleAnim, { toValue: 0.85, duration: 50, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+      Animated.timing(scaleAnim, { toValue: 0.85, duration: 50, easing: Easing.out(Easing.quad), useNativeDriver: Platform.OS !== 'web' }),
       Animated.parallel([
-        Animated.timing(scaleAnim,      { toValue: 1,  duration: 70, useNativeDriver: true }),
-        Animated.timing(opacityAnim,    { toValue: 0,  duration: 110, useNativeDriver: true }),
-        Animated.timing(translateYAnim, { toValue: -10, duration: 110, useNativeDriver: true }),
+        Animated.timing(scaleAnim,      { toValue: 1,  duration: 70, useNativeDriver: Platform.OS !== 'web' }),
+        Animated.timing(opacityAnim,    { toValue: 0,  duration: 110, useNativeDriver: Platform.OS !== 'web' }),
+        Animated.timing(translateYAnim, { toValue: -10, duration: 110, useNativeDriver: Platform.OS !== 'web' }),
       ]),
     ]).start(() => onConvert(entry.id));
   }, [entry.id, onConvert, scaleAnim, opacityAnim, translateYAnim]);
@@ -143,128 +150,267 @@ function AttendanceRow({
   );
 }
 
-// ─── Crate card with shake animation ─────────────────────────────────────────
+// ─── Crate card tile ─────────────────────────────────────────────────────────
 
-function CrateCard({ crate, coins, onBuy }: { crate: CrateDefinition; coins: number; onBuy: () => void }) {
-  const canAfford = coins >= crate.price;
-  const shakeAnim = useRef(new Animated.Value(0)).current;
-  const flashAnim = useRef(new Animated.Value(0)).current;
-
+function CrateCard({ crate, onPress }: { crate: CrateDefinition; onPress: () => void }) {
   const crateImage =
     crate.id === 'gold' ? crateImageGold : crate.id === 'rare' ? crateImageRare : crateImageCommon;
 
-  const handlePress = useCallback(() => {
-    if (!canAfford) return;
-
-    // Shake + flash sequence, then trigger buy callback at the end
-    shakeAnim.setValue(0);
-    flashAnim.setValue(0);
-
-    Animated.sequence([
-      // Rapid shake
-      Animated.sequence([
-        Animated.timing(shakeAnim, { toValue: 1, duration: 60, easing: Easing.linear, useNativeDriver: true }),
-        Animated.timing(shakeAnim, { toValue: -1, duration: 60, easing: Easing.linear, useNativeDriver: true }),
-        Animated.timing(shakeAnim, { toValue: 1, duration: 60, easing: Easing.linear, useNativeDriver: true }),
-        Animated.timing(shakeAnim, { toValue: -1, duration: 60, easing: Easing.linear, useNativeDriver: true }),
-        Animated.timing(shakeAnim, { toValue: 0.5, duration: 50, easing: Easing.linear, useNativeDriver: true }),
-        Animated.timing(shakeAnim, { toValue: 0, duration: 50, easing: Easing.linear, useNativeDriver: true }),
-      ]),
-      // Flash
-      Animated.sequence([
-        Animated.timing(flashAnim, { toValue: 1, duration: 100, useNativeDriver: true }),
-        Animated.timing(flashAnim, { toValue: 0, duration: 200, useNativeDriver: true }),
-      ]),
-    ]).start(() => {
-      onBuy();
-    });
-  }, [canAfford, shakeAnim, flashAnim, onBuy]);
-
-  const shakeStyle = {
-    transform: [
-      {
-        rotate: shakeAnim.interpolate({
-          inputRange: [-1, 0, 1],
-          outputRange: ['-12deg', '0deg', '12deg'],
-        }),
-      },
-    ],
-  };
-
   return (
-    <View style={[styles.crateCard, { borderColor: crate.borderColor }]}>
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [styles.crateCardTile, { opacity: pressed ? 0.85 : 1, borderColor: crate.borderColor }]}
+    >
       <LinearGradient
         colors={crate.gradient}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={StyleSheet.absoluteFill}
       />
-      {/* Flash overlay */}
-      <Animated.View
-        pointerEvents="none"
-        style={[StyleSheet.absoluteFill, { backgroundColor: '#FFFFFF', opacity: flashAnim, borderRadius: Radius.xl }]}
-      />
-
-      <Animated.View style={[styles.crateIconWrap, shakeStyle]}>
-        <Image source={crateImage} style={styles.crateImage} contentFit="contain" />
-      </Animated.View>
-
-      <View style={styles.crateInfo}>
-        <Text style={styles.crateName}>{crate.name}</Text>
-        <Text style={styles.crateSubtitle}>{crate.subtitle}</Text>
-        <View style={styles.crateOddsRow}>
-          <OddsPill label="Maskot" color={crate.badgeColor} />
-          <OddsPill label="Klubka" color={Brand.orange} />
-          <OddsPill label="5% sleva" color={Brand.cyan} />
+      <Image source={crateImage} style={styles.crateTileImage} contentFit="contain" />
+      <View style={styles.crateTileInfo}>
+        <Text style={styles.crateTileName}>{crate.name}</Text>
+        <Text style={styles.crateTileSub}>{crate.subtitle}</Text>
+        <View style={styles.crateTilePriceRow}>
+          <YarnCoin size={14} color={crate.badgeColor} />
+          <Text style={[styles.crateTilePrice, { color: crate.badgeColor }]}>{crate.price}</Text>
+          <Text style={styles.crateTilePriceLbl}>klubek</Text>
         </View>
       </View>
+    </Pressable>
+  );
+}
 
-      <Pressable
-        onPress={handlePress}
-        disabled={!canAfford}
-        style={({ pressed }) => [
-          styles.buyBtn,
-          { backgroundColor: canAfford ? crate.badgeColor : 'rgba(255,255,255,0.72)', opacity: pressed ? 0.82 : 1 },
-        ]}
-      >
-        <YarnCoin size={14} color={canAfford ? '#fff' : Brand.inkSoft} />
-        <Text style={[styles.buyBtnText, !canAfford && { color: Brand.inkSoft }]}>{crate.price}</Text>
-      </Pressable>
-    </View>
+// ─── Crate detail modal ───────────────────────────────────────────────────────
+
+function CrateDetailModal({
+  crate,
+  coins,
+  onBuy,
+  onClose,
+}: {
+  crate: CrateDefinition | null;
+  coins: number;
+  onBuy: () => void;
+  onClose: () => void;
+}) {
+  const shakeAnim = useRef(new Animated.Value(0)).current;
+  const floatAnim = useRef(new Animated.Value(0)).current;
+  const [showInfo, setShowInfo] = useState(false);
+  const insets = useSafeAreaInsets();
+
+  // Reset the info overlay whenever the modal is opened/closed for a crate.
+  useEffect(() => {
+    if (!crate) setShowInfo(false);
+  }, [crate]);
+
+  useEffect(() => {
+    if (!crate) return;
+    floatAnim.setValue(0);
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(floatAnim, { toValue: -12, duration: 1800, easing: Easing.inOut(Easing.sin), useNativeDriver: Platform.OS !== 'web' }),
+        Animated.timing(floatAnim, { toValue: 0, duration: 1800, easing: Easing.inOut(Easing.sin), useNativeDriver: Platform.OS !== 'web' }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [floatAnim, crate]);
+
+  // Keep last non-null crate so content doesn't jump during close animation
+  const [displayCrate, setDisplayCrate] = useState<CrateDefinition | null>(null);
+  useEffect(() => {
+    if (crate) setDisplayCrate(crate);
+  }, [crate]);
+
+  const canAfford = displayCrate ? coins >= displayCrate.price : false;
+
+  const crateImage = !displayCrate
+    ? null
+    : displayCrate.id === 'gold'
+    ? crateImageGold
+    : displayCrate.id === 'rare'
+    ? crateImageRare
+    : crateImageCommon;
+
+  const dropOdds = useMemo(() => {
+    if (!displayCrate) return [];
+    const total = displayCrate.lootTable.reduce((s, i) => s + i.weight, 0);
+    const byGroup = new Map<string, { weight: number; color: string; label: string; amount?: number }>();
+    for (const item of displayCrate.lootTable) {
+      const r = item.result;
+      let key: string, color: string, label: string, amount: number | undefined;
+      if (r.kind === 'mascot') {
+        key = r.mascot.rarity;
+        color = rarityColor[r.mascot.rarity];
+        label = rarityLabel[r.mascot.rarity];
+      } else if (r.kind === 'coins') {
+        key = 'coins'; color = Brand.orange; label = 'Klubka'; amount = r.amount;
+      } else if (r.kind === 'xp') {
+        key = 'xp'; color = Brand.limeDeep; label = 'XP'; amount = r.amount;
+      } else {
+        key = 'discount'; color = Brand.cyan; label = 'Sleva';
+      }
+      const existing = byGroup.get(key);
+      byGroup.set(key, { weight: (existing?.weight ?? 0) + item.weight, color, label, amount });
+    }
+    return Array.from(byGroup.entries())
+      .map(([key, v]) => ({ key, ...v, pct: Math.round((v.weight / total) * 100) }))
+      .filter((d) => d.pct > 0);
+  }, [displayCrate]);
+
+  const handleBuy = useCallback(() => {
+    if (!canAfford) return;
+    shakeAnim.setValue(0);
+    Animated.sequence([
+      Animated.timing(shakeAnim, { toValue: 1, duration: 60, easing: Easing.linear, useNativeDriver: Platform.OS !== 'web' }),
+      Animated.timing(shakeAnim, { toValue: -1, duration: 60, easing: Easing.linear, useNativeDriver: Platform.OS !== 'web' }),
+      Animated.timing(shakeAnim, { toValue: 1, duration: 60, easing: Easing.linear, useNativeDriver: Platform.OS !== 'web' }),
+      Animated.timing(shakeAnim, { toValue: -1, duration: 60, easing: Easing.linear, useNativeDriver: Platform.OS !== 'web' }),
+      Animated.timing(shakeAnim, { toValue: 0, duration: 80, easing: Easing.linear, useNativeDriver: Platform.OS !== 'web' }),
+    ]).start(() => onBuy());
+  }, [canAfford, shakeAnim, onBuy]);
+
+  return (
+    <>
+      <Modal visible={!!crate} transparent animationType="fade" onRequestClose={onClose}>
+        <View style={styles.crateDetailOverlay}>
+          <Image source={crateBgImage} style={StyleSheet.absoluteFill} contentFit="cover" />
+          <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(10,5,20,0.45)' }]} />
+
+          {/* Close button */}
+          <Pressable
+            onPress={onClose}
+            style={({ pressed }) => [styles.crateDetailClose, { top: insets.top + 8 }, { opacity: pressed ? 0.7 : 1 }]}
+          >
+            <FontAwesome5 name="times" size={20} color="rgba(255,255,255,0.85)" />
+          </Pressable>
+
+          {/* Info button */}
+          {dropOdds.length > 0 && (
+            <Pressable
+              onPress={() => setShowInfo(true)}
+              style={({ pressed }) => [styles.crateDetailInfoBtn, { top: insets.top + 8 }, { opacity: pressed ? 0.7 : 1 }]}
+            >
+              <FontAwesome5 name="info" size={14} color="rgba(255,255,255,0.85)" />
+            </Pressable>
+          )}
+
+          {/* Main content */}
+          <View style={styles.crateDetailContent}>
+            {/* Crate image with shake */}
+            <Animated.View
+              style={{
+                transform: [
+                  { translateY: floatAnim },
+                  {
+                    rotate: shakeAnim.interpolate({
+                      inputRange: [-1, 0, 1],
+                      outputRange: ['-14deg', '0deg', '14deg'],
+                    }),
+                  },
+                ],
+              }}
+            >
+              <Image source={crateImage} style={styles.crateDetailImage} contentFit="contain" />
+            </Animated.View>
+
+            <Pressable
+              onPress={handleBuy}
+              disabled={!canAfford}
+              style={({ pressed }) => [
+                styles.crateDetailBuyBtn,
+                { opacity: pressed ? 0.82 : 1 },
+              ]}
+            >
+              {canAfford ? (
+                <>
+                  <YarnCoin size={20} color="#FFD85C" />
+                  <Text style={styles.crateDetailBuyBtnText}>{displayCrate?.price}</Text>
+                  <YarnCoin size={20} color="#FFD85C" />
+                </>
+              ) : (
+                <>
+                  <FontAwesome5 name="lock" size={16} color="rgba(255,255,255,0.5)" />
+                  <Text style={[styles.crateDetailBuyBtnText, { color: 'rgba(255,255,255,0.5)' }]}>
+                    {displayCrate?.price}
+                  </Text>
+                  <Image source={yarnBallImage} style={{ width: 20, height: 20, opacity: 0.5 }} contentFit="contain" />
+                </>
+              )}
+            </Pressable>
+          </View>
+
+          {/* Drop odds info overlay — rendered inside the same Modal so iOS shows it
+              (stacking two separate Modals doesn't work reliably on iOS). */}
+          {showInfo && (
+            <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowInfo(false)}>
+              <BlurView intensity={60} tint="dark" style={StyleSheet.absoluteFill} />
+              <View style={styles.crateInfoOverlay}>
+                <View style={styles.crateInfoCard}>
+                  <Text style={styles.crateDetailDropTitle}>Šance na obsah</Text>
+                  <View style={[styles.crateDetailDropRow, { marginTop: 8 }]}>
+                    {dropOdds.map((d) => (
+                      <View key={d.key} style={styles.crateDetailDropChip}>
+                        <View style={[styles.crateDetailDropDot, { backgroundColor: d.color }]} />
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.crateDetailDropLbl, { color: d.color }]}>{d.label}</Text>
+                          {d.amount != null && (
+                            <Text style={styles.crateDetailDropSub}>+{d.amount} klubek</Text>
+                          )}
+                        </View>
+                        <Text style={styles.crateDetailDropPct}>{d.pct} %</Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              </View>
+            </Pressable>
+          )}
+        </View>
+      </Modal>
+    </>
   );
 }
 
 // ─── Loot modal ───────────────────────────────────────────────────────────────
 
 function LootModal({ result, onClose }: { result: LootResult | null; onClose: () => void }) {
+  // Hooks must be called unconditionally — early return is after them
+  const burstAnim = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    if (!result) return;
+    burstAnim.setValue(0);
+    Animated.sequence([
+      Animated.spring(burstAnim, { toValue: 1.18, useNativeDriver: Platform.OS !== 'web', friction: 4, tension: 280 }),
+      Animated.spring(burstAnim, { toValue: 1, useNativeDriver: Platform.OS !== 'web', friction: 6, tension: 200 }),
+    ]).start();
+  }, [burstAnim, result]);
+
   if (!result) return null;
 
   const isMascot = result.kind === 'mascot';
   const isCoins = result.kind === 'coins';
+  const isXp = result.kind === 'xp';
 
   const title = isMascot
     ? 'Nový maskot!'
     : isCoins
     ? `+${result.amount} klubek!`
-    : `${result.percent}% sleva!`;
+    : isXp
+    ? `+${(result as { kind: 'xp'; amount: number }).amount} XP!`
+    : `${(result as { kind: 'discount'; percent: number; label: string }).percent}% sleva!`;
 
   const sub = isMascot
     ? rarityLabel[result.mascot.rarity] + ' · ' + result.mascot.poseLabel
     : isCoins
     ? 'Přidáno do zásoby'
+    : isXp
+    ? 'Přidáno ke zkušenostem'
     : (result as { kind: 'discount'; percent: number; label: string }).label;
 
-  const iconColor = isMascot ? result.mascot.colorHex : isCoins ? Brand.orange : Brand.cyan;
+  const iconColor = isMascot ? result.mascot.colorHex : isCoins ? Brand.orange : isXp ? Brand.limeDeep : Brand.cyan;
   const rarity = isMascot ? result.mascot.rarity : null;
-
-  // Confetti-like burst: big scale animation on icon
-  const burstAnim = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    Animated.sequence([
-      Animated.spring(burstAnim, { toValue: 1.18, useNativeDriver: true, friction: 4, tension: 280 }),
-      Animated.spring(burstAnim, { toValue: 1, useNativeDriver: true, friction: 6, tension: 200 }),
-    ]).start();
-  }, [burstAnim]);
 
   return (
     <Modal transparent animationType="fade" visible onRequestClose={onClose}>
@@ -301,6 +447,8 @@ function LootModal({ result, onClose }: { result: LootResult | null; onClose: ()
                     />
                   ) : isCoins ? (
                     <YarnCoin size={56} color={iconColor} />
+                  ) : isXp ? (
+                    <MaterialCommunityIcons name="star-circle-outline" size={56} color={iconColor} />
                   ) : (
                     <MaterialCommunityIcons name="tag-heart-outline" size={56} color={iconColor} />
                   )}
@@ -350,91 +498,97 @@ function LootModal({ result, onClose }: { result: LootResult | null; onClose: ()
 
 export default function DochazkaScreen() {
   const { isMobile } = useBreakpoint();
-  const [entries, setEntries] = useState<AttendanceEntry[]>([]);
-  const [convertedCount, setConvertedCount] = useState(0);
-  const [coins, setCoins] = useState(0);
-  const [ownedMascots, setOwnedMascots] = useState<OwnedMascot[]>([]);
+  const rewards = useParticipantRewards();
+  const [xp, setXp] = useState(0);
   const [lootResult, setLootResult] = useState<LootResult | null>(null);
+  const [selectedCrate, setSelectedCrate] = useState<CrateDefinition | null>(null);
+
+  const coins = rewards.coins;
+  const ownedMascots = rewards.ownedMascots;
+
+  // Synthesize a pending attendance row per credited-but-not-converted training.
+  // Source of truth = participants.attendance_done (incremented by the NFC scan RPC).
+  const entries = useMemo<AttendanceEntry[]>(
+    () => Array.from({ length: rewards.pending }, (_, index) => ({
+      id: `pending-${index}`,
+      date: 'Načteno z docházky',
+      label: 'Trénink',
+      converted: false,
+    })),
+    [rewards.pending],
+  );
 
   // Coins badge bounce anim
   const coinsBounce = useRef(new Animated.Value(1)).current;
 
   const bounceCoin = useCallback(() => {
     Animated.sequence([
-      Animated.spring(coinsBounce, { toValue: 1.18, useNativeDriver: true, friction: 4, tension: 300 }),
-      Animated.spring(coinsBounce, { toValue: 1, useNativeDriver: true, friction: 5, tension: 200 }),
+      Animated.spring(coinsBounce, { toValue: 1.18, useNativeDriver: Platform.OS !== 'web', friction: 4, tension: 300 }),
+      Animated.spring(coinsBounce, { toValue: 1, useNativeDriver: Platform.OS !== 'web', friction: 5, tension: 200 }),
     ]).start();
   }, [coinsBounce]);
 
-  const handleConvertEntry = useCallback((id: string) => {
-    setEntries((prev) => prev.filter((e) => e.id !== id));
-    setConvertedCount((c) => c + 1);
-    setCoins((c) => c + COINS_PER_SESSION);
+  const handleConvertEntry = useCallback(() => {
+    void rewards.convertOne();
     bounceCoin();
-  }, [bounceCoin]);
+  }, [rewards, bounceCoin]);
+
+  const handleConvertAll = useCallback(() => {
+    void rewards.convertAll();
+    bounceCoin();
+  }, [rewards, bounceCoin]);
 
   const handleBuyCrate = useCallback(
     (crate: CrateDefinition) => {
       if (coins < crate.price) return;
-      setCoins((c) => c - crate.price);
       const result = rollCrate(crate);
-      if (result.kind === 'coins') {
-        setCoins((c) => c + result.amount);
-        bounceCoin();
-      }
-      if (result.kind === 'mascot') {
-        setOwnedMascots((prev) => {
-          const exists = prev.find((x) => x.id === result.mascot.id);
-          return exists ? prev : [...prev, { ...result.mascot, equippedOnProfile: false }];
-        });
-      }
+      void rewards.buyCrate({
+        price: crate.price,
+        coinsReward: result.kind === 'coins' ? result.amount : 0,
+        mascot: result.kind === 'mascot' ? result.mascot : undefined,
+      });
+      if (result.kind === 'coins') bounceCoin();
+      if (result.kind === 'xp') setXp((x) => x + result.amount);
       setLootResult(result);
     },
-    [coins, bounceCoin],
+    [coins, rewards, bounceCoin],
   );
 
   const handleEquip = useCallback((id: string) => {
-    setOwnedMascots((prev) => prev.map((m) => ({ ...m, equippedOnProfile: m.id === id })));
-  }, []);
+    void rewards.equipMascot(id);
+  }, [rewards]);
 
-  const attended = convertedCount;
+  const attended = rewards.convertedAttendance;
   const pending = entries; // all remaining entries are pending
 
   return (
     <View style={{ flex: 1 }}>
+      <Image source={pozadiArenaImage} style={[StyleSheet.absoluteFill, { width: '100%', height: '100%' }]} contentFit="cover" />
       <ScrollView
-        style={styles.page}
+        style={[styles.page, { backgroundColor: 'transparent' }]}
         contentContainerStyle={[styles.container, isMobile && styles.containerMobile]}
       >
+        {/* ── Obchod image ─────────────────────────── */}
+        <Image source={obchodImage} style={{ width: '100%', height: 280, marginBottom: Spacing.md }} contentFit="contain" />
+
         {/* ── Hero: docházka + klubka ─────────────── */}
         <FadeInUp>
           <View style={styles.heroCard}>
-            <LinearGradient
-              colors={['#EDE4FF', '#F7F3FF', '#D9F5F0'] as [string, string, string]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={StyleSheet.absoluteFill}
-            />
             <View style={[styles.heroRow, isMobile && styles.heroRowMobile]}>
-              <View style={styles.heroLeft}>
-                <View style={styles.kickerPill}>
-                  <Text style={styles.kickerText}>Docházka</Text>
-                </View>
-                {pending.length > 0 ? (
-                  <View style={styles.attendanceCountRow}>
-                    <Text style={styles.attendanceCount}>{pending.length}</Text>
-                    <Text style={styles.attendanceOf}>ke konverzi</Text>
-                  </View>
-                ) : (
-                  <Text style={[styles.attendanceOf, { fontSize: 14 }]}>Vše přeměněno ✓</Text>
-                )}
-              </View>
-
               <Animated.View style={[styles.coinsBadge, { transform: [{ scale: coinsBounce }] }]}>
-                <YarnCoin size={32} color={Brand.orange} />
+                <YarnCoin size={80} color={Brand.orange} />
                 <AnimatedCounter to={coins} duration={700} style={styles.coinsNumber} />
-                <Text style={styles.coinsLabel}>klubek</Text>
               </Animated.View>
+
+              {pending.length > 0 && (
+                <Pressable
+                  onPress={handleConvertAll}
+                  style={({ pressed }) => [styles.convertAllBtn, { opacity: pressed ? 0.82 : 1 }]}
+                >
+                  <FontAwesome5 name="coins" size={15} color="#fff" />
+                  <Text style={styles.convertAllBtnText}>Přeměnit vše ({pending.length})</Text>
+                </Pressable>
+              )}
             </View>
           </View>
         </FadeInUp>
@@ -475,7 +629,7 @@ export default function DochazkaScreen() {
 
         <StaggeredList step={70} initialDelay={180} style={styles.cratesList}>
           {crateDefinitions.map((crate) => (
-            <CrateCard key={crate.id} crate={crate} coins={coins} onBuy={() => handleBuyCrate(crate)} />
+            <CrateCard key={crate.id} crate={crate} onPress={() => setSelectedCrate(crate)} />
           ))}
         </StaggeredList>
 
@@ -507,6 +661,18 @@ export default function DochazkaScreen() {
         <View style={{ height: 100 }} />
       </ScrollView>
 
+      <CrateDetailModal
+        crate={selectedCrate}
+        coins={coins}
+        onBuy={() => {
+          if (selectedCrate) {
+            const c = selectedCrate;
+            setSelectedCrate(null);
+            handleBuyCrate(c);
+          }
+        }}
+        onClose={() => setSelectedCrate(null)}
+      />
       <LootModal result={lootResult} onClose={() => setLootResult(null)} />
     </View>
   );
@@ -515,22 +681,18 @@ export default function DochazkaScreen() {
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  page: { flex: 1, backgroundColor: '#F7F3FF' },
+  page: { flex: 1, backgroundColor: 'transparent' },
   container: { padding: Spacing.lg, gap: Spacing.lg, maxWidth: 720, width: '100%', alignSelf: 'center' },
   containerMobile: { padding: Spacing.md, gap: Spacing.md },
 
   // Hero
   heroCard: {
-    borderRadius: Radius.xxl,
-    overflow: 'hidden',
-    padding: Spacing.lg,
-    borderWidth: 1.5,
-    borderColor: 'rgba(139,29,255,0.14)',
-    ...Shadow.soft,
+    alignItems: 'center',
+    paddingVertical: Spacing.md,
   },
-  heroRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.md, flexWrap: 'wrap' },
-  heroRowMobile: { flexDirection: 'column', alignItems: 'stretch', gap: Spacing.md },
-  heroLeft: { flex: 1, gap: 8, minWidth: 140 },
+  heroRow: { flexDirection: 'column', alignItems: 'center', gap: Spacing.md },
+  heroRowMobile: { flexDirection: 'column', alignItems: 'center', gap: Spacing.md },
+  heroLeft: { gap: 8, alignItems: 'center' },
 
   kickerPill: {
     alignSelf: 'flex-start',
@@ -549,16 +711,21 @@ const styles = StyleSheet.create({
   coinsBadge: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  coinsNumber: { fontSize: 56, fontWeight: '900', color: Brand.orange },
+
+  convertAllBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 8,
-    backgroundColor: 'rgba(255,178,26,0.14)',
-    paddingHorizontal: 18,
+    backgroundColor: Brand.orange,
+    paddingHorizontal: 28,
     paddingVertical: 14,
     borderRadius: Radius.xl,
-    borderWidth: 1.5,
-    borderColor: 'rgba(255,178,26,0.36)',
   },
-  coinsNumber: { fontSize: 28, fontWeight: '900', color: Brand.orange },
-  coinsLabel: { fontSize: 12, fontWeight: '800', color: Brand.orangeDeep },
+  convertAllBtnText: { fontSize: 16, fontWeight: '900', color: '#fff' },
 
   // Sections
   sectionHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
@@ -599,53 +766,137 @@ const styles = StyleSheet.create({
   },
   convertRowBtnText: { color: '#fff', fontWeight: '900', fontSize: 13 },
 
-  // Crates
+  // Crates – tile list
   cratesList: { gap: Spacing.md },
-  crateCard: {
+  crateCardTile: {
     borderRadius: Radius.xl,
     overflow: 'hidden',
     borderWidth: 1.5,
-    padding: Spacing.md,
     flexDirection: 'row',
     alignItems: 'center',
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.md,
     gap: Spacing.md,
     ...Shadow.soft,
   },
-  crateIconWrap: {
-    width: 66,
-    height: 66,
-    borderRadius: Radius.xl,
-    backgroundColor: 'rgba(255,255,255,0.72)',
+  crateTileImage: { width: 110, height: 110, flexShrink: 0 },
+  crateTileInfo: { flex: 1, gap: 4 },
+  crateTileName: { fontSize: 17, fontWeight: '900', color: Brand.ink },
+  crateTileSub: { fontSize: 12, fontWeight: '600', color: Brand.inkSoft },
+  crateTilePriceRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 2 },
+  crateTilePrice: { fontSize: 18, fontWeight: '900' },
+  crateTilePriceLbl: { fontSize: 12, fontWeight: '700', color: Brand.inkSoft },
+
+  // Crate detail modal
+  crateDetailOverlay: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  crateDetailClose: {
+    position: 'absolute',
+    top: 52,
+    right: 24,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.15)',
     alignItems: 'center',
     justifyContent: 'center',
-    flexShrink: 0,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.55)',
+    zIndex: 10,
   },
-  crateImage: { width: 54, height: 54 },
-  crateInfo: { flex: 1, gap: 4 },
-  crateName: { fontSize: 15, fontWeight: '900', color: Brand.ink },
-  crateSubtitle: { fontSize: 11, fontWeight: '600', color: Brand.inkSoft },
-  crateOddsRow: { flexDirection: 'row', gap: 5, flexWrap: 'wrap', marginTop: 2 },
-  oddsPill: {
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: Radius.pill,
-    borderWidth: 1,
+  crateDetailInfoBtn: {
+    position: 'absolute',
+    top: 52,
+    left: 24,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
   },
-  oddsPillText: { fontSize: 10, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.4 },
-  buyBtn: {
+  crateDetailContent: {
+    alignItems: 'center',
+    gap: 16,
+    paddingHorizontal: 32,
+    paddingBottom: 40,
+  },
+  crateInfoOverlay: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 32,
+  },
+  crateInfoCard: {
+    gap: 4,
+    backgroundColor: 'rgba(20,10,40,0.88)',
+    borderRadius: Radius.xxl,
+    paddingHorizontal: 32,
+    paddingVertical: 28,
+    width: '100%',
+  },
+  crateDetailImage: { width: 300, height: 300 },
+  crateDetailName: {
+    fontSize: 26,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    textAlign: 'center',
+    textShadowColor: 'rgba(0,0,0,0.5)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 6,
+  },
+  crateDetailPriceRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  crateDetailPriceNum: { fontSize: 32, fontWeight: '900', color: '#FFD85C' },
+  crateDetailPriceLbl: { fontSize: 16, fontWeight: '700', color: 'rgba(255,255,255,0.7)' },
+  crateDetailGlassCard: {
+    borderRadius: Radius.xxl,
+    overflow: 'hidden',
+    width: '100%',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.35)',
+  },
+  crateDetailGlassInner: {
+    alignItems: 'center',
+    gap: 16,
+    paddingHorizontal: 28,
+    paddingTop: 24,
+    paddingBottom: 24,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  crateDetailBuyBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 12,
+    gap: 8,
+    paddingHorizontal: 36,
+    paddingVertical: 16,
+    borderRadius: Radius.xl,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.4)',
+  },
+  crateDetailBuyBtnText: { fontSize: 17, fontWeight: '900', color: '#FFFFFF' },
+  crateDetailDropBox: { marginTop: 8, alignItems: 'center', gap: 12 },
+  crateDetailDropTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: 'rgba(255,255,255,0.85)',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  crateDetailDropRow: { flexDirection: 'column', gap: 8, alignSelf: 'stretch' },
+  crateDetailDropChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: Radius.lg,
-    minWidth: 65,
-    justifyContent: 'center',
-    flexShrink: 0,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
   },
-  buyBtnText: { color: '#fff', fontWeight: '900', fontSize: 14 },
+  crateDetailDropDot: { width: 10, height: 10, borderRadius: 5, flexShrink: 0 },
+  crateDetailDropLbl: { fontSize: 13, fontWeight: '800' },
+  crateDetailDropPct: { fontSize: 13, fontWeight: '800', color: 'rgba(255,255,255,0.9)' },
+  crateDetailDropSub: { fontSize: 10, fontWeight: '600', color: 'rgba(255,255,255,0.55)', marginTop: 1 },
 
   // Mascots
   mascotGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.md },

@@ -38,14 +38,17 @@ export type WorkshopCity = 'Brno' | 'Praha' | 'Ostrava';
 export type WorkshopCoachRef = { coachId: string; coachName: string };
 export type WorkshopSlot = {
   id: string;
-  date: string; // Saturday ISO date
-  dateTo: string; // Sunday ISO date
+  date: string; // ISO date
+  dateTo: string; // ISO date
   time: string; // "10:00 - 17:00"
   city: WorkshopCity;
   venue: string;
   coaches: WorkshopCoachRef[];
   maxCoaches: number;
   notes?: string;
+  trick1?: string;
+  trick2?: string;
+  enrolledKids?: number;
   updatedAt: string;
 };
 

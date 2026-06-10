@@ -1,26 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 
-function requiredString(value: unknown, label: string) {
-  if (typeof value !== 'string' || value.trim().length === 0) throw new Error(`Missing ${label}.`);
-  return value.trim();
-}
-
 function optionalString(value: unknown) {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
-}
-
-function normalizePersonNamePart(value: unknown) {
-  return String(value || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim();
-}
-
-function birthNumberSuffix(value: unknown) {
-  return String(value || '').replace(/\D/g, '').slice(-4);
 }
 
 function createAdminSupabaseClient() {
@@ -36,30 +18,18 @@ export async function POST(request: Request) {
     const body = await request.json();
     const supabase = createAdminSupabaseClient();
     const parentProfileId = optionalString(body.parentProfileId) || 'parent-demo';
-    const firstName = requiredString(body.firstName, 'firstName');
-    const lastName = requiredString(body.lastName, 'lastName');
-    const birthSuffix = birthNumberSuffix(requiredString(body.birthNumber, 'birthNumber'));
+    const claimCode = typeof body.claimCode === 'string' ? body.claimCode.toUpperCase().trim() : '';
 
-    if (birthSuffix.length < 4) return NextResponse.json({ error: 'Zadej aspoň poslední 4 číslice rodného čísla.' }, { status: 400 });
+    if (!claimCode) return NextResponse.json({ error: 'Zadej propojovací kód účastníka.' }, { status: 400 });
 
-    const { data: candidates, error: candidatesError } = await supabase
+    const { data: participant, error: findError } = await supabase
       .from('participants')
-      .select('id,parent_profile_id,first_name,last_name,birth_number_masked,active_course')
-      .ilike('birth_number_masked', `%${birthSuffix}`)
-      .limit(50);
+      .select('id,parent_profile_id,first_name,last_name,active_course')
+      .eq('claim_code', claimCode)
+      .maybeSingle();
 
-    if (candidatesError) throw candidatesError;
-
-    const normalizedFirstName = normalizePersonNamePart(firstName);
-    const normalizedLastName = normalizePersonNamePart(lastName);
-    const participant = (candidates || []).find((candidate) => {
-      const firstMatches = normalizePersonNamePart(candidate.first_name) === normalizedFirstName;
-      const lastMatches = normalizePersonNamePart(candidate.last_name) === normalizedLastName;
-      const birthMatches = birthNumberSuffix(candidate.birth_number_masked) === birthSuffix;
-      return firstMatches && lastMatches && birthMatches;
-    });
-
-    if (!participant) return NextResponse.json({ error: 'Účastník se podle jména a rodného čísla nenašel.' }, { status: 404 });
+    if (findError) throw findError;
+    if (!participant) return NextResponse.json({ error: 'Účastník s tímto kódem nebyl nalezen. Zkontroluj kód a zkus to znovu.' }, { status: 404 });
     if (participant.parent_profile_id && participant.parent_profile_id !== parentProfileId) {
       return NextResponse.json({ error: 'Účastník už je připojený k jinému rodičovskému účtu.' }, { status: 409 });
     }

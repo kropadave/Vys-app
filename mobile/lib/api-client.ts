@@ -1,4 +1,4 @@
-const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3001';
+const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'https://server-psi-ochre-40.vercel.app';
 
 type ApiOptions = Omit<RequestInit, 'body'> & {
   body?: Record<string, unknown>;

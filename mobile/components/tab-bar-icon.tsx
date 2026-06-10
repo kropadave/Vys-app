@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, type ComponentProps } from 'react';
-import { StyleSheet } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import Animated, {
     Easing,
     interpolateColor,
@@ -119,18 +119,20 @@ export function TabBarIcon({ name, focused, color }: Props) {
   return (
     <Animated.View style={[styles.item, itemAnimatedStyle]}>
       <Animated.View style={[styles.halo, { backgroundColor: theme.halo }, haloAnimatedStyle]} />
-      <Animated.View
-        style={[
-          styles.shell,
-          { borderColor: focused ? 'rgba(255,255,255,0.78)' : theme.border, shadowColor: theme.primary },
-          shellAnimatedStyle,
-        ]}>
-        {focused ? <LinearGradient colors={theme.gradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} /> : null}
-        <Animated.View style={[styles.shine, { backgroundColor: theme.spark }, shineAnimatedStyle]} />
-        <Animated.View style={iconAnimatedStyle}>
-          <MaterialCommunityIcons name={theme.icon} size={iconSize} color={iconColor} />
+      <View style={styles.shellCenter} pointerEvents="none">
+        <Animated.View
+          style={[
+            styles.shell,
+            { borderColor: focused ? 'rgba(255,255,255,0.78)' : theme.border, shadowColor: theme.primary },
+            shellAnimatedStyle,
+          ]}>
+          {focused ? <LinearGradient colors={theme.gradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} /> : null}
+          <Animated.View style={[styles.shine, { backgroundColor: theme.spark }, shineAnimatedStyle]} />
+          <Animated.View style={iconAnimatedStyle}>
+            <MaterialCommunityIcons name={theme.icon} size={iconSize} color={iconColor} />
+          </Animated.View>
         </Animated.View>
-      </Animated.View>
+      </View>
       <Animated.View style={[styles.activeDot, { backgroundColor: theme.primary }, dotAnimatedStyle]} />
     </Animated.View>
   );
@@ -139,6 +141,13 @@ export function TabBarIcon({ name, focused, color }: Props) {
 const styles = StyleSheet.create({
   item: {
     position: 'relative',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 48,
+    height: 48,
+  },
+  shellCenter: {
+    ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -163,9 +172,10 @@ const styles = StyleSheet.create({
     opacity: 0,
   },
   activeDot: {
+    position: 'absolute',
+    bottom: 2,
     width: 18,
     height: 3,
     borderRadius: 3,
-    marginTop: 3,
   },
 });

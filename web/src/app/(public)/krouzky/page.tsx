@@ -16,9 +16,6 @@ export default function CoursesPage() {
         eyebrow="Pravidelné kroužky"
         title="Najdi parkour kroužek u tebe ve městě"
         body="Trénujeme v 6 městech, na ověřených sportovištích, s certifikovanými trenéry. Permanentka 10 nebo 15 vstupů s NFC docházkou bez papírování."
-        mascotSrc="/vys-maskot-no-logo2.png"
-        mascotPosition="top-right"
-        mascotScale="oversized"
       />
 
       <section className="section-shell relative grid gap-3 py-12 md:grid-cols-3">

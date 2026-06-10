@@ -12,6 +12,7 @@ import {
     ClipboardList,
     Eye,
     FileCheck2,
+    FileDown,
     FileText,
     Film,
     Gauge,
@@ -43,8 +44,8 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 import { SignOutButton } from '@/components/auth/sign-out-button';
 import { TeamVysLogo } from '@/components/brand/team-vys-logo';
-import { useAdminCreatedProducts, type AdminProductInput } from '@/lib/admin-created-products';
-import { createAdminInvoice, createCoachStripeOnboarding, deleteAdminInvoice, loadAdminInvoices, saveCoachAttendance, sendTrainerPayout, updateAdminInvoicePayment, type AdminInvoiceInput, type AdminInvoiceRow, type TrainerPayoutTransfer } from '@/lib/api-client';
+import { useAdminCreatedProducts, type AdminProductInput, type TurnusInput } from '@/lib/admin-created-products';
+import { createAdminInvoice, createAdminInvoiceUploadUrl, createCoachStripeOnboarding, createProductVideoUploadUrl, deleteAdminInvoice, loadAdminInvoices, saveCoachAttendance, sendTrainerPayout, updateAdminInvoicePayment, type AdminInvoiceInput, type AdminInvoiceRow, type TrainerPayoutTransfer } from '@/lib/api-client';
 import {
     CAMP_DAILY_RATE,
     CAMP_MAX_COACHES,
@@ -95,7 +96,7 @@ type AdminParticipantRow = {
   parent_profile_id: string | null;
   first_name: string | null;
   last_name: string | null;
-  birth_number_masked: string | null;
+  claim_code: string | null;
   level: number | null;
   xp: number | null;
   next_bracelet_xp: number | null;
@@ -170,7 +171,7 @@ type AdminDashboardProps = {
   initialCoachAccessRequests?: AdminCoachAccessRequest[] | null;
 };
 
-type SectionKey = 'overview' | 'attendance' | 'participants' | 'products' | 'coaches' | 'payouts' | 'invoices' | 'finance';
+type SectionKey = 'overview' | 'attendance' | 'participants' | 'registry' | 'products' | 'coaches' | 'payouts' | 'invoices' | 'finance';
 
 type Invoice = {
   id: string;
@@ -181,7 +182,8 @@ type Invoice = {
   dueDate: string;
   paid: boolean;
   paidDate?: string;
-  category: 'Tělocvična' | 'Vybavení' | 'Marketing' | 'Ostatní';
+  category: 'Tělocvična' | 'Vybavení' | 'Marketing' | 'Trenéři' | 'Ostatní';
+  fileUrl?: string;
 };
 
 type AdminPaymentRow = {
@@ -282,6 +284,7 @@ const sections: Array<{ key: SectionKey; label: string; description: string; ico
   { key: 'overview', label: 'Přehled', description: 'co hoří', icon: <LayoutDashboard size={18} /> },
   { key: 'attendance', label: 'Docházka', description: 'kroužky a děti', icon: <ClipboardList size={18} /> },
   { key: 'participants', label: 'Účastníci', description: 'celý seznam', icon: <Users size={18} /> },
+  { key: 'registry', label: 'Registr', description: 'všichni ever', icon: <ListChecks size={18} /> },
   { key: 'products', label: 'Produkty', description: 'nabídka webu', icon: <PackagePlus size={18} /> },
   { key: 'coaches', label: 'Trenéři', description: 'data a výkon', icon: <UserCheck size={18} /> },
   { key: 'payouts', label: 'Výplaty', description: 'Stripe výplaty', icon: <Banknote size={18} /> },
@@ -289,12 +292,23 @@ const sections: Array<{ key: SectionKey; label: string; description: string; ico
   { key: 'finance', label: 'Finance', description: 'cash flow přehled', icon: <TrendingUp size={18} /> },
 ];
 
-const payoutPeriod = {
-  key: '2026-04',
-  label: 'duben 2026',
-  periodStart: '2026-04-01',
-  periodEnd: '2026-04-30',
-};
+const CZECH_MONTHS = ['leden','únor','březen','duben','květen','červen','červenec','srpen','září','říjen','listopad','prosinec'];
+
+function computePayoutPeriod(offsetFromPrevMonth: number) {
+  const now = new Date();
+  // offset 0 = last completed month (default)
+  const t = new Date(now.getFullYear(), now.getMonth() - 1 + offsetFromPrevMonth, 1);
+  const y = t.getFullYear();
+  const m = t.getMonth() + 1; // 1-12
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const lastDay = new Date(y, m, 0).getDate();
+  return {
+    key: `${y}-${pad(m)}`,
+    label: `${CZECH_MONTHS[m - 1]} ${y}`,
+    periodStart: `${y}-${pad(m)}-01`,
+    periodEnd: `${y}-${pad(m)}-${pad(lastDay)}`,
+  };
+}
 
 export function AdminDashboard({ finance, financeError, showSignOut, devMode, initialCoachSummaries, initialCoachAccessRequests }: AdminDashboardProps) {
   const [activeSection, setActiveSection] = useState<SectionKey>('overview');
@@ -302,6 +316,8 @@ export function AdminDashboard({ finance, financeError, showSignOut, devMode, in
   const [attendanceQuery, setAttendanceQuery] = useState('');
   const [payoutMessage, setPayoutMessage] = useState<string | null>(null);
   const [payingCoachId, setPayingCoachId] = useState<string | null>(null);
+  const [payoutPeriodOffset, setPayoutPeriodOffset] = useState(0); // 0 = last completed month
+  const payoutPeriod = useMemo(() => computePayoutPeriod(payoutPeriodOffset), [payoutPeriodOffset]);
   const [transfers, setTransfers] = useState<TrainerPayoutTransfer[]>(() => normalizeFinanceTransfers(finance?.payoutTransfers ?? []));
   const [onboardingLinks, setOnboardingLinks] = useState<Record<string, string>>({});
   const [generatingOnboarding, setGeneratingOnboarding] = useState<string | null>(null);
@@ -593,6 +609,8 @@ export function AdminDashboard({ finance, financeError, showSignOut, devMode, in
       dueDate: invoice.dueDate,
       paid: invoice.paid,
       paidDate: invoice.paidDate,
+      category: invoice.category,
+      fileUrl: invoice.fileUrl,
     };
 
     setInvoiceMessage(null);
@@ -740,6 +758,7 @@ export function AdminDashboard({ finance, financeError, showSignOut, devMode, in
             {activeSection === 'overview' ? <OverviewSection totals={totals} coaches={coaches} coachAttendanceRecords={coachAttendanceRecords} dppDocuments={coachDppDocuments} keyRequests={keyRequests} approvalMessage={approvalMessage} approvingRequestId={approvingRequestId} onApproveKeyRequest={(request) => handleCoachRequestDecision(request, 'approve')} onRejectKeyRequest={(request) => handleCoachRequestDecision(request, 'reject')} onNavigate={setActiveSection} /> : null}
             {activeSection === 'attendance' ? <AttendanceSection query={attendanceQuery} onQueryChange={setAttendanceQuery} activityRows={activityRows} campTurnusy={campTurnusyState} workshopSlots={workshopSlots} workshopAttendanceRecords={workshopAttendanceRecords} coaches={coaches} coachAttendanceRecords={coachAttendanceRecords} onAddCoachAttendance={handleAddCoachAttendance} onOpenActivityDetail={setSelectedActivityDetail} onOpenParticipantDetail={openParticipantDetail} participants={liveParticipants} products={allProducts} /> : null}
             {activeSection === 'participants' ? <ParticipantsSection products={allProducts} participants={liveParticipants} campTurnusy={campTurnusyState} workshopSlots={workshopSlots} workshopAttendanceRecords={workshopAttendanceRecords} onOpenParticipantDetail={openParticipantDetail} /> : null}
+            {activeSection === 'registry' ? <RegistrySection participants={liveParticipants} paymentRows={paymentRows} onOpenParticipantDetail={openParticipantDetail} /> : null}
             {activeSection === 'products' ? <ProductsSection products={allProducts} coaches={coaches} onAddProduct={addAdminCreatedProduct} onRemoveProduct={removeAdminCreatedProduct} onUpdateProduct={updateAdminProduct} onProductCoachIdsChange={handleProductCoachIdsChange} /> : null}
             {activeSection === 'coaches' ? <CoachesSection products={allProducts} coaches={coaches} coachAttendanceRecords={coachAttendanceRecords} dppDocuments={coachDppDocuments} sharedTrainingSlots={sharedTrainingSlots} workshopSlots={workshopSlots} campTurnusy={campTurnusyState} onAddCoachAttendance={handleAddCoachAttendance} onCreateCoachDpp={handleCreateCoachDpp} onMarkCoachDppSigned={handleMarkCoachDppSigned} onCoachLocationSaved={handleCoachLocationSaved} onReleaseSharedTraining={(slot, pos) => handleReleaseSharedTraining(slot, pos)} onAssignSharedTraining={handleAssignSharedTraining} onAddWorkshopCoach={handleAddWorkshopCoach} onRemoveWorkshopCoach={handleRemoveWorkshopCoach} onAddWorkshopSlot={handleAddWorkshopSlot} onAddCampCoach={handleAddCampCoach} onRemoveCampCoach={handleRemoveCampCoach} /> : null}
             {activeSection === 'payouts' ? (
@@ -747,6 +766,9 @@ export function AdminDashboard({ finance, financeError, showSignOut, devMode, in
                 coaches={coaches}
                 transfers={transfers}
                 coachAttendanceRecords={coachAttendanceRecords}
+                payoutPeriod={payoutPeriod}
+                onPrevPeriod={() => setPayoutPeriodOffset((n) => n - 1)}
+                onNextPeriod={() => setPayoutPeriodOffset((n) => n + 1)}
                 message={payoutMessage}
                 payingCoachId={payingCoachId}
                 onboardingLinks={onboardingLinks}
@@ -1431,6 +1453,298 @@ function ParticipantsSection({ products, participants, campTurnusy, workshopSlot
     </div>
   );
 }
+
+// ─── Registry Section ──────────────────────────────────────────────────────────
+
+type RegistryView = 'all' | 'active' | 'alumni';
+type RegistryChartBucket = { month: string; label: string; krouzek: number; tabor: number; workshop: number };
+
+function buildRegistryChartData(paymentRows: AdminPaymentRow[]): RegistryChartBucket[] {
+  const today = new Date();
+  const buckets: RegistryChartBucket[] = [];
+  for (let i = 11; i >= 0; i--) {
+    const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const label = d.toLocaleDateString('cs-CZ', { month: 'short', year: '2-digit' });
+    buckets.push({ month: key, label, krouzek: 0, tabor: 0, workshop: 0 });
+  }
+  for (const row of paymentRows) {
+    if (!row.dueDate) continue;
+    const monthKey = row.dueDate.slice(0, 7);
+    const bucket = buckets.find((b) => b.month === monthKey);
+    if (!bucket) continue;
+    const t = (row.title ?? '').toLowerCase();
+    if (t.includes('tábor') || t.includes('tabor')) bucket.tabor++;
+    else if (t.includes('workshop')) bucket.workshop++;
+    else bucket.krouzek++;
+  }
+  return buckets;
+}
+
+function RegistrySection({ participants, paymentRows, onOpenParticipantDetail }: { participants: AdminParticipant[]; paymentRows: AdminPaymentRow[]; onOpenParticipantDetail: (p: ParentParticipant, type: ActivityType, place: string) => void }) {
+  const [query, setQuery] = useState('');
+  const [view, setView] = useState<RegistryView>('all');
+  const today = new Date().toISOString().slice(0, 10);
+  const chartData = useMemo(() => buildRegistryChartData(paymentRows), [paymentRows]);
+
+  const alumniParticipants = useMemo(() => participants.filter((p) => {
+    const a = p as AdminParticipant;
+    return a.courseExpiresAt !== undefined && a.courseExpiresAt !== null && a.courseExpiresAt < today;
+  }), [participants, today]);
+
+  const activeParticipants = useMemo(() => participants.filter((p) => {
+    const a = p as AdminParticipant;
+    const hasValidCourse = a.courseExpiresAt === null || (a.courseExpiresAt !== undefined && a.courseExpiresAt >= today);
+    const hasAnyPurchase = p.activePurchases.length > 0;
+    return hasValidCourse || hasAnyPurchase;
+  }), [participants, today]);
+
+  const displayList = useMemo(() => {
+    const base = view === 'alumni' ? alumniParticipants : view === 'active' ? activeParticipants : participants;
+    if (!query.trim()) return base;
+    return base.filter((p) => matchesQuery(`${p.firstName} ${p.lastName} ${p.activeCourse} ${(p as AdminParticipant).parentName ?? ''} ${(p as AdminParticipant).parentEmail ?? ''}`, query));
+  }, [view, query, participants, activeParticipants, alumniParticipants]);
+
+  const totalAttendance = participants.reduce((sum, p) => sum + p.attendanceDone, 0);
+  const avgLevel = participants.length > 0 ? (participants.reduce((sum, p) => sum + p.level, 0) / participants.length).toFixed(1) : '–';
+
+  return (
+    <div className="space-y-5">
+      {/* Summary metrics */}
+      <Panel className="p-5">
+        <SectionTitle icon={<ListChecks size={18} />} title="Registr všech účastníků" subtitle="kompletní přehled od spuštění · aktivní, absolventi a statistiky docházky" />
+        <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <Metric value={String(participants.length)} label="celkem přihlášených" />
+          <Metric value={String(activeParticipants.length)} label="aktivních" />
+          <Metric value={String(alumniParticipants.length)} label="absolventů" />
+          <Metric value={String(totalAttendance)} label="docházek dohromady" />
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <Metric value={avgLevel} label="průměrný level" />
+          <Metric value={String(participants.filter((p) => p.xp > 0).length)} label="s XP" />
+          <Metric value={String(participants.filter((p) => (p as AdminParticipant).parentEmail).length)} label="s kontaktem rodiče" />
+          <Metric value={String(paymentRows.length)} label="zaplacených nákupů" />
+        </div>
+      </Panel>
+
+      {/* Chart */}
+      <RegistryChart data={chartData} />
+
+      {/* Activity type breakdown */}
+      <RegistryActivityBreakdown participants={participants} />
+
+      {/* Participants list */}
+      <Panel className="p-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap gap-1.5">
+            {([
+              { key: 'all' as const, label: 'Všichni', count: participants.length },
+              { key: 'active' as const, label: 'Aktivní', count: activeParticipants.length },
+              { key: 'alumni' as const, label: 'Absolventi', count: alumniParticipants.length },
+            ]).map((tab) => (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setView(tab.key)}
+                className={`inline-flex items-center gap-1.5 rounded-[13px] px-3.5 py-2 text-xs font-black transition ${view === tab.key ? 'bg-brand-purple text-white shadow-brand' : 'border border-brand-purple/15 bg-white text-brand-ink-soft hover:bg-brand-purple/5 hover:text-brand-purple'}`}
+              >
+                {tab.label}
+                <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-black ${view === tab.key ? 'bg-white/20 text-white' : 'bg-brand-paper text-brand-ink-soft'}`}>{tab.count}</span>
+              </button>
+            ))}
+          </div>
+          <SearchField value={query} onChange={setQuery} placeholder="Hledat jméno, rodiče, lokalitu..." />
+        </div>
+      </Panel>
+
+      {view === 'alumni' ? (
+        <Panel className="p-4">
+          <div className="mb-4 flex items-start gap-3 rounded-[14px] border border-amber-200 bg-amber-50 p-3">
+            <History size={16} className="mt-0.5 shrink-0 text-amber-600" />
+            <div>
+              <p className="text-sm font-black text-amber-800">Absolventi s vypršenou permicí</p>
+              <p className="mt-0.5 text-xs font-bold text-amber-700">Tito účastníci měli v minulosti aktivní kroužek, ale jejich poslední permice vypršela. Nemají žádnou aktivní aktivitu.</p>
+            </div>
+          </div>
+        </Panel>
+      ) : null}
+
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {displayList.map((p) => (
+          <RegistryParticipantCard
+            key={p.id}
+            participant={p as AdminParticipant}
+            today={today}
+            onOpen={() => {
+              const type: ActivityType = p.activePurchases[0]?.type ?? 'Krouzek';
+              const place = (p as AdminParticipant).activeCourse || '';
+              onOpenParticipantDetail(p, type, place);
+            }}
+          />
+        ))}
+      </div>
+      {displayList.length === 0 ? <EmptyState text="Žádný účastník neodpovídá filtru." /> : null}
+    </div>
+  );
+}
+
+function RegistryChart({ data }: { data: RegistryChartBucket[] }) {
+  const maxVal = Math.max(...data.map((d) => d.krouzek + d.tabor + d.workshop), 1);
+  const totalPurchases = data.reduce((sum, d) => sum + d.krouzek + d.tabor + d.workshop, 0);
+
+  return (
+    <Panel className="p-5">
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+        <SectionTitle icon={<BarChart2 size={18} />} title="Nákupy po měsících" subtitle="počet zaplacených registrací za posledních 12 měsíců · rozděleno podle typu aktivity" />
+        <div className="shrink-0">
+          <Metric value={String(totalPurchases)} label="nákupů v období" />
+        </div>
+      </div>
+      <div className="mt-5 flex items-end gap-1 overflow-x-auto pb-1" style={{ height: 160 }}>
+        {data.map((d) => {
+          const total = d.krouzek + d.tabor + d.workshop;
+          const totalH = Math.max(total > 0 ? 8 : 2, Math.round((total / maxVal) * 120));
+          const krouzekH = total > 0 ? Math.round((d.krouzek / total) * totalH) : 0;
+          const taborH = total > 0 ? Math.round((d.tabor / total) * totalH) : 0;
+          const workshopH = totalH - krouzekH - taborH;
+          return (
+            <div key={d.month} className="group flex flex-1 min-w-[36px] flex-col items-center gap-1" title={`${d.label}: ${total} nákupů (${d.krouzek} kroužek, ${d.tabor} tábor, ${d.workshop} workshop)`}>
+              <span className="text-[10px] font-black text-brand-ink-soft">{total > 0 ? total : ''}</span>
+              <div className="flex w-full flex-1 flex-col-reverse items-stretch justify-start overflow-hidden rounded-t-[5px]">
+                {krouzekH > 0 ? <div className="w-full shrink-0 bg-brand-purple/85" style={{ height: krouzekH }} /> : null}
+                {taborH > 0 ? <div className="w-full shrink-0 bg-brand-cyan/85" style={{ height: taborH }} /> : null}
+                {workshopH > 0 ? <div className="w-full shrink-0 bg-brand-orange/80" style={{ height: workshopH }} /> : null}
+                {total === 0 ? <div className="w-full shrink-0 bg-brand-purple/10 rounded-t-[5px]" style={{ height: 4 }} /> : null}
+              </div>
+              <span className="text-[9px] font-bold text-brand-ink-soft truncate w-full text-center">{d.label}</span>
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-3 flex flex-wrap gap-3">
+        {([
+          { color: 'bg-brand-purple/85', label: 'Kroužek' },
+          { color: 'bg-brand-cyan/85', label: 'Tábor' },
+          { color: 'bg-brand-orange/80', label: 'Workshop' },
+        ]).map((item) => (
+          <span key={item.label} className="inline-flex items-center gap-1.5 text-xs font-bold text-brand-ink-soft">
+            <span className={`h-2.5 w-2.5 rounded-[3px] ${item.color}`} />
+            {item.label}
+          </span>
+        ))}
+      </div>
+    </Panel>
+  );
+}
+
+function RegistryActivityBreakdown({ participants }: { participants: AdminParticipant[] }) {
+  const krouzekCount = participants.filter((p) => p.activePurchases.some((pur) => pur.type === 'Krouzek')).length;
+  const taborCount = participants.filter((p) => p.activePurchases.some((pur) => pur.type === 'Tabor')).length;
+  const workshopCount = participants.filter((p) => p.activePurchases.some((pur) => pur.type === 'Workshop')).length;
+  const total = participants.length || 1;
+
+  const rows = [
+    { label: 'Kroužek', count: krouzekCount, color: 'bg-brand-purple', pct: Math.round((krouzekCount / total) * 100) },
+    { label: 'Tábor', count: taborCount, color: 'bg-brand-cyan', pct: Math.round((taborCount / total) * 100) },
+    { label: 'Workshop', count: workshopCount, color: 'bg-brand-orange', pct: Math.round((workshopCount / total) * 100) },
+  ];
+
+  const totalAttWithCourse = participants.filter((p) => p.attendanceTotal > 0);
+  const avgAttPct = totalAttWithCourse.length > 0
+    ? Math.round(totalAttWithCourse.reduce((sum, p) => sum + Math.round((p.attendanceDone / p.attendanceTotal) * 100), 0) / totalAttWithCourse.length)
+    : 0;
+
+  return (
+    <div className="grid gap-5 sm:grid-cols-2">
+      <Panel className="p-5">
+        <SectionTitle icon={<Users size={18} />} title="Rozdělení podle aktivity" subtitle="kolik účastníků má daný typ aktivit v nákupní historii" />
+        <div className="mt-4 space-y-3">
+          {rows.map((row) => (
+            <div key={row.label}>
+              <div className="flex items-center justify-between text-xs font-bold text-brand-ink-soft">
+                <span>{row.label}</span>
+                <span>{row.count} ({row.pct} %)</span>
+              </div>
+              <div className="mt-1 h-2 overflow-hidden rounded-full bg-brand-paper">
+                <div className={`h-full rounded-full transition-all ${row.color}`} style={{ width: `${Math.max(row.pct, row.count > 0 ? 3 : 0)}%` }} />
+              </div>
+            </div>
+          ))}
+        </div>
+      </Panel>
+      <Panel className="p-5">
+        <SectionTitle icon={<History size={18} />} title="Průměrná docházka" subtitle="procento odchozených lekcí z celku u kroužků" />
+        <div className="mt-4 flex flex-col items-center justify-center gap-3" style={{ minHeight: 100 }}>
+          <span className="text-5xl font-black text-brand-purple">{avgAttPct} %</span>
+          <p className="text-sm font-bold text-brand-ink-soft">z {totalAttWithCourse.length} účastníků s kroužkem</p>
+          <div className="w-full">
+            <div className="h-3 overflow-hidden rounded-full bg-brand-paper">
+              <div className="h-full rounded-full bg-brand-purple transition-all" style={{ width: `${avgAttPct}%` }} />
+            </div>
+          </div>
+          <div className="grid w-full grid-cols-3 gap-2 text-center">
+            <div>
+              <p className="text-base font-black text-brand-ink">{participants.filter((p) => p.attendanceTotal > 0 && Math.round((p.attendanceDone / p.attendanceTotal) * 100) >= 80).length}</p>
+              <p className="text-[10px] font-bold text-brand-ink-soft">≥ 80 %</p>
+            </div>
+            <div>
+              <p className="text-base font-black text-brand-ink">{participants.filter((p) => p.attendanceTotal > 0 && Math.round((p.attendanceDone / p.attendanceTotal) * 100) >= 50 && Math.round((p.attendanceDone / p.attendanceTotal) * 100) < 80).length}</p>
+              <p className="text-[10px] font-bold text-brand-ink-soft">50–79 %</p>
+            </div>
+            <div>
+              <p className="text-base font-black text-brand-ink">{participants.filter((p) => p.attendanceTotal > 0 && Math.round((p.attendanceDone / p.attendanceTotal) * 100) < 50).length}</p>
+              <p className="text-[10px] font-bold text-brand-ink-soft">&lt; 50 %</p>
+            </div>
+          </div>
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+function RegistryParticipantCard({ participant, today, onOpen }: { participant: AdminParticipant; today: string; onOpen: () => void }) {
+  const isAlumni = participant.courseExpiresAt !== undefined && participant.courseExpiresAt !== null && participant.courseExpiresAt < today;
+  const activityTypes = [...new Set(participant.activePurchases.map((pur) => activityLabel(pur.type)))];
+  const contact = participant.parentPhone || participant.parentEmail || '';
+
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className={`group w-full rounded-[16px] border p-4 text-left transition hover:-translate-y-0.5 hover:shadow-brand-soft ${isAlumni ? 'border-brand-purple/10 bg-brand-paper' : 'border-brand-purple/10 bg-white'}`}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="font-black text-brand-ink">{participant.firstName} {participant.lastName}</p>
+          {participant.activeCourse ? <p className="mt-0.5 truncate text-xs font-bold text-brand-ink-soft">{participant.activeCourse}</p> : null}
+        </div>
+        <StatusPill label={isAlumni ? 'Absolvent' : 'Aktivní'} tone={isAlumni ? 'orange' : 'mint'} />
+      </div>
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        <Metric value={`Lv ${participant.level}`} label="level" />
+        <Metric value={`${participant.attendanceDone}/${participant.attendanceTotal}`} label="lekce" />
+        <Metric value={String(participant.xp)} label="XP" />
+      </div>
+      {activityTypes.length > 0 ? (
+        <div className="mt-3 flex flex-wrap gap-1">
+          {activityTypes.map((type) => (
+            <span key={type} className="rounded-full bg-brand-purple/10 px-2 py-0.5 text-[10px] font-black text-brand-purple">{type}</span>
+          ))}
+        </div>
+      ) : null}
+      {contact ? <p className="mt-2 truncate text-[11px] font-bold text-brand-ink-soft">{participant.parentName ? `${participant.parentName} · ` : ''}{contact}</p> : null}
+      {participant.courseExpiresAt ? (
+        <p className={`mt-1 text-[11px] font-bold ${isAlumni ? 'text-brand-pink' : 'text-emerald-600'}`}>
+          {isAlumni ? 'Permice vypršela' : 'Platná do'}: {new Date(participant.courseExpiresAt).toLocaleDateString('cs-CZ')}
+        </p>
+      ) : participant.courseExpiresAt === null ? (
+        <p className="mt-1 text-[11px] font-bold text-emerald-600">Permice bez omezení</p>
+      ) : null}
+    </button>
+  );
+}
+
+// ─── End of Registry Section ───────────────────────────────────────────────────
 
 function CoachesSection({ products, coaches, coachAttendanceRecords, dppDocuments, sharedTrainingSlots, workshopSlots, campTurnusy, onAddCoachAttendance, onCreateCoachDpp, onMarkCoachDppSigned, onCoachLocationSaved, onReleaseSharedTraining, onAssignSharedTraining, onAddWorkshopCoach, onRemoveWorkshopCoach, onAddWorkshopSlot, onAddCampCoach, onRemoveCampCoach }: { products: ParentProduct[]; coaches: AdminCoachSummary[]; coachAttendanceRecords: CoachAttendanceRecord[]; dppDocuments: AdminCoachDppDocument[]; sharedTrainingSlots: SharedTrainingSlot[]; workshopSlots: WorkshopSlot[]; campTurnusy: CampTurnus[]; onAddCoachAttendance: (input: ManualCoachAttendanceInput) => CoachAttendanceRecord; onCreateCoachDpp: (coach: AdminCoachSummary) => AdminCoachDppDocument; onMarkCoachDppSigned: (coachId: string) => void; onCoachLocationSaved: (coachId: string, location: string) => void; onReleaseSharedTraining: (slot: SharedTrainingSlot, position?: 'first' | 'second') => void; onAssignSharedTraining: (slot: SharedTrainingSlot, coach: AdminCoachSummary) => void; onAddWorkshopCoach: (slot: WorkshopSlot, coach: AdminCoachSummary) => void; onRemoveWorkshopCoach: (slot: WorkshopSlot, coachId: string) => void; onAddWorkshopSlot: (date: string, city: WorkshopCity) => void; onAddCampCoach: (turnus: CampTurnus, coach: AdminCoachSummary) => void; onRemoveCampCoach: (turnus: CampTurnus, coachId: string) => void }) {
   const [query, setQuery] = useState('');
@@ -2362,6 +2676,9 @@ function PayoutsSection({
   coaches,
   transfers,
   coachAttendanceRecords,
+  payoutPeriod,
+  onPrevPeriod,
+  onNextPeriod,
   message,
   payingCoachId,
   onboardingLinks,
@@ -2372,6 +2689,9 @@ function PayoutsSection({
   coaches: AdminCoachSummary[];
   transfers: TrainerPayoutTransfer[];
   coachAttendanceRecords: CoachAttendanceRecord[];
+  payoutPeriod: { key: string; label: string; periodStart: string; periodEnd: string };
+  onPrevPeriod: () => void;
+  onNextPeriod: () => void;
   message: string | null;
   payingCoachId: string | null;
   onboardingLinks: Record<string, string>;
@@ -2395,7 +2715,11 @@ function PayoutsSection({
             <div className="grid gap-2 rounded-[18px] bg-brand-paper p-2 sm:grid-cols-3 lg:min-w-[420px]">
               <div className="rounded-[14px] bg-white px-4 py-3">
                 <p className="text-[11px] font-black uppercase text-brand-ink-soft">Období</p>
-                <p className="mt-1 text-sm font-black text-brand-ink">{payoutPeriod.label}</p>
+                <div className="mt-1 flex items-center gap-2">
+                  <button type="button" onClick={onPrevPeriod} className="rounded-[8px] p-0.5 text-brand-ink-soft transition hover:bg-brand-paper hover:text-brand-ink" aria-label="Předchozí měsíc">‹</button>
+                  <p className="flex-1 text-center text-sm font-black text-brand-ink">{payoutPeriod.label}</p>
+                  <button type="button" onClick={onNextPeriod} className="rounded-[8px] p-0.5 text-brand-ink-soft transition hover:bg-brand-paper hover:text-brand-ink" aria-label="Další měsíc">›</button>
+                </div>
               </div>
               <div className="rounded-[14px] bg-white px-4 py-3">
                 <p className="text-[11px] font-black uppercase text-brand-ink-soft">Připraveno</p>
@@ -2524,15 +2848,24 @@ function InvoicesSection({ invoices, message, onTogglePaid, onAddInvoice, onDele
 }) {
   const [filterCategory, setFilterCategory] = useState<Invoice['category'] | 'Vše'>('Vše');
   const [filterPaid, setFilterPaid] = useState<'all' | 'paid' | 'unpaid'>('all');
-  const [showForm, setShowForm] = useState(false);
-  const [formSupplier, setFormSupplier] = useState('');
-  const [formDescription, setFormDescription] = useState('');
-  const [formAmount, setFormAmount] = useState('');
-  const [formIssuedDate, setFormIssuedDate] = useState('');
-  const [formDueDate, setFormDueDate] = useState('');
-  const [formCategory, setFormCategory] = useState<Invoice['category']>('Tělocvična');
 
-  const categories: Array<Invoice['category']> = ['Tělocvična', 'Vybavení', 'Marketing', 'Ostatní'];
+  // PDF upload state
+  const [dragOver, setDragOver] = useState(false);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [uploadPath, setUploadPath] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  // Form state (shown after PDF is dropped)
+  const [formSupplier, setFormSupplier] = useState('');
+  const [formAmount, setFormAmount] = useState('');
+  const [formNote, setFormNote] = useState('');
+  const [formCategory, setFormCategory] = useState<Invoice['category']>('Tělocvična');
+  const [submitting, setSubmitting] = useState(false);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const categories: Array<Invoice['category']> = ['Tělocvična', 'Vybavení', 'Marketing', 'Trenéři', 'Ostatní'];
 
   const visible = invoices.filter((inv) => {
     if (filterCategory !== 'Vše' && inv.category !== filterCategory) return false;
@@ -2544,23 +2877,83 @@ function InvoicesSection({ invoices, message, onTogglePaid, onAddInvoice, onDele
   const totalUnpaid = invoices.filter((inv) => !inv.paid).reduce((sum, inv) => sum + inv.amount, 0);
   const totalPaid = invoices.filter((inv) => inv.paid).reduce((sum, inv) => sum + inv.amount, 0);
   const totalAll = invoices.reduce((sum, inv) => sum + inv.amount, 0);
-  const overdueCount = invoices.filter((inv) => !inv.paid && inv.dueDate < new Date().toISOString().slice(0, 10)).length;
 
-  async function handleAddInvoice(event: FormEvent) {
-    event.preventDefault();
-    const newInvoice: Invoice = {
-      id: `inv-${Date.now()}`,
-      supplier: formSupplier,
-      description: formDescription,
-      amount: Number(formAmount),
-      issuedDate: formIssuedDate,
-      dueDate: formDueDate,
-      paid: false,
-      category: formCategory,
-    };
-    await onAddInvoice(newInvoice);
-    setFormSupplier(''); setFormDescription(''); setFormAmount(''); setFormIssuedDate(''); setFormDueDate('');
-    setShowForm(false);
+  async function uploadFile(file: File): Promise<string | null> {
+    try {
+      const { signedUrl, path } = await createAdminInvoiceUploadUrl(file.name);
+      const res = await fetch(signedUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/pdf' },
+        body: file,
+      });
+      if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
+      return path;
+    } catch {
+      return null;
+    }
+  }
+
+  async function handleFilePick(file: File) {
+    setUploadError(null);
+    const name = file.name.replace(/\.pdf$/i, '').replace(/[-_]/g, ' ');
+    setFormSupplier(name);
+    setPendingFile(file);
+    setUploading(true);
+    const path = await uploadFile(file);
+    setUploading(false);
+    if (path) {
+      setUploadPath(path);
+    } else {
+      setUploadError('Nepodařilo se nahrát soubor. Zkontrolujte připojení.');
+    }
+  }
+
+  function handleDropZoneDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files[0];
+    if (file) void handleFilePick(file);
+  }
+
+  function handleFileInputChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) void handleFilePick(file);
+  }
+
+  function clearForm() {
+    setPendingFile(null);
+    setUploadPath(null);
+    setFormSupplier('');
+    setFormAmount('');
+    setFormNote('');
+    setFormCategory('Tělocvična');
+    setUploadError(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    const amount = Number(formAmount.replace(/\s/g, '').replace(',', '.'));
+    if (!formSupplier.trim() || !amount || amount <= 0) return;
+    setSubmitting(true);
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const newInvoice: Invoice = {
+        id: `inv-${Date.now()}`,
+        supplier: formSupplier.trim(),
+        description: formNote.trim(),
+        amount,
+        issuedDate: today,
+        dueDate: today,
+        paid: false,
+        category: formCategory,
+        fileUrl: uploadPath || undefined,
+      };
+      await onAddInvoice(newInvoice);
+      clearForm();
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -2573,7 +2966,7 @@ function InvoicesSection({ invoices, message, onTogglePaid, onAddInvoice, onDele
             <Metric value={`${totalAll.toLocaleString('cs-CZ')} Kč`} label="celkem" />
             <Metric value={`${totalPaid.toLocaleString('cs-CZ')} Kč`} label="uhrazeno" />
             <Metric value={`${totalUnpaid.toLocaleString('cs-CZ')} Kč`} label="k úhradě" />
-            <Metric value={String(overdueCount)} label="po splatnosti" />
+            <Metric value={String(invoices.filter((inv) => !inv.paid).length)} label="neuhrazených" />
           </div>
           <div className="mt-4">
             <p className="mb-2 text-xs font-black uppercase text-brand-ink-soft">Podle kategorie</p>
@@ -2592,46 +2985,102 @@ function InvoicesSection({ invoices, message, onTogglePaid, onAddInvoice, onDele
                   </div>
                 );
               })}
+              {categories.every((cat) => invoices.filter((inv) => inv.category === cat).length === 0) ? (
+                <p className="text-sm font-bold text-brand-ink-soft">Zatím žádné faktury.</p>
+              ) : null}
             </div>
           </div>
         </Panel>
 
         <Panel className="p-5">
-          <div className="flex items-center justify-between">
-            <SectionTitle icon={<Plus size={18} />} title="Přidat fakturu" subtitle="ruční zadání" />
-            <button type="button" onClick={() => setShowForm((v) => !v)} className={`inline-flex h-10 w-10 items-center justify-center rounded-[14px] transition ${showForm ? 'bg-brand-purple text-white' : 'bg-brand-paper text-brand-purple hover:bg-brand-purple hover:text-white'}`}>
-              {showForm ? <X size={17} /> : <Plus size={17} />}
-            </button>
-          </div>
-          {showForm ? (
-            <form className="mt-4 grid gap-3" onSubmit={handleAddInvoice}>
-              <TextInput label="Dodavatel" value={formSupplier} onChange={setFormSupplier} />
-              <TextInput label="Popis" value={formDescription} onChange={setFormDescription} />
-              <TextInput label="Částka (Kč)" value={formAmount} onChange={setFormAmount} inputMode="numeric" />
-              <TextInput label="Datum vystavení" value={formIssuedDate} onChange={setFormIssuedDate} />
-              <TextInput label="Datum splatnosti" value={formDueDate} onChange={setFormDueDate} />
-              <label className="grid gap-2 text-sm font-black text-brand-ink">
-                Kategorie
-                <select value={formCategory} onChange={(e) => setFormCategory(e.target.value as Invoice['category'])} className="rounded-[16px] border border-brand-purple/15 bg-white px-3 py-2.5 text-sm font-bold outline-none focus:border-brand-purple">
-                  {categories.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
-                </select>
-              </label>
-              <button type="submit" className="rounded-[16px] bg-brand-purple py-3 text-sm font-black text-white transition hover:opacity-80">Uložit fakturu</button>
-            </form>
+          <SectionTitle icon={<Plus size={18} />} title="Přidat fakturu" subtitle="přetáhni PDF nebo klikni" />
+          {!pendingFile ? (
+            <div
+              onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={handleDropZoneDrop}
+              onClick={() => fileInputRef.current?.click()}
+              className={`mt-4 flex cursor-pointer flex-col items-center justify-center gap-3 rounded-[18px] border-2 border-dashed p-8 text-center transition ${dragOver ? 'border-brand-purple bg-brand-purple/5' : 'border-brand-purple/20 bg-white hover:border-brand-purple/40 hover:bg-brand-paper'}`}
+            >
+              <div className={`inline-flex h-12 w-12 items-center justify-center rounded-[14px] transition ${dragOver ? 'bg-brand-purple text-white' : 'bg-brand-paper text-brand-purple'}`}>
+                <FileDown size={22} />
+              </div>
+              <div>
+                <p className="text-sm font-black text-brand-ink">Přetáhni PDF fakturu</p>
+                <p className="mt-0.5 text-xs font-bold text-brand-ink-soft">nebo klikni pro výběr souboru</p>
+              </div>
+              <input ref={fileInputRef} type="file" accept=".pdf,application/pdf" className="hidden" onChange={handleFileInputChange} />
+            </div>
           ) : (
-            <p className="mt-3 text-sm font-bold text-brand-ink-soft">Faktury lze přidávat ručně. Brzy bude možné nahrát PDF přímo ze školy.</p>
+            <form className="mt-4 space-y-3" onSubmit={(e) => void handleSubmit(e)}>
+              {/* PDF file indicator */}
+              <div className="flex items-center gap-2 rounded-[12px] bg-brand-paper px-3 py-2.5">
+                <div className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-brand-purple text-white">
+                  <FileDown size={15} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-xs font-black text-brand-ink">{pendingFile.name}</p>
+                  {uploading ? (
+                    <p className="text-[11px] font-bold text-brand-purple">Nahrávám…</p>
+                  ) : uploadPath ? (
+                    <p className="text-[11px] font-bold text-emerald-600">Soubor uložen ✓</p>
+                  ) : (
+                    <p className="text-[11px] font-bold text-brand-pink">{uploadError ?? 'Chyba nahrávání'}</p>
+                  )}
+                </div>
+                <button type="button" onClick={clearForm} className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-brand-ink-soft hover:text-brand-pink">
+                  <X size={14} />
+                </button>
+              </div>
+              <TextInput label="Dodavatel" value={formSupplier} onChange={setFormSupplier} />
+              <TextInput label="Částka (Kč)" value={formAmount} onChange={setFormAmount} inputMode="numeric" />
+              <TextInput label="Poznámka (volitelné)" value={formNote} onChange={setFormNote} />
+              <div>
+                <p className="mb-2 text-sm font-black text-brand-ink">Štítek</p>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {categories.map((cat) => {
+                    const meta: Record<Invoice['category'], { color: string; active: string }> = {
+                      'Tělocvična': { color: 'bg-blue-50 text-blue-700 border-blue-200', active: 'bg-blue-600 text-white border-blue-600' },
+                      'Vybavení':   { color: 'bg-orange-50 text-orange-700 border-orange-200', active: 'bg-orange-500 text-white border-orange-500' },
+                      'Marketing':  { color: 'bg-pink-50 text-pink-700 border-pink-200', active: 'bg-pink-600 text-white border-pink-600' },
+                      'Trenéři':    { color: 'bg-emerald-50 text-emerald-700 border-emerald-200', active: 'bg-emerald-600 text-white border-emerald-600' },
+                      'Ostatní':    { color: 'bg-brand-paper text-brand-ink-soft border-brand-purple/15', active: 'bg-brand-purple text-white border-brand-purple' },
+                    };
+                    const isActive = formCategory === cat;
+                    const cls = isActive ? meta[cat].active : meta[cat].color;
+                    return (
+                      <button
+                        key={cat}
+                        type="button"
+                        onClick={() => setFormCategory(cat)}
+                        className={`flex items-center justify-center rounded-[14px] border px-3 py-2.5 text-sm font-black transition ${cls}`}
+                      >
+                        {cat}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <button
+                type="submit"
+                disabled={submitting || uploading}
+                className="w-full rounded-[16px] bg-brand-purple py-3 text-sm font-black text-white transition hover:opacity-80 disabled:opacity-50"
+              >
+                {submitting ? 'Ukládám…' : 'Uložit fakturu'}
+              </button>
+            </form>
           )}
         </Panel>
       </div>
 
-      <div className="space-y-5">
+      <div>
         <Panel className="p-5">
           <SectionTitle icon={<ListChecks size={18} />} title="Seznam faktur" subtitle={`${visible.length} záznamů`} />
           <div className="mt-4 flex flex-wrap gap-2">
             <div className="grid grid-cols-3 gap-1 rounded-[14px] border border-brand-purple/10 bg-brand-paper p-1">
-              {(['all', 'unpaid', 'paid'] as const).map((status) => (
-                <button key={status} type="button" onClick={() => setFilterPaid(status)} className={`rounded-[10px] px-3 py-1.5 text-xs font-black transition ${filterPaid === status ? 'bg-brand-purple text-white shadow-sm' : 'text-brand-ink-soft hover:text-brand-purple'}`}>
-                  {status === 'all' ? 'Vše' : status === 'paid' ? 'Uhrazeno' : 'K úhradě'}
+              {(['all', 'unpaid', 'paid'] as const).map((st) => (
+                <button key={st} type="button" onClick={() => setFilterPaid(st)} className={`rounded-[10px] px-3 py-1.5 text-xs font-black transition ${filterPaid === st ? 'bg-brand-purple text-white shadow-sm' : 'text-brand-ink-soft hover:text-brand-purple'}`}>
+                  {st === 'all' ? 'Vše' : st === 'paid' ? 'Uhrazeno' : 'K úhradě'}
                 </button>
               ))}
             </div>
@@ -2645,36 +3094,7 @@ function InvoicesSection({ invoices, message, onTogglePaid, onAddInvoice, onDele
           </div>
           <div className="mt-4 grid gap-2">
             {visible.map((inv) => (
-              <div key={inv.id} className={`rounded-[16px] border p-4 transition ${inv.paid ? 'border-emerald-200 bg-emerald-50/60' : inv.dueDate < new Date().toISOString().slice(0, 10) ? 'border-brand-pink/30 bg-brand-pink/5' : 'border-brand-purple/10 bg-brand-paper'}`}>
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="text-sm font-black text-brand-ink">{inv.supplier}</p>
-                    <p className="mt-0.5 text-xs font-bold text-brand-ink-soft">{inv.description}</p>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-black ${inv.paid ? 'bg-emerald-100 text-emerald-700' : inv.dueDate < new Date().toISOString().slice(0, 10) ? 'bg-brand-pink/15 text-brand-pink' : 'bg-brand-purple/10 text-brand-purple'}`}>
-                      {inv.paid ? 'Uhrazeno' : inv.dueDate < new Date().toISOString().slice(0, 10) ? 'Po splatnosti' : 'K úhradě'}
-                    </span>
-                    <span className="text-sm font-black text-brand-ink">{inv.amount.toLocaleString('cs-CZ')} Kč</span>
-                  </div>
-                </div>
-                <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex gap-3 text-[11px] font-bold text-brand-ink-soft">
-                    <span>Vystaveno: {inv.issuedDate}</span>
-                    <span>Splatnost: {inv.dueDate}</span>
-                    {inv.paidDate ? <span className="text-emerald-600">Zaplaceno: {inv.paidDate}</span> : null}
-                  </div>
-                  <div className="flex gap-2">
-                    <button type="button" onClick={() => onTogglePaid(inv.id)} className={`flex items-center gap-1.5 rounded-[10px] px-3 py-1.5 text-xs font-black transition ${inv.paid ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' : 'bg-brand-purple text-white hover:opacity-80'}`}>
-                      <CheckCircle2 size={13} />
-                      {inv.paid ? 'Zrušit úhradu' : 'Označit uhrazeno'}
-                    </button>
-                    <button type="button" onClick={() => onDeleteInvoice(inv.id)} className="inline-flex h-8 w-8 items-center justify-center rounded-[10px] bg-white text-brand-pink transition hover:bg-brand-pink hover:text-white">
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                </div>
-              </div>
+              <InvoiceCard key={inv.id} inv={inv} onTogglePaid={onTogglePaid} onDelete={onDeleteInvoice} />
             ))}
             {visible.length === 0 ? <EmptyState text="Žádné faktury pro vybraný filtr." /> : null}
           </div>
@@ -2683,6 +3103,70 @@ function InvoicesSection({ invoices, message, onTogglePaid, onAddInvoice, onDele
     </div>
   );
 }
+
+function InvoiceCard({ inv, onTogglePaid, onDelete }: { inv: Invoice; onTogglePaid: (id: string) => void | Promise<void>; onDelete: (id: string) => void | Promise<void> }) {
+  const [loadingPdf, setLoadingPdf] = useState(false);
+
+  async function openPdf() {
+    if (!inv.fileUrl) return;
+    setLoadingPdf(true);
+    try {
+      const supabase = createBrowserSupabaseClient();
+      const { data, error } = await supabase.storage.from('invoices').createSignedUrl(inv.fileUrl, 120);
+      if (error || !data?.signedUrl) return;
+      window.open(data.signedUrl, '_blank', 'noopener,noreferrer');
+    } finally {
+      setLoadingPdf(false);
+    }
+  }
+
+  return (
+    <div className={`rounded-[16px] border p-4 transition ${inv.paid ? 'border-emerald-200 bg-emerald-50/60' : 'border-brand-purple/10 bg-brand-paper'}`}>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm font-black text-brand-ink">{inv.supplier}</p>
+            <span className="rounded-full bg-brand-purple/10 px-2 py-0.5 text-[10px] font-black text-brand-purple">{inv.category}</span>
+          </div>
+          {inv.description ? <p className="mt-0.5 text-xs font-bold text-brand-ink-soft">{inv.description}</p> : null}
+        </div>
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          <span className="text-base font-black text-brand-ink">{inv.amount.toLocaleString('cs-CZ')} Kč</span>
+          <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-black ${inv.paid ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+            {inv.paid ? `Uhrazeno${inv.paidDate ? ` ${inv.paidDate}` : ''}` : 'Neuhrazeno'}
+          </span>
+        </div>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => void onTogglePaid(inv.id)}
+          className={`flex items-center gap-1.5 rounded-[10px] px-3 py-1.5 text-xs font-black transition ${inv.paid ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' : 'bg-brand-purple text-white hover:opacity-80'}`}
+        >
+          <CheckCircle2 size={13} />
+          {inv.paid ? 'Zrušit úhradu' : 'Označit uhrazeno'}
+        </button>
+        {inv.fileUrl ? (
+          <button
+            type="button"
+            onClick={() => void openPdf()}
+            disabled={loadingPdf}
+            className="flex items-center gap-1.5 rounded-[10px] bg-white px-3 py-1.5 text-xs font-black text-brand-purple transition hover:bg-brand-purple/10 disabled:opacity-50"
+          >
+            <FileDown size={13} />
+            {loadingPdf ? 'Otevírám…' : 'Zobrazit PDF'}
+          </button>
+        ) : null}
+        <div className="flex-1" />
+        <button type="button" onClick={() => void onDelete(inv.id)} className="inline-flex h-8 w-8 items-center justify-center rounded-[10px] bg-white text-brand-pink transition hover:bg-brand-pink hover:text-white">
+          <Trash2 size={14} />
+        </button>
+      </div>
+      <p className="mt-2 text-[11px] font-bold text-brand-ink-soft">Přidáno: {inv.issuedDate}</p>
+    </div>
+  );
+}
+
 
 function DocumentsSection({ activityRows, products }: { activityRows: ReturnType<typeof adminActivityRows>; products: ParentProduct[] }) {
   const [filter, setFilter] = useState<'all' | DocumentStatus>('all');
@@ -2732,7 +3216,7 @@ function DocumentsSection({ activityRows, products }: { activityRows: ReturnType
   );
 }
 
-type ProductEdits = Partial<Pick<ParentProduct, 'title' | 'place' | 'primaryMeta' | 'capacityTotal' | 'price' | 'priceLabel' | 'heroImage' | 'gallery' | 'mapQuery'>>;
+type ProductEdits = Partial<Pick<ParentProduct, 'title' | 'place' | 'primaryMeta' | 'capacityTotal' | 'price' | 'priceLabel' | 'heroImage' | 'gallery' | 'mapQuery' | 'importantInfo'>>;
 
 function groupCourseProducts(courses: ParentProduct[]): Array<{ baseId: string; base: ParentProduct; variant15: ParentProduct | null }> {
   const baseProducts = courses.filter((product) => !product.id.endsWith('-15'));
@@ -2741,6 +3225,16 @@ function groupCourseProducts(courses: ParentProduct[]): Array<{ baseId: string; 
     base,
     variant15: courses.find((product) => product.id === `${base.id}-15`) ?? null,
   }));
+}
+
+function groupCampProducts(camps: ParentProduct[]): Array<{ baseId: string; first: ParentProduct; turnusy: ParentProduct[] }> {
+  const groups = new Map<string, ParentProduct[]>();
+  for (const camp of camps) {
+    const baseId = camp.id.replace(/-t\d+$/, '');
+    const existing = groups.get(baseId);
+    if (existing) { existing.push(camp); } else { groups.set(baseId, [camp]); }
+  }
+  return Array.from(groups.entries()).map(([baseId, turnusy]) => ({ baseId, first: turnusy[0], turnusy }));
 }
 
 function ProductsSection({ products, coaches, onAddProduct, onRemoveProduct, onUpdateProduct, onProductCoachIdsChange }: { products: ParentProduct[]; coaches: AdminCoachSummary[]; onAddProduct: (input: AdminProductInput) => Promise<ParentProduct>; onRemoveProduct: (productId: string) => Promise<void>; onUpdateProduct: (product: ParentProduct) => Promise<ParentProduct>; onProductCoachIdsChange: (product: ParentProduct, coachIds: string[]) => Promise<void> }) {
@@ -2775,13 +3269,26 @@ function ProductsSection({ products, coaches, onAddProduct, onRemoveProduct, onU
     }
   }
 
+  async function handleRemoveCampGroup(group: { baseId: string; first: ParentProduct; turnusy: ParentProduct[] }) {
+    try {
+      for (const turnus of group.turnusy) {
+        await onRemoveProduct(turnus.id);
+      }
+      setRemovedBaseIds((prev) => new Set([...prev, group.baseId, ...group.turnusy.map((t) => t.id)]));
+      setMessage('Tábor je smazaný z databáze.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Tábor se nepodařilo smazat.');
+    }
+  }
+
   const visibleProducts = products.filter((product) => product.type === activeTab && !removedBaseIds.has(product.id)).map(applyEdits);
   const courses = visibleProducts.filter((product) => product.type === 'Krouzek');
   const courseGroups = groupCourseProducts(courses);
-  const nonCourses = visibleProducts.filter((product) => product.type !== 'Krouzek');
+  const campGroups = groupCampProducts(visibleProducts.filter((product) => product.type === 'Tabor'));
+  const nonCourses = visibleProducts.filter((product) => product.type === 'Workshop');
 
   const courseGroupCount = groupCourseProducts(products.filter((product) => product.type === 'Krouzek' && !removedBaseIds.has(product.id))).length;
-  const campCount = products.filter((product) => product.type === 'Tabor' && !removedBaseIds.has(product.id)).length;
+  const campCount = groupCampProducts(products.filter((product) => product.type === 'Tabor' && !removedBaseIds.has(product.id))).length;
   const workshopCount = products.filter((product) => product.type === 'Workshop' && !removedBaseIds.has(product.id)).length;
 
   return (
@@ -2823,10 +3330,21 @@ function ProductsSection({ products, coaches, onAddProduct, onRemoveProduct, onU
               ? courseGroups.map((group) => (
                   <GroupedCourseCard key={group.baseId} group={group} coaches={coaches} isCreated={group.base.id.startsWith('admin-created-')} onRemove={() => void handleRemove(group.base)} onEdit={(edits) => handleEdit(group.base, edits)} onCoachIdsChange={(coachIds) => onProductCoachIdsChange(group.base, coachIds)} />
                 ))
-              : nonCourses.map((product) => (
-                  <AdminProductCard key={product.id} product={product} coaches={coaches} isCreated={product.id.startsWith('admin-created-')} onRemove={() => void handleRemove(product)} onEdit={(edits) => handleEdit(product, edits)} onCoachIdsChange={(coachIds) => onProductCoachIdsChange(product, coachIds)} />
-                ))}
-            {(activeTab === 'Krouzek' ? courseGroups.length : nonCourses.length) === 0 ? <EmptyState text="V této kategorii zatím není žádný produkt." /> : null}
+              : activeTab === 'Tabor'
+                ? campGroups.map((group) => (
+                    <GroupedCampCard
+                      key={group.baseId}
+                      group={group}
+                      coaches={coaches}
+                      onRemoveAll={() => void handleRemoveCampGroup(group)}
+                      onRemoveTurnus={(turnus) => void handleRemove(turnus)}
+                      onCoachIdsChange={async (coachIds) => { for (const turnus of group.turnusy) { await onProductCoachIdsChange(turnus, coachIds); } }}
+                    />
+                  ))
+                : nonCourses.map((product) => (
+                    <AdminProductCard key={product.id} product={product} coaches={coaches} isCreated={product.id.startsWith('admin-created-')} onRemove={() => void handleRemove(product)} onEdit={(edits) => handleEdit(product, edits)} onCoachIdsChange={(coachIds) => onProductCoachIdsChange(product, coachIds)} />
+                  ))}
+            {(activeTab === 'Krouzek' ? courseGroups.length : activeTab === 'Tabor' ? campGroups.length : nonCourses.length) === 0 ? <EmptyState text="V této kategorii zatím není žádný produkt." /> : null}
           </div>
         </Panel>
       </div>
@@ -2877,9 +3395,13 @@ function ProductCreateForm({ coaches, onAddProduct }: { coaches: AdminCoachSumma
   const [type, setType] = useState<ActivityType>('Krouzek');
   const availableCoaches = useMemo(() => coaches.filter((coach) => coach.status !== 'Pozastaveny'), [coaches]);
   const [title, setTitle] = useState('');
-  const [city, setCity] = useState('Vyškov');
+  const [city, setCity] = useState('Praha');
   const [venue, setVenue] = useState('Nová tělocvična');
   const [primaryMeta, setPrimaryMeta] = useState('Pondělí 16:00-17:00');
+  // Workshop – datum a čas (separátní pole)
+  const [wsDate, setWsDate] = useState('');
+  const [wsTimeFrom, setWsTimeFrom] = useState('10:00');
+  const [wsTimeTo, setWsTimeTo] = useState('17:00');
   const [price, setPrice] = useState('1790');
   const [price15, setPrice15] = useState('2590');
   const [capacityTotal, setCapacityTotal] = useState('25');
@@ -2898,6 +3420,18 @@ function ProductCreateForm({ coaches, onAddProduct }: { coaches: AdminCoachSumma
   const [photoCount, setPhotoCount] = useState(0);
   const photoInputRef = useRef<HTMLInputElement>(null);
   const [message, setMessage] = useState<string | null>(null);
+  // Turnusy pro tábor
+  const [newTurnusy, setNewTurnusy] = useState<Array<{ dateFrom: string; dateTo: string; priceOverride: string }>>([]);
+
+  // Pro workshop: sestavit primaryMeta automaticky z data a času
+  const workshopPrimaryMeta = useMemo(() => {
+    if (!wsDate) return '';
+    const [year, month, day] = wsDate.split('-').map(Number);
+    if (!year || !month || !day) return '';
+    const dateLabel = `${day}. ${month}. ${year}`;
+    const timeRange = wsTimeFrom && wsTimeTo ? `${wsTimeFrom} - ${wsTimeTo}` : wsTimeFrom || '';
+    return timeRange ? `${dateLabel} · ${timeRange}` : dateLabel;
+  }, [wsDate, wsTimeFrom, wsTimeTo]);
 
   // Auto-vyplnit název workshopu z triků
   useEffect(() => {
@@ -2924,6 +3458,9 @@ function ProductCreateForm({ coaches, onAddProduct }: { coaches: AdminCoachSumma
     setCity(defaults.city);
     setVenue(defaults.venue);
     setPrimaryMeta(defaults.primaryMeta);
+    setWsDate('');
+    setWsTimeFrom('10:00');
+    setWsTimeTo('17:00');
     setPrice(defaults.price);
     setPrice15('2590');
     setCapacityTotal(defaults.capacityTotal);
@@ -2938,6 +3475,7 @@ function ProductCreateForm({ coaches, onAddProduct }: { coaches: AdminCoachSumma
     setPhotos([]);
     setPhotoCount(0);
     setMessage(null);
+    setNewTurnusy([]);
   }
 
   async function handlePhotoFiles(files: FileList) {
@@ -2951,7 +3489,12 @@ function ProductCreateForm({ coaches, onAddProduct }: { coaches: AdminCoachSumma
 
   async function submitProduct(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const requiredFields = [city, venue, primaryMeta, price, capacityTotal];
+    const effectivePrimaryMeta = type === 'Workshop' ? workshopPrimaryMeta : primaryMeta;
+    if (type === 'Workshop' && !wsDate) {
+      setMessage('Vyber datum workshopu.');
+      return;
+    }
+    const requiredFields = [city, venue, effectivePrimaryMeta, price, capacityTotal];
     if (requiredFields.some((value) => value.trim().length === 0)) {
       setMessage('Doplň město, místo, termín, cenu a kapacitu.');
       return;
@@ -2959,12 +3502,19 @@ function ProductCreateForm({ coaches, onAddProduct }: { coaches: AdminCoachSumma
 
     setMessage('Ukládám produkt do databáze...');
     try {
+      const turnusyInput: TurnusInput[] | undefined = type === 'Tabor' && newTurnusy.length > 0
+        ? newTurnusy.filter((t) => t.dateFrom && t.dateTo).map((t) => ({
+            dateFrom: t.dateFrom,
+            dateTo: t.dateTo,
+            price: t.priceOverride ? Number(t.priceOverride) : undefined,
+          }))
+        : undefined;
       const product = await onAddProduct({
         type,
         title,
         city,
         venue,
-        primaryMeta,
+        primaryMeta: effectivePrimaryMeta,
         price: Number(price),
         price15: type === 'Krouzek' && price15.trim() ? Number(price15) : undefined,
         capacityTotal: Number(capacityTotal),
@@ -2978,8 +3528,10 @@ function ProductCreateForm({ coaches, onAddProduct }: { coaches: AdminCoachSumma
         workshopTrick1VideoFile: trick1VideoFile || undefined,
         workshopTrick2VideoFile: trick2VideoFile || undefined,
         mapQuery: mapQuery.trim() || undefined,
+        turnusy: turnusyInput,
       });
-      setMessage(`${product.title} je vytvořený a uložený v databázi.`);
+      const turnusCount = turnusyInput ? turnusyInput.length : 0;
+      setMessage(turnusCount > 0 ? `${product.title} s ${turnusCount} turnusy je vytvořený.` : `${product.title} je vytvořený a uložený v databázi.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Produkt se nepodařilo uložit.');
     }
@@ -3048,9 +3600,51 @@ function ProductCreateForm({ coaches, onAddProduct }: { coaches: AdminCoachSumma
         </label>
 
         <div className="grid gap-3 md:grid-cols-2">
-          <TextInput label="Město" value={city} onChange={setCity} />
+          <label className="grid gap-2 text-sm font-black text-brand-ink">
+            Město
+            <select value={city} onChange={(e) => setCity(e.target.value)} className="rounded-[16px] border border-brand-purple/15 bg-white px-3 py-2.5 text-sm font-bold outline-none focus:border-brand-purple">
+              <option value="Praha">Praha</option>
+              <option value="Brno">Brno</option>
+              <option value="Ostrava">Ostrava</option>
+            </select>
+          </label>
           <TextInput label="Místo / sportoviště" value={venue} onChange={setVenue} />
-          <TextInput label={type === 'Krouzek' ? 'Den a čas' : 'Termín'} value={primaryMeta} onChange={setPrimaryMeta} />
+          {/* Workshop: separátní datum + čas místo volného textového pole */}
+          {type === 'Workshop' ? (
+            <>
+              <label className="grid gap-2 text-sm font-black text-brand-ink">
+                Datum workshopu
+                <input
+                  type="date"
+                  value={wsDate}
+                  onChange={(e) => setWsDate(e.target.value)}
+                  className="rounded-[16px] border border-brand-purple/15 bg-white px-3 py-2.5 text-sm font-bold outline-none focus:border-brand-purple"
+                />
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="grid gap-2 text-sm font-black text-brand-ink">
+                  Začátek
+                  <input
+                    type="time"
+                    value={wsTimeFrom}
+                    onChange={(e) => setWsTimeFrom(e.target.value)}
+                    className="rounded-[16px] border border-brand-purple/15 bg-white px-3 py-2.5 text-sm font-bold outline-none focus:border-brand-purple"
+                  />
+                </label>
+                <label className="grid gap-2 text-sm font-black text-brand-ink">
+                  Konec
+                  <input
+                    type="time"
+                    value={wsTimeTo}
+                    onChange={(e) => setWsTimeTo(e.target.value)}
+                    className="rounded-[16px] border border-brand-purple/15 bg-white px-3 py-2.5 text-sm font-bold outline-none focus:border-brand-purple"
+                  />
+                </label>
+              </div>
+            </>
+          ) : (
+            <TextInput label={type === 'Krouzek' ? 'Den a čas' : 'Termín'} value={primaryMeta} onChange={setPrimaryMeta} />
+          )}
           <TextInput label={type === 'Krouzek' ? 'Cena 10 vstupů (Kč)' : 'Cena v Kč'} value={price} onChange={setPrice} inputMode="numeric" />
           {type === 'Krouzek' ? (
             <TextInput label="Cena 15 vstupů (Kč)" value={price15} onChange={setPrice15} inputMode="numeric" />
@@ -3058,6 +3652,71 @@ function ProductCreateForm({ coaches, onAddProduct }: { coaches: AdminCoachSumma
           <TextInput label="Kapacita" value={capacityTotal} onChange={setCapacityTotal} inputMode="numeric" />
           <TextInput label="Přihlášeno" value={capacityCurrent} onChange={setCapacityCurrent} inputMode="numeric" />
         </div>
+
+        {/* Turnusy pro tábor */}
+        {type === 'Tabor' ? (
+          <div className="grid gap-3 rounded-[16px] border border-brand-purple/15 bg-brand-paper p-4">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-black uppercase text-brand-purple">Turnusy</p>
+              <button
+                type="button"
+                onClick={() => setNewTurnusy((prev) => [...prev, { dateFrom: '', dateTo: '', priceOverride: '' }])}
+                className="inline-flex items-center gap-1.5 rounded-[12px] bg-brand-purple/10 px-3 py-1.5 text-xs font-black text-brand-purple transition hover:bg-brand-purple/20"
+              >
+                <Plus size={13} />
+                Přidat turnus
+              </button>
+            </div>
+            {newTurnusy.length === 0 ? (
+              <p className="text-xs font-bold text-brand-ink-soft">Bez turnusů — tábor se uloží jako jeden produkt s hodnotou Termín výše.</p>
+            ) : (
+              newTurnusy.map((turnus, index) => (
+                <div key={index} className="grid gap-2 rounded-[14px] border border-brand-purple/10 bg-white p-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-black text-brand-purple">{index + 1}. turnus</p>
+                    <button
+                      type="button"
+                      onClick={() => setNewTurnusy((prev) => prev.filter((_, i) => i !== index))}
+                      className="text-xs font-bold text-brand-pink hover:underline"
+                    >
+                      Odebrat
+                    </button>
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-3">
+                    <label className="grid gap-1 text-xs font-black text-brand-ink-soft">
+                      Datum od
+                      <input
+                        type="date"
+                        value={turnus.dateFrom}
+                        onChange={(e) => setNewTurnusy((prev) => prev.map((t, i) => i === index ? { ...t, dateFrom: e.target.value } : t))}
+                        className="rounded-[12px] border border-brand-purple/15 bg-brand-paper px-3 py-2 text-sm font-bold outline-none focus:border-brand-purple"
+                      />
+                    </label>
+                    <label className="grid gap-1 text-xs font-black text-brand-ink-soft">
+                      Datum do
+                      <input
+                        type="date"
+                        value={turnus.dateTo}
+                        onChange={(e) => setNewTurnusy((prev) => prev.map((t, i) => i === index ? { ...t, dateTo: e.target.value } : t))}
+                        className="rounded-[12px] border border-brand-purple/15 bg-brand-paper px-3 py-2 text-sm font-bold outline-none focus:border-brand-purple"
+                      />
+                    </label>
+                    <label className="grid gap-1 text-xs font-black text-brand-ink-soft">
+                      Cena Kč (volitelně)
+                      <input
+                        type="number"
+                        value={turnus.priceOverride}
+                        onChange={(e) => setNewTurnusy((prev) => prev.map((t, i) => i === index ? { ...t, priceOverride: e.target.value } : t))}
+                        placeholder={price}
+                        className="rounded-[12px] border border-brand-purple/15 bg-brand-paper px-3 py-2 text-sm font-bold outline-none focus:border-brand-purple"
+                      />
+                    </label>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        ) : null}
 
         <div className="grid gap-2">
           <p className="text-sm font-black text-brand-ink">Trenéři produktu</p>
@@ -3212,6 +3871,47 @@ function ProductCoachAssignment({ product, coaches, onChange }: { product: Paren
         })}
         {activeCoaches.length === 0 ? <span className="text-xs font-bold text-brand-ink-soft">Žádný aktivní trenér.</span> : null}
       </div>
+    </div>
+  );
+}
+
+function GroupedCampCard({ group, coaches, onRemoveAll, onRemoveTurnus, onCoachIdsChange }: { group: { baseId: string; first: ParentProduct; turnusy: ParentProduct[] }; coaches: AdminCoachSummary[]; onRemoveAll: () => void; onRemoveTurnus: (turnus: ParentProduct) => void; onCoachIdsChange: (coachIds: string[]) => Promise<void> }) {
+  const { first, turnusy } = group;
+  const coachNames = productCoachNames(first, coaches);
+  const isCreated = first.id.startsWith('admin-created-');
+
+  return (
+    <div className="rounded-[18px] border border-brand-purple/12 bg-white p-4 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <StatusPill label="Tábor" tone="orange" />
+          {isCreated ? <StatusPill label="Z adminu" tone="purple" /> : <StatusPill label="Na webu" tone="mint" />}
+        </div>
+        <button type="button" onClick={onRemoveAll} className="inline-flex h-10 w-10 items-center justify-center rounded-[14px] bg-brand-paper text-brand-pink transition hover:bg-brand-pink hover:text-white" aria-label="Smazat tábor">
+          <Trash2 size={17} />
+        </button>
+      </div>
+      <h3 className="mt-3 text-lg font-black text-brand-ink">{first.title}</h3>
+      <p className="mt-1 text-sm font-bold text-brand-ink-soft">{first.place}</p>
+      {coachNames ? <p className="mt-1 text-sm font-black text-brand-purple">Trenér: {coachNames}</p> : null}
+      <div className="mt-3 grid gap-1.5">
+        {turnusy.map((turnus) => (
+          <div key={turnus.id} className="flex items-center justify-between rounded-[12px] bg-brand-paper px-3 py-2">
+            <p className="text-sm font-bold text-brand-ink">{turnus.primaryMeta}</p>
+            <div className="flex items-center gap-3">
+              <p className="shrink-0 text-sm font-black text-brand-purple">{turnus.price.toLocaleString('cs-CZ')} Kč</p>
+              <button type="button" onClick={() => onRemoveTurnus(turnus)} className="text-brand-pink transition hover:opacity-70" aria-label="Smazat turnus">
+                <X size={14} />
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2 text-center">
+        <Metric value={`${first.capacityCurrent}/${first.capacityTotal}`} label="kapacita / turnus" />
+        <Metric value={`${turnusy.length}`} label={turnusy.length === 1 ? 'turnus' : turnusy.length < 5 ? 'turnusy' : 'turnusů'} />
+      </div>
+      <ProductCoachAssignment product={first} coaches={coaches} onChange={onCoachIdsChange} />
     </div>
   );
 }
@@ -3392,6 +4092,10 @@ function AdminProductCard({ product, coaches, isCreated, onRemove, onEdit, onCoa
   const [existingHeroIndex, setExistingHeroIndex] = useState(initialHeroIdx);
   const [clearImage, setClearImage] = useState(false);
   const photoInputRef = useRef<HTMLInputElement>(null);
+  // Workshop video state
+  const [trick1VideoUrl, setTrick1VideoUrl] = useState(() => product.importantInfo.find((i) => i.label === 'Video trik 1')?.value ?? '');
+  const [trick2VideoUrl, setTrick2VideoUrl] = useState(() => product.importantInfo.find((i) => i.label === 'Video trik 2')?.value ?? '');
+  const [videoUploading, setVideoUploading] = useState(false);
 
   async function handlePhotoFiles(files: FileList) {
     const results: string[] = [];
@@ -3404,9 +4108,30 @@ function AdminProductCard({ product, coaches, isCreated, onRemove, onEdit, onCoa
     setClearImage(false);
   }
 
+  async function handleVideoUpload(file: File, setUrl: (url: string) => void) {
+    setVideoUploading(true);
+    try {
+      const { signedUrl, path } = await createProductVideoUploadUrl(file.name);
+      await fetch(signedUrl, { method: 'PUT', body: file, headers: { 'Content-Type': file.type || 'video/mp4' } });
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? '';
+      setUrl(`${supabaseUrl}/storage/v1/object/public/product-videos/${path}`);
+    } catch {
+      // keep existing url on error
+    } finally {
+      setVideoUploading(false);
+    }
+  }
+
   function handleSave() {
     const priceNum = Number(price);
     const edits: ProductEdits = { title, place, primaryMeta, price: priceNum, priceLabel: `${priceNum.toLocaleString('cs-CZ')} Kč`, capacityTotal: Number(capacityTotal), mapQuery: mapQuery.trim() || undefined };
+    if (product.type === 'Workshop') {
+      const baseInfo = product.importantInfo.filter((i) => i.label !== 'Video trik 1' && i.label !== 'Video trik 2');
+      const videoInfo: typeof product.importantInfo = [];
+      if (trick1VideoUrl) videoInfo.push({ label: 'Video trik 1', value: trick1VideoUrl });
+      if (trick2VideoUrl) videoInfo.push({ label: 'Video trik 2', value: trick2VideoUrl });
+      edits.importantInfo = [...baseInfo, ...videoInfo];
+    }
     if (photos.length > 0) {
       edits.heroImage = photos[heroIndex] ?? photos[0];
       edits.gallery = photos;
@@ -3476,6 +4201,44 @@ function AdminProductCard({ product, coaches, isCreated, onRemove, onEdit, onCoa
                   <TextInput label="Cena (Kč)" value={price} onChange={setPrice} inputMode="numeric" />
                   <TextInput label="Kapacita" value={capacityTotal} onChange={setCapacityTotal} inputMode="numeric" />
                   <TextInput label="Adresa pro mapu (např. ZŠ Purkyňova Vyškov)" value={mapQuery} onChange={setMapQuery} />
+                  {product.type === 'Workshop' ? (
+                    <div className="grid gap-3 rounded-[16px] border border-brand-purple/15 bg-brand-paper p-4">
+                      <p className="text-xs font-black uppercase text-brand-purple">Videa triků</p>
+                      {videoUploading ? <p className="text-xs font-bold text-brand-purple">Nahrávám video…</p> : null}
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div className="grid gap-1.5">
+                          <p className="text-xs font-black text-brand-ink-soft">Video trik 1</p>
+                          {trick1VideoUrl ? (
+                            <video src={trick1VideoUrl} controls className="w-full rounded-[12px] bg-black" style={{ maxHeight: 120 }} playsInline />
+                          ) : null}
+                          <label className="inline-flex cursor-pointer items-center gap-2 rounded-[14px] border border-brand-purple/20 bg-white px-3 py-2 text-xs font-black text-brand-purple transition hover:bg-brand-purple-light">
+                            <Film size={14} />
+                            {trick1VideoUrl ? 'Nahradit video' : 'Nahrát video'}
+                            <input type="file" accept="video/*" className="sr-only"
+                              onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleVideoUpload(f, setTrick1VideoUrl); }} />
+                          </label>
+                          {trick1VideoUrl ? (
+                            <button type="button" onClick={() => setTrick1VideoUrl('')} className="text-xs font-black text-brand-pink hover:underline">Odebrat video</button>
+                          ) : null}
+                        </div>
+                        <div className="grid gap-1.5">
+                          <p className="text-xs font-black text-brand-ink-soft">Video trik 2</p>
+                          {trick2VideoUrl ? (
+                            <video src={trick2VideoUrl} controls className="w-full rounded-[12px] bg-black" style={{ maxHeight: 120 }} playsInline />
+                          ) : null}
+                          <label className="inline-flex cursor-pointer items-center gap-2 rounded-[14px] border border-brand-purple/20 bg-white px-3 py-2 text-xs font-black text-brand-purple transition hover:bg-brand-purple-light">
+                            <Film size={14} />
+                            {trick2VideoUrl ? 'Nahradit video' : 'Nahrát video'}
+                            <input type="file" accept="video/*" className="sr-only"
+                              onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleVideoUpload(f, setTrick2VideoUrl); }} />
+                          </label>
+                          {trick2VideoUrl ? (
+                            <button type="button" onClick={() => setTrick2VideoUrl('')} className="text-xs font-black text-brand-pink hover:underline">Odebrat video</button>
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
                   <div className="grid gap-2 rounded-[16px] border border-brand-purple/15 bg-brand-paper p-3">
                     <p className="text-xs font-black uppercase text-brand-purple">Fotky produktu</p>
                     {photos.length === 0 && existingGallery.length > 0 && !clearImage ? (
@@ -4493,11 +5256,99 @@ function ActivityDetailModal({ activity, products, participants, documents, coac
   );
 }
 
+function ParticipantProductDocGroups({ participant, allDocuments }: { participant: ParentParticipant; allDocuments: AdminDocument[] }) {
+  const [expandedKey, setExpandedKey] = useState<string | null>(null);
+
+  // Group all participant docs by productId (or fallback key)
+  const participantDocs = documentsForParticipant(participant, allDocuments);
+  const byKey = new Map<string, AdminDocument[]>();
+  for (const doc of participantDocs) {
+    const key = doc.productId || `${doc.activityType}-${doc.coursePlace}`;
+    const arr = byKey.get(key) ?? [];
+    arr.push(doc);
+    byKey.set(key, arr);
+  }
+
+  // Match doc groups to activePurchases by activityType to get the product title
+  const usedPurchaseKeys = new Set<string>();
+  const groups: Array<{ key: string; label: string; type: ActivityType; status?: string; docs: AdminDocument[] }> = [];
+
+  for (const [key, docs] of byKey) {
+    const docType = docs[0].activityType;
+    const coursePlace = docs[0].coursePlace;
+    const matching = participant.activePurchases.filter((p) => p.type === docType && !usedPurchaseKeys.has(`${p.type}-${p.title}`));
+    const purchase = matching[0];
+    const label = purchase?.title || `${activityLabel(docType)}${coursePlace ? ` · ${coursePlace}` : ''}`;
+    if (purchase) usedPurchaseKeys.add(`${purchase.type}-${purchase.title}`);
+    groups.push({ key, label, type: docType, status: purchase?.status, docs });
+  }
+
+  // Add purchases with no matching document group
+  for (const purchase of participant.activePurchases) {
+    const pk = `${purchase.type}-${purchase.title}`;
+    if (!usedPurchaseKeys.has(pk)) {
+      groups.push({ key: `nopurchase-${pk}`, label: purchase.title || activityLabel(purchase.type), type: purchase.type, status: purchase.status, docs: [] });
+    }
+  }
+
+  if (groups.length === 0) {
+    return <EmptyState text="Účastník zatím nemá žádný dokument v evidenci." />;
+  }
+
+  return (
+    <>
+      {groups.map((group) => {
+        const missing = group.docs.filter((d) => d.status !== 'signed').length;
+        const isOpen = expandedKey === group.key;
+        const allOk = group.docs.length > 0 && missing === 0;
+        return (
+          <div key={group.key} className={`rounded-[16px] border transition ${allOk ? 'border-emerald-200' : missing > 0 ? 'border-amber-200' : 'border-brand-purple/10'} bg-white`}>
+            <button
+              type="button"
+              onClick={() => setExpandedKey(isOpen ? null : group.key)}
+              className="flex w-full items-center gap-3 p-4 text-left"
+            >
+              <div className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[12px] ${allOk ? 'bg-emerald-100 text-emerald-700' : missing > 0 ? 'bg-amber-100 text-amber-700' : 'bg-brand-paper text-brand-purple'}`}>
+                <PackagePlus size={16} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-black text-brand-ink">{group.label}</p>
+                <p className="mt-0.5 text-xs font-bold text-brand-ink-soft">
+                  {activityLabel(group.type)}{group.docs.length > 0 ? ` · ${group.docs.length} dokument${group.docs.length === 1 ? '' : 'ů'}` : ' · žádné dokumenty'}
+                </p>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                {allOk ? (
+                  <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-[10px] font-black text-emerald-700">OK</span>
+                ) : missing > 0 ? (
+                  <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-[10px] font-black text-amber-700">Chybí {missing}</span>
+                ) : null}
+                <ChevronDown size={16} className={`text-brand-ink-soft transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+              </div>
+            </button>
+            {isOpen ? (
+              <div className="border-t border-brand-purple/8 px-4 pb-4 pt-3">
+                {group.docs.length > 0 ? (
+                  <div className="grid gap-2">
+                    {group.docs.map((doc) => <DocumentRow key={doc.id} document={doc} />)}
+                  </div>
+                ) : (
+                  <p className="text-sm font-bold text-brand-ink-soft">K tomuto produktu zatím nejsou uložené žádné dokumenty.</p>
+                )}
+              </div>
+            ) : null}
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
 function ParticipantDetailModal({ detail, documents: allDocuments, onClose }: { detail: ParticipantDetailState; documents: AdminDocument[]; onClose: () => void }) {
   const [activeTab, setActiveTab] = useState<ParticipantDetailTab>('documents');
   const { participant, activityType, place } = detail;
-  const documents = documentsForActivityParticipant(participant, activityType, allDocuments);
-  const missingDocuments = documents.filter((document) => document.status !== 'signed');
+  const allParticipantDocs = documentsForParticipant(participant, allDocuments);
+  const missingDocuments = allParticipantDocs.filter((document) => document.status !== 'signed');
   const attendanceRows = activityType === 'Krouzek' ? buildCompleteCourseAttendance(participant, place) : [];
   const participantName = `${participant.firstName} ${participant.lastName}`;
   const adminParticipant = participant as AdminParticipant;
@@ -4523,10 +5374,9 @@ function ParticipantDetailModal({ detail, documents: allDocuments, onClose }: { 
 
       {activeTab === 'documents' ? (
         <section className="mt-5 rounded-[18px] border border-brand-purple/10 bg-brand-paper p-4">
-          <SectionTitle icon={<FileCheck2 size={18} />} title="Dokumenty účastníka" subtitle={missingDocuments.length > 0 ? `Chybí: ${missingDocuments.map(missingDocumentLabel).join(', ')}` : 'všechny evidované dokumenty jsou podepsané'} />
-          <div className="mt-4 grid gap-2">
-            {documents.map((document) => <DocumentRow key={document.id} document={document} />)}
-            {documents.length === 0 ? <EmptyState text="Účastník zatím nemá žádný dokument v evidenci." /> : null}
+          <SectionTitle icon={<FileCheck2 size={18} />} title="Dokumenty účastníka" subtitle="rozdělené podle produktu" />
+          <div className="mt-4 grid gap-3">
+            <ParticipantProductDocGroups participant={participant} allDocuments={allDocuments} />
           </div>
         </section>
       ) : null}
@@ -4573,7 +5423,7 @@ function ParticipantDetailModal({ detail, documents: allDocuments, onClose }: { 
           <SectionTitle icon={<Phone size={18} />} title="Kontakty rodiče" subtitle="rychlé provozní spojení k účastníkovi" />
           <div className="mt-4 grid gap-3 md:grid-cols-2">
             <InfoBlock label="Rodič" value={adminParticipant.parentName ?? 'Kontakt není evidovaný'} />
-            <InfoBlock label="Účastník" value={`${participantName} · ${participant.birthNumberMasked}`} />
+            <InfoBlock label="Účastník" value={participantName} />
             <ContactBlock icon={<Phone size={17} />} label="Telefon" value={adminParticipant.parentPhone ?? 'Telefon není evidovaný'} />
             <ContactBlock icon={<Mail size={17} />} label="E-mail" value={adminParticipant.parentEmail ?? 'E-mail není evidovaný'} />
           </div>
@@ -4606,8 +5456,8 @@ function RegisteredParticipantsSection({ activity, participants, documents, onOp
 function ActivityCoachPresencePanel({ coaches, activityType, selectedDate }: { coaches: ActivityCoachPresence[]; activityType: ActivityType; selectedDate: string | null }) {
   const title = activityType === 'Krouzek' ? 'Trenéři na lekci' : activityType === 'Tabor' ? 'Trenéři na táboře' : 'Trenéři na workshopu';
   const subtitle = selectedDate
-    ? `${selectedDate} · z přiřazení produktu a trenérské docházky`
-    : 'z přiřazení produktu a případné trenérské docházky';
+    ? `${selectedDate} · ze zápisů trenérské docházky`
+    : 'ze zápisů trenérské docházky';
 
   return (
     <section className="mt-5 rounded-[18px] bg-brand-ink p-4">
@@ -4626,11 +5476,11 @@ function ActivityCoachPresencePanel({ coaches, activityType, selectedDate }: { c
                 <p className="font-black text-white">{coach.name}</p>
                 <p className="mt-1 text-xs font-bold text-white/50">{coach.detail}</p>
               </div>
-              <StatusPill label={coach.source === 'attendance' ? 'zapsán' : 'přiřazen'} tone={coach.source === 'attendance' ? 'mint' : 'purple'} />
+              <StatusPill label="zapsán" tone="mint" />
             </div>
           ))}
         </div>
-      ) : <div className="mt-4"><p className="text-sm font-bold text-white/40">U tohoto produktu zatím není přiřazený žádný trenér.</p></div>}
+      ) : <div className="mt-4"><p className="text-sm font-bold text-white/40">Trenéři se zobrazí po zápisu docházky. Zatím nebyla zapsána žádná trenérská docházka k této aktivitě.</p></div>}
     </section>
   );
 }
@@ -5413,7 +6263,7 @@ function buildPaymentRows(finance: AdminFinanceResponse | null): AdminPaymentRow
 
 function mapAdminInvoiceRow(row: AdminInvoiceRow): Invoice {
   const issuedDate = row.datum_vystaveni || row.created_at?.slice(0, 10) || '';
-  const description = row.popis?.trim() || row.cislo_faktury?.trim() || 'Faktura';
+  const description = row.popis?.trim() || row.cislo_faktury?.trim() || '';
   const supplier = row.dodavatel?.trim() || 'Dodavatel není vyplněný';
 
   return {
@@ -5425,7 +6275,8 @@ function mapAdminInvoiceRow(row: AdminInvoiceRow): Invoice {
     dueDate: row.datum_splatnosti || issuedDate,
     paid: Boolean(row.zaplaceno),
     paidDate: row.datum_zaplaceni || undefined,
-    category: categorizeInvoice(`${supplier} ${description}`),
+    category: (row.kategorie as Invoice['category']) || categorizeInvoice(`${supplier} ${description}`),
+    fileUrl: row.file_url || undefined,
   };
 }
 
@@ -5441,6 +6292,7 @@ function categorizeInvoice(text: string): Invoice['category'] {
   if (/telocvic|hala|pronajem|skola|zs|zš|orel/.test(normalized)) return 'Tělocvična';
   if (/matrac|prekaz|prekaž|vybaven|sportovni sklad/.test(normalized)) return 'Vybavení';
   if (/marketing|reklam|meta|facebook|instagram|letak/.test(normalized)) return 'Marketing';
+  if (/trener|kouč|kouc|lektor|mzda|odmena|dpp|smlouva/.test(normalized)) return 'Trenéři';
   return 'Ostatní';
 }
 
@@ -5482,7 +6334,7 @@ async function loadAdminParticipants(products: ParentProduct[]): Promise<AdminPa
   const [{ data: participantRows, error: participantError }, { data: purchaseRows, error: purchaseError }, { data: passRows }] = await Promise.all([
     supabase
       .from('participants')
-      .select('id,parent_profile_id,first_name,last_name,birth_number_masked,level,xp,next_bracelet_xp,attendance_done,attendance_total,active_course,next_training,active_purchases,bracelet,bracelet_color,paid_status'),
+      .select('id,parent_profile_id,first_name,last_name,claim_code,level,xp,next_bracelet_xp,attendance_done,attendance_total,active_course,next_training,active_purchases,bracelet,bracelet_color,paid_status'),
     supabase
       .from('parent_purchases')
       .select('id,parent_profile_id,product_id,participant_id,participant_name,type,title,amount,status,expires_at'),
@@ -5575,7 +6427,7 @@ function participantFromRows(row: AdminParticipantRow, purchases: AdminPurchaseR
     id: row.id,
     firstName: row.first_name || 'Účastník',
     lastName: row.last_name || '',
-    birthNumberMasked: row.birth_number_masked || '',
+    claimCode: row.claim_code || '',
     activeCourse: row.active_course || courseProduct?.place || '',
     nextTraining: row.next_training || courseProduct?.primaryMeta || '',
     attendanceDone: row.attendance_done ?? 0,
@@ -5600,7 +6452,7 @@ function participantFromPurchase(purchase: AdminPurchaseRow, product?: ParentPro
     id: purchase.participant_id,
     firstName: firstName || 'Účastník',
     lastName: lastNameParts.join(' '),
-    birthNumberMasked: '',
+    claimCode: '',
     activeCourse: product?.type === 'Krouzek' ? product.place : '',
     nextTraining: product?.type === 'Krouzek' ? product.primaryMeta : '',
     attendanceDone: 0,
@@ -6384,7 +7236,6 @@ function productForActivity(activity: ReturnType<typeof adminActivityRows>[numbe
 
 function buildActivityCoachPresence(activity: ReturnType<typeof adminActivityRows>[number], products: ParentProduct[], coaches: AdminCoachSummary[], coachAttendanceRecords: CoachAttendanceRecord[], selectedDate?: string | null): ActivityCoachPresence[] {
   const product = productForActivity(activity, products);
-  const coachById = new Map(coaches.map((coach) => [coach.id, coach]));
   const presence = new Map<string, ActivityCoachPresence>();
 
   for (const record of coachAttendanceRecordsForActivity(activity, product, coachAttendanceRecords, selectedDate)) {
@@ -6399,19 +7250,7 @@ function buildActivityCoachPresence(activity: ReturnType<typeof adminActivityRow
     });
   }
 
-  for (const coachId of product?.coachIds ?? []) {
-    const coach = coachById.get(coachId);
-    if (!coach || presence.has(coach.id)) continue;
-
-    presence.set(coach.id, {
-      id: coach.id,
-      name: coach.name,
-      detail: assignedCoachDetail(activity.type, product),
-      source: 'assigned',
-    });
-  }
-
-  return Array.from(presence.values()).sort((a, b) => Number(a.source !== 'attendance') - Number(b.source !== 'attendance') || a.name.localeCompare(b.name, 'cs'));
+  return Array.from(presence.values()).sort((a, b) => a.name.localeCompare(b.name, 'cs'));
 }
 
 function coachAttendanceRecordsForActivity(activity: ReturnType<typeof adminActivityRows>[number], product: ParentProduct | null, records: CoachAttendanceRecord[], selectedDate?: string | null) {
@@ -6811,6 +7650,8 @@ function headlineForSection(section: SectionKey) {
       return 'Výplaty za měsíc přes Stripe';
     case 'finance':
       return 'Cash flow, příjmy, výdaje a výplaty na jednom místě';
+    case 'registry':
+      return 'Registr všech účastníků od spštení';
     default:
       return 'Provozní přehled bez zbytečností';
   }

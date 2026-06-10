@@ -84,10 +84,6 @@ export const aboutPillars: AboutPillar[] = [
     body: 'Každé dítě má v aplikaci vlastní cestu – sbírá XP, odemyká triky přes QR a získává barevné náramky podle úrovně.',
   },
   {
-    title: 'Komunita, ne kroužek',
-    body: 'Pořádáme srazy, jamy, tábory a výjezdy. Naši trenéři i účastníci se znají osobně a stojí při sobě.',
-  },
-  {
     title: 'Pro rodiče maximálně jednoduše',
     body: 'V appce vidíte platby, docházku přes NFC i progres dítěte. Všechno na jednom místě, bez papírování.',
   },

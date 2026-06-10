@@ -191,6 +191,7 @@ function CoinStat({ label, value }: { label: string; value: number }) {
 function RewardIcon({ kind, chestRarity, accent }: { kind: string; chestRarity?: string; accent: string }) {
   if (kind === 'yarn') return <YarnBall size={15} color={accent} />;
   if (kind === 'chest') return <Image source={crateImageForRarity(chestRarity)} style={styles.rewardIconImage} contentFit="contain" />;
+  if (kind === 'discount') return <Image source={require('@/assets/images/ticket.png')} style={styles.rewardIconImage} contentFit="contain" />;
   return <FontAwesome5 name={rewardIconName(kind)} size={13} color={accent} />;
 }
 

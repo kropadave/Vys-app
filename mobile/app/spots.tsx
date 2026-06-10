@@ -4,17 +4,19 @@ import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator,
-    Dimensions,
     FlatList,
     KeyboardAvoidingView,
+    LayoutAnimation,
     Linking,
     Modal,
+    PanResponder,
     Platform,
     Pressable,
     ScrollView,
     StyleSheet,
     Text,
     TextInput,
+    UIManager,
     View,
 } from 'react-native';
 import type MapView from 'react-native-maps';
@@ -22,10 +24,20 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import SpotsMapView from '@/components/spots-map-view';
 import { useAuth } from '@/hooks/use-auth';
+import { useRole } from '@/hooks/use-role';
 import { Brand } from '@/lib/brand';
+import { geocodeSpot } from '@/lib/geocode';
 import { hasSupabaseConfig, supabase } from '@/lib/supabase';
 import { Palette, Radius, Shadow, Spacing } from '@/lib/theme';
-import { HARDCODED_SPOTS, type TrainingSpot } from '@/lib/training-spots';
+import {
+    ENVIRONMENT_LABELS,
+    HARDCODED_SPOTS,
+    SPOT_TYPE_ICONS,
+    SPOT_TYPE_LABELS,
+    type SpotEnvironment,
+    type SpotType,
+    type TrainingSpot,
+} from '@/lib/training-spots';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type SpotRow = TrainingSpot & { avg_rating: number; review_count: number };
@@ -44,6 +56,9 @@ type NewSpotState = {
   description: string;
   website: string;
   entry_fee: string;
+  opening_hours: string;
+  spot_type: SpotType | null;
+  environment: SpotEnvironment;
   tags: string[];
 };
 
@@ -81,11 +96,15 @@ const TAG_COLORS: Record<string, string> = {
 };
 
 const ALL_TAGS = Object.keys(TAG_LABELS);
-const { height: SCREEN_H } = Dimensions.get('window');
-const MAP_HEIGHT = Math.round(SCREEN_H * 0.40);
+
+// Enable smooth LayoutAnimation transitions on Android.
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 const BLANK_SPOT: NewSpotState = {
-  name: '', city: '', address: '', description: '', website: '', entry_fee: '', tags: [],
+  name: '', city: '', address: '', description: '', website: '', entry_fee: '',
+  opening_hours: '', tags: [], spot_type: null, environment: 'indoor',
 };
 
 // ─── Star rating ──────────────────────────────────────────────────────────────
@@ -169,6 +188,8 @@ export default function SpotsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { session } = useAuth();
+  const { role } = useRole();
+  const isCoach = role === 'coach' || role === 'admin';
   const mapRef = useRef<MapView>(null);
 
   const [spots, setSpots] = useState<SpotRow[]>(
@@ -182,10 +203,12 @@ export default function SpotsScreen() {
   const [showDetail, setShowDetail] = useState(false);
   const [showAddSpot, setShowAddSpot] = useState(false);
   const [showAddReview, setShowAddReview] = useState(false);
+  const [panelCollapsed, setPanelCollapsed] = useState(false);
 
   // form state
   const [newSpot, setNewSpot] = useState<NewSpotState>(BLANK_SPOT);
   const [addSpotLoading, setAddSpotLoading] = useState(false);
+  const [geocoding, setGeocoding] = useState(false);
   const [addSpotError, setAddSpotError] = useState('');
   const [newRating, setNewRating] = useState(0);
   const [newComment, setNewComment] = useState('');
@@ -244,15 +267,45 @@ export default function SpotsScreen() {
     void openSpot(spot);
   }, [openSpot]);
 
+  // Smoothly collapse / expand the bottom list (animates the map height too).
+  const setPanel = useCallback((collapsed: boolean) => {
+    LayoutAnimation.configureNext(LayoutAnimation.create(240, 'easeInEaseOut', 'opacity'));
+    setPanelCollapsed(collapsed);
+  }, []);
+  const togglePanel = useCallback(() => setPanel(!panelCollapsed), [panelCollapsed, setPanel]);
+
+  // Swipe down on the handle to hide the list, swipe up to show it again.
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_evt, g) => Math.abs(g.dy) > 6 && Math.abs(g.dy) > Math.abs(g.dx),
+      onPanResponderRelease: (_evt, g) => {
+        if (g.dy > 20) setPanel(true);
+        else if (g.dy < -20) setPanel(false);
+      },
+    }),
+  ).current;
+
   // ── Submit new spot ─────────────────────────────────────────────────────────
   const submitAddSpot = async () => {
     setAddSpotError('');
+    if (!isCoach) { setAddSpotError('Lokace mohou přidávat pouze trenéři.'); return; }
     if (!newSpot.name.trim() || !newSpot.city.trim()) {
       setAddSpotError('Název a město jsou povinné.'); return;
     }
+    if (!newSpot.spot_type) { setAddSpotError('Vyber typ spotu.'); return; }
     if (!session?.userId) { setAddSpotError('Přihlas se prosím.'); return; }
     if (!hasSupabaseConfig || !supabase) { setAddSpotError('Databáze není dostupná.'); return; }
     setAddSpotLoading(true);
+    // Resolve real coordinates from the address so the spot shows up on the map
+    // immediately. Falls back to the city centre, and only 0,0 if all fails.
+    setGeocoding(true);
+    const geo = await geocodeSpot({ name: newSpot.name, address: newSpot.address, city: newSpot.city });
+    setGeocoding(false);
+    if (!geo) {
+      setAddSpotError('Nepodařilo se najít adresu na mapě. Zkontroluj město a adresu.');
+      setAddSpotLoading(false);
+      return;
+    }
     const { error } = await supabase.from('training_spots').insert({
       name: newSpot.name.trim(),
       city: newSpot.city.trim(),
@@ -260,9 +313,12 @@ export default function SpotsScreen() {
       description: newSpot.description.trim() || null,
       website: newSpot.website.trim() || null,
       entry_fee: newSpot.entry_fee.trim() || null,
+      opening_hours: newSpot.opening_hours.trim() || null,
+      spot_type: newSpot.spot_type,
+      environment: newSpot.environment,
       tags: newSpot.tags,
-      lat: 0,
-      lng: 0,
+      lat: geo.lat,
+      lng: geo.lng,
       is_verified: false,
       added_by: session.userId,
     });
@@ -317,10 +373,17 @@ export default function SpotsScreen() {
           <FontAwesome5 name="chevron-left" size={15} color={Palette.text} />
         </Pressable>
         <Text style={styles.headerTitle}>Trénovací spoty</Text>
-        <Pressable onPress={() => setShowAddSpot(true)} style={({ pressed }) => [styles.addBtn, pressed && { opacity: 0.85 }]}>
-          <FontAwesome5 name="plus" size={12} color="#fff" />
-          <Text style={styles.addBtnText}>Přidat</Text>
-        </Pressable>
+        {isCoach ? (
+          <Pressable onPress={() => setShowAddSpot(true)} style={({ pressed }) => [styles.addBtn, pressed && { opacity: 0.85 }]}>
+            <FontAwesome5 name="plus" size={12} color="#fff" />
+            <Text style={styles.addBtnText}>Přidat</Text>
+          </Pressable>
+        ) : (
+          <View style={styles.coachHintPill}>
+            <MaterialCommunityIcons name="information-outline" size={12} color={Palette.textSubtle} />
+            <Text style={styles.coachHintText}>Nové lokace přidávají trenéři</Text>
+          </View>
+        )}
       </View>
 
       {/* ── Map ───────────────────────────────────────────────────────────── */}
@@ -330,50 +393,77 @@ export default function SpotsScreen() {
         selectedSpotId={selectedSpot?.id}
         onMarkerPress={(spot) => handleSelectSpot(spot as SpotRow)}
         initialRegion={CZECH_INITIAL_REGION}
-        height={MAP_HEIGHT}
       />
 
       {/* ── Bottom panel ──────────────────────────────────────────────────── */}
-      <View style={[styles.bottomPanel, { paddingBottom: insets.bottom + 6 }]}>
-        {/* City filter chips */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.cityFilter}
-          contentContainerStyle={styles.cityFilterContent}
-        >
-          {CITIES.map((city) => (
-            <Pressable
-              key={city}
-              onPress={() => setSelectedCity(city)}
-              style={[styles.cityChip, selectedCity === city && styles.cityChipActive]}
-            >
-              <Text style={[styles.cityChipText, selectedCity === city && styles.cityChipTextActive]}>{city}</Text>
-            </Pressable>
-          ))}
-        </ScrollView>
+      <View style={[styles.bottomPanel, { paddingBottom: panelCollapsed ? 0 : insets.bottom + 6 }]}>
+        {/* Drag handle — tap or swipe up/down to show / hide the list */}
+        <View {...panResponder.panHandlers}>
+          <Pressable
+            onPress={togglePanel}
+            style={({ pressed }) => [styles.panelHandle, pressed && { opacity: 0.7 }]}
+            hitSlop={8}
+          >
+            <View style={styles.panelHandleBar} />
+            <View style={styles.panelHandleRow}>
+              <MaterialCommunityIcons
+                name={panelCollapsed ? 'chevron-up' : 'chevron-down'}
+                size={16}
+                color={Palette.textMuted}
+              />
+              <Text style={styles.panelHandleText}>
+                {panelCollapsed
+                  ? `Zobrazit seznam (${filteredSpots.length})`
+                  : 'Skrýt seznam'}
+              </Text>
+            </View>
+          </Pressable>
+        </View>
 
-        {/* Spot list */}
-        <Text style={styles.listLabel}>
-          {filteredSpots.length} {filteredSpots.length === 1 ? 'spot' : filteredSpots.length < 5 ? 'spoty' : 'spotů'}
-        </Text>
-        {loading ? (
-          <ActivityIndicator color={Brand.purple} style={{ marginTop: 16, marginBottom: 8 }} />
-        ) : (
-          <FlatList
-            horizontal
-            data={filteredSpots}
-            keyExtractor={(item) => item.id}
-            renderItem={({ item }) => (
-              <SpotCard
-                spot={item}
-                selected={selectedSpot?.id === item.id}
-                onPress={() => handleSelectSpot(item)}
+        {!panelCollapsed && (
+          <>
+            {/* City filter chips */}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.cityFilter}
+              contentContainerStyle={styles.cityFilterContent}
+            >
+              {CITIES.map((city) => (
+                <Pressable
+                  key={city}
+                  onPress={() => setSelectedCity(city)}
+                  style={[styles.cityChip, selectedCity === city && styles.cityChipActive]}
+                >
+                  <Text style={[styles.cityChipText, selectedCity === city && styles.cityChipTextActive]}>{city}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+
+            {/* Spot list */}
+            <Text style={styles.listLabel}>
+              {filteredSpots.length} {filteredSpots.length === 1 ? 'spot' : filteredSpots.length < 5 ? 'spoty' : 'spotů'}
+            </Text>
+            {loading ? (
+              <ActivityIndicator color={Brand.purple} style={{ marginTop: 16, marginBottom: 8 }} />
+            ) : (
+              <FlatList
+                horizontal
+                data={filteredSpots}
+                keyExtractor={(item) => item.id}
+                style={styles.spotsListView}
+                renderItem={({ item }) => (
+                  <SpotCard
+                    spot={item}
+                    selected={selectedSpot?.id === item.id}
+                    onPress={() => handleSelectSpot(item)}
+                  />
+                )}
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.spotsList}
               />
             )}
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.spotsList}
-          />
+          </>
         )}
       </View>
 
@@ -419,6 +509,34 @@ export default function SpotsScreen() {
                 <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 48 }}>
                   {/* Info chips */}
                   <View style={styles.infoRow}>
+                    {selectedSpot.spot_type && (
+                      <View style={[styles.infoChip, { borderColor: `${Brand.purple}55`, backgroundColor: `${Brand.purple}12` }]}>
+                        <MaterialCommunityIcons
+                          name={SPOT_TYPE_ICONS[selectedSpot.spot_type] as keyof typeof MaterialCommunityIcons.glyphMap}
+                          size={11}
+                          color={Brand.purple}
+                        />
+                        <Text style={[styles.infoChipText, { color: Brand.purple }]}>
+                          {SPOT_TYPE_LABELS[selectedSpot.spot_type]}
+                        </Text>
+                      </View>
+                    )}
+                    {selectedSpot.environment && (
+                      <View style={styles.infoChip}>
+                        <MaterialCommunityIcons
+                          name={selectedSpot.environment === 'outdoor' ? 'tree-outline' : selectedSpot.environment === 'indoor' ? 'home-outline' : 'swap-horizontal'}
+                          size={11}
+                          color={Palette.textMuted}
+                        />
+                        <Text style={styles.infoChipText}>{ENVIRONMENT_LABELS[selectedSpot.environment]}</Text>
+                      </View>
+                    )}
+                    {selectedSpot.opening_hours && (
+                      <View style={styles.infoChip}>
+                        <MaterialCommunityIcons name="clock-outline" size={11} color={Palette.textMuted} />
+                        <Text style={styles.infoChipText}>{selectedSpot.opening_hours}</Text>
+                      </View>
+                    )}
                     {selectedSpot.entry_fee && (
                       <View style={styles.infoChip}>
                         <FontAwesome5 name="ticket-alt" size={11} color={Palette.textMuted} />
@@ -571,6 +689,55 @@ export default function SpotsScreen() {
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 64 }}>
+              {/* Spot type — closed dropdown (no free-text junk) */}
+              <Text style={[styles.fieldLabel, { marginBottom: 8 }]}>Typ spotu *</Text>
+              <View style={styles.typeGrid}>
+                {(Object.keys(SPOT_TYPE_LABELS) as SpotType[]).map((t) => {
+                  const active = newSpot.spot_type === t;
+                  return (
+                    <Pressable
+                      key={t}
+                      onPress={() => setNewSpot((p) => ({ ...p, spot_type: t }))}
+                      style={[styles.typeCard, active && styles.typeCardActive]}
+                    >
+                      <MaterialCommunityIcons
+                        name={SPOT_TYPE_ICONS[t] as keyof typeof MaterialCommunityIcons.glyphMap}
+                        size={18}
+                        color={active ? Brand.purple : Palette.textMuted}
+                      />
+                      <Text style={[styles.typeCardText, active && styles.typeCardTextActive]} numberOfLines={2}>
+                        {SPOT_TYPE_LABELS[t]}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              {/* Environment — segmented */}
+              <Text style={[styles.fieldLabel, { marginBottom: 8 }]}>Prostředí *</Text>
+              <View style={styles.segmentRow}>
+                {(Object.keys(ENVIRONMENT_LABELS) as SpotEnvironment[]).map((env) => {
+                  const active = newSpot.environment === env;
+                  const icon = env === 'outdoor' ? 'tree-outline' : env === 'indoor' ? 'home-outline' : 'swap-horizontal';
+                  return (
+                    <Pressable
+                      key={env}
+                      onPress={() => setNewSpot((p) => ({ ...p, environment: env }))}
+                      style={[styles.segmentBtn, active && styles.segmentBtnActive]}
+                    >
+                      <MaterialCommunityIcons
+                        name={icon as keyof typeof MaterialCommunityIcons.glyphMap}
+                        size={14}
+                        color={active ? '#fff' : Palette.textMuted}
+                      />
+                      <Text style={[styles.segmentBtnText, active && styles.segmentBtnTextActive]}>
+                        {ENVIRONMENT_LABELS[env]}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
               <FormField
                 label="Název místa *"
                 value={newSpot.name}
@@ -593,8 +760,14 @@ export default function SpotsScreen() {
                 label="Popis"
                 value={newSpot.description}
                 onChangeText={(t) => setNewSpot((p) => ({ ...p, description: t }))}
-                placeholder="Vybavení, přístupnost, otevírací doba…"
+                placeholder="Vybavení, přístupnost…"
                 multiline
+              />
+              <FormField
+                label="Otevírací doba"
+                value={newSpot.opening_hours}
+                onChangeText={(t) => setNewSpot((p) => ({ ...p, opening_hours: t }))}
+                placeholder="např. Po–Pá 14–22, So–Ne 10–20"
               />
               <FormField
                 label="Web"
@@ -635,6 +808,13 @@ export default function SpotsScreen() {
 
               {addSpotError ? <Text style={styles.errorText}>{addSpotError}</Text> : null}
 
+              <View style={styles.geoHint}>
+                <MaterialCommunityIcons name="map-marker-radius-outline" size={13} color={Brand.purple} />
+                <Text style={styles.geoHintText}>
+                  Polohu na mapě určíme automaticky z města a adresy.
+                </Text>
+              </View>
+
               <Pressable
                 style={({ pressed }) => [styles.submitBtn, pressed && { opacity: 0.87 }]}
                 onPress={() => void submitAddSpot()}
@@ -646,7 +826,12 @@ export default function SpotsScreen() {
                   style={styles.submitBtnGradient}
                 >
                   {addSpotLoading
-                    ? <ActivityIndicator color="#fff" />
+                    ? (
+                      <>
+                        <ActivityIndicator color="#fff" />
+                        {geocoding ? <Text style={styles.submitBtnText}>Hledám na mapě…</Text> : null}
+                      </>
+                    )
                     : (
                       <>
                         <FontAwesome5 name="map-marker-alt" size={14} color="#fff" />
@@ -684,11 +869,53 @@ const styles = StyleSheet.create({
   },
   addBtnText: { color: '#fff', fontSize: 13, fontWeight: '800' },
 
+  coachHintPill: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    backgroundColor: Palette.surface, borderRadius: Radius.pill,
+    paddingHorizontal: 10, paddingVertical: 5,
+    borderWidth: 1, borderColor: Palette.border,
+  },
+  coachHintText: { color: Palette.textSubtle, fontSize: 10, fontWeight: '700' },
+
+  // Spot type grid
+  typeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 18 },
+  typeCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 11, paddingVertical: 9,
+    borderRadius: Radius.md, borderWidth: 1.5, borderColor: Palette.border,
+    backgroundColor: Palette.surface, minWidth: '47%',
+  },
+  typeCardActive: { borderColor: Brand.purple, backgroundColor: `${Brand.purple}10` },
+  typeCardText: { fontSize: 12, fontWeight: '600', color: Palette.textMuted, flex: 1 },
+  typeCardTextActive: { color: Brand.purple, fontWeight: '800' },
+
+  // Environment segmented
+  segmentRow: { flexDirection: 'row', gap: 6, marginBottom: 18 },
+  segmentBtn: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5,
+    paddingVertical: 9, borderRadius: Radius.md,
+    borderWidth: 1.5, borderColor: Palette.border, backgroundColor: Palette.surface,
+  },
+  segmentBtnActive: { backgroundColor: Brand.purple, borderColor: Brand.purple },
+  segmentBtnText: { fontSize: 11, fontWeight: '700', color: Palette.textMuted },
+  segmentBtnTextActive: { color: '#fff' },
+
   // Bottom panel
   bottomPanel: {
-    flex: 1, backgroundColor: Palette.bg,
+    backgroundColor: Palette.bg,
     borderTopWidth: 1, borderTopColor: Palette.border,
+    borderTopLeftRadius: 18, borderTopRightRadius: 18,
+    ...Shadow.soft,
   },
+  panelHandle: {
+    alignItems: 'center', paddingTop: 8, paddingBottom: 6,
+  },
+  panelHandleBar: {
+    width: 40, height: 5, borderRadius: 3,
+    backgroundColor: Palette.border, marginBottom: 5,
+  },
+  panelHandleRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  panelHandleText: { fontSize: 12, fontWeight: '800', color: Palette.textMuted },
   cityFilter: { maxHeight: 50 },
   cityFilterContent: {
     paddingHorizontal: 16, paddingVertical: 8,
@@ -706,7 +933,8 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase', letterSpacing: 0.5,
     marginLeft: 16, marginBottom: 4,
   },
-  spotsList: { paddingHorizontal: 16, gap: 12, paddingBottom: 6 },
+  spotsList: { paddingHorizontal: 16, gap: 12, paddingBottom: 6, alignItems: 'flex-start' },
+  spotsListView: { flexGrow: 0 },
 
   // Spot card
   spotCard: {
@@ -837,6 +1065,14 @@ const styles = StyleSheet.create({
   },
   tagToggleText: { fontSize: 12, fontWeight: '600', color: Palette.textMuted },
   errorText: { color: Palette.danger, fontSize: 12, fontWeight: '700', marginBottom: 8 },
+  geoHint: {
+    flexDirection: 'row', alignItems: 'center', gap: 7,
+    backgroundColor: `${Brand.purple}10`,
+    borderColor: `${Brand.purple}26`, borderWidth: 1,
+    borderRadius: Radius.md, paddingVertical: 9, paddingHorizontal: 11,
+    marginBottom: 12,
+  },
+  geoHintText: { color: Palette.textMuted, fontSize: 12, fontWeight: '600', flex: 1 },
   submitBtn: { borderRadius: Radius.lg, overflow: 'hidden' },
   submitBtnGradient: {
     flexDirection: 'row', alignItems: 'center', gap: 8,

@@ -50,7 +50,29 @@ export type AdminProductInput = {
   workshopTrick1VideoFile?: string;
   /** Název souboru videa triku 2 (jen referenční) */
   workshopTrick2VideoFile?: string;
+  /** Turnusy (jen pro Tábor) — pokud jsou vyplněné, vytvoří se samostatný produkt pro každý turnus */
+  turnusy?: TurnusInput[];
 };
+
+export type TurnusInput = {
+  /** ISO datum začátku, např. "2026-07-13" */
+  dateFrom: string;
+  /** ISO datum konce, např. "2026-07-17" */
+  dateTo: string;
+  /** Cena v Kč (volitelné přepsání hlavní ceny produktu) */
+  price?: number;
+  /** Kapacita (volitelné přepsání hlavní kapacity produktu) */
+  capacity?: number;
+};
+
+function formatTurnusDateRange(dateFrom: string, dateTo: string): string {
+  function fmtDay(iso: string) {
+    const [, m, d] = iso.split('-');
+    return `${Number(d)}. ${Number(m)}.`;
+  }
+  const year = dateTo.slice(0, 4);
+  return `${fmtDay(dateFrom)} \u2013 ${fmtDay(dateTo)} ${year}`;
+}
 
 function activityTypeToDb(type: ActivityType): string {
   if (type === 'Krouzek') return 'Kroužek';
@@ -123,6 +145,8 @@ function rowToProduct(row: AdminProductRow): ParentProduct {
     trainingFocus: Array.isArray(row.training_focus) && row.training_focus.length > 0 ? row.training_focus : defaultFocus(type),
     capacityTotal: row.capacity_total ?? 0,
     capacityCurrent: row.capacity_current,
+    interestCount: row.interest_count ?? 0,
+    canPurchase: row.can_purchase,
   };
 }
 
@@ -172,6 +196,44 @@ export function useAdminCreatedProducts() {
     const product = createAdminCreatedProduct(input);
     setError(null);
     try {
+      // Tábor s turnusy: vytvoř jeden produkt pro každý turnus
+      if (input.type === 'Tabor' && input.turnusy && input.turnusy.length > 0) {
+        const baseId = product.id;
+        const turnusProducts: ParentProduct[] = input.turnusy.map((turnus, index) => {
+          const label = `${index + 1}. turnus`;
+          const dateRange = formatTurnusDateRange(turnus.dateFrom, turnus.dateTo);
+          const turnusPrice = turnus.price ?? product.price;
+          const turnusCapacity = turnus.capacity ?? product.capacityTotal;
+          return {
+            ...product,
+            id: `${baseId}-t${index + 1}`,
+            price: turnusPrice,
+            priceLabel: `${label} \u00b7 ${turnusPrice.toLocaleString('cs-CZ')} K\u010d`,
+            primaryMeta: `${label} \u00b7 ${dateRange}`,
+            secondaryMeta: 'Dokumenty online, příchod hlášením jména',
+            capacityTotal: turnusCapacity,
+            badge: 'Táborový turnus',
+            importantInfo: [
+              { label: 'Turnus', value: `${label} \u00b7 ${dateRange}` },
+              { label: 'Dokumenty', value: 'GDPR, souhlas, anamnéza, bezinfekčnost, vyzvedávání a věci s sebou' },
+              { label: 'Nástup', value: '1. den nahlaste jméno u vstupu — trenér zkontroluje přihlášku v systému' },
+              { label: 'V ceně', value: 'jídlo, pitný režim a táborové tričko' },
+            ],
+          };
+        });
+        for (const turnusProduct of turnusProducts) {
+          await saveAdminProduct(productToRow(turnusProduct));
+        }
+        const currentProducts = cachedProducts ?? products;
+        const nextProducts = [
+          ...turnusProducts,
+          ...currentProducts.filter((p) => !turnusProducts.some((t) => t.id === p.id)),
+        ];
+        setProducts(nextProducts);
+        emitProductState({ products: nextProducts, error: null, loading: false });
+        return turnusProducts[0];
+      }
+
       const saved = await saveAdminProduct(productToRow(product));
       const savedProduct = saved.id && saved.id !== product.id ? { ...product, id: saved.id } : product;
 

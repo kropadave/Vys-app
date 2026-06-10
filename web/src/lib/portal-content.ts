@@ -11,7 +11,7 @@ export type ParentParticipant = {
   id: string;
   firstName: string;
   lastName: string;
-  birthNumberMasked: string;
+  claimCode: string;
   level: number;
   bracelet: string;
   braceletColor: string;
@@ -37,6 +37,8 @@ export type ParentProduct = {
   entriesTotal?: number;
   capacityTotal: number;
   capacityCurrent: number;
+  interestCount?: number;
+  canPurchase?: boolean;
   primaryMeta: string;
   secondaryMeta: string;
   description: string;
@@ -54,6 +56,12 @@ export type RequiredDocumentTemplate = {
   title: string;
   description: string;
   requiredFor: ActivityType[];
+  /** Document is NOT filled online — must be brought physically on the first day */
+  physicalOnly?: boolean;
+  /** Extra note shown to parent (e.g. date rule) */
+  physicalNote?: string;
+  /** Download URL for a PDF template */
+  pdfUrl?: string;
 };
 
 export type ParentPayment = {
@@ -299,7 +307,7 @@ export const requiredDocumentTemplates: RequiredDocumentTemplate[] = [
   { kind: 'guardian-consent', title: 'Souhlas zákonného zástupce', description: 'Potvrzení účasti na aktivitě, pravidel TeamVYS a odpovědné osoby.', requiredFor: ['Krouzek', 'Tabor'] },
   { kind: 'health', title: 'Zdravotní prohlášení', description: 'Alergie, léky, omezení a potvrzení zdravotní způsobilosti dítěte.', requiredFor: ['Krouzek', 'Tabor', 'Workshop'] },
   { kind: 'departure', title: 'Samostatný odchod dítěte', description: 'Souhlas rodiče, že dítě může po skončení aktivity odejít samo bez vyzvednutí.', requiredFor: ['Krouzek', 'Tabor'] },
-  { kind: 'infection-free', title: 'Bezinfekčnost', description: 'Čestné prohlášení pro táborový turnus před nástupem.', requiredFor: ['Tabor'] },
+  { kind: 'infection-free', title: 'Prohlášení o bezinfekčnosti', description: 'Čestné prohlášení, které přinesete první den tábora. Neplní se online.', requiredFor: ['Tabor'], physicalOnly: true, physicalNote: 'Na dokumentu musí být datum dne odjezdu (max. 1 den předem). Starší datum je neplatné.', pdfUrl: '/bezinfekcnost-vzor.html' },
   { kind: 'packing', title: 'Věci s sebou', description: 'Potvrzení výbavy, léků, kartičky pojišťovny a táborových pokynů.', requiredFor: ['Tabor'] },
   { kind: 'workshop-terms', title: 'Přihláška a podmínky', description: 'Souhlas zákonného zástupce s fyzicky náročnou aktivitou, souhlas s focením a natáčením a storno podmínky TeamVYS Parkour school.', requiredFor: ['Workshop'] },
 ];
@@ -336,7 +344,7 @@ export const linkedParticipants: ParentParticipant[] = [
     id: 'demo-child-1',
     firstName: 'Eliška',
     lastName: 'Nováková',
-    birthNumberMasked: '******/1234',
+    claimCode: 'ABCD-1234',
     level: 7,
     bracelet: 'Růžová',
     braceletColor: '#F5A7C8',
@@ -355,7 +363,7 @@ export const linkedParticipants: ParentParticipant[] = [
     id: 'demo-child-2',
     firstName: 'Alex',
     lastName: 'Svoboda',
-    birthNumberMasked: '******/7788',
+    claimCode: 'WXYZ-5678',
     level: 4,
     bracelet: 'Béžová',
     braceletColor: '#D8C2A3',

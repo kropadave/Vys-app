@@ -10,6 +10,7 @@ const STORAGE_KEY = 'vys.digitalPasses';
 
 export type DigitalPassScanResult =
   | { status: 'updated'; pass: DigitalPass; attendanceSynced?: boolean }
+  | { status: 'already-registered'; pass: DigitalPass | null; chipId: string; holderName: string; location: string }
   | { status: 'no-active-pass'; chipId: string; holderName: string; location: string }
   | { status: 'wrong-location'; chipId: string; holderName: string; location: string }
   | { status: 'all-passes-used'; chipId: string; holderName: string; location: string; passes: DigitalPass[] };
@@ -211,6 +212,9 @@ export async function recordDigitalPassScan({ chipId, holderName, location, sess
 
       const currentPasses = cached ?? await loadDigitalPasses();
       const matchingPasses = currentPasses.filter((pass) => normalizeChipId(pass.nfcChipId) === normalizedChipId || (pass.holderName === holderName && pass.location === location));
+      if (row.status === 'already-registered') {
+        return { status: 'already-registered', pass: matchingPasses[0] ?? null, chipId: normalizedChipId, holderName, location };
+      }
       if (row.status === 'all-passes-used') return { status: 'all-passes-used', chipId: normalizedChipId, holderName, location, passes: matchingPasses };
       if (row.status === 'wrong-location') return { status: 'wrong-location', chipId: normalizedChipId, holderName, location };
       return { status: 'no-active-pass', chipId: normalizedChipId, holderName, location };

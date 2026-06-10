@@ -64,14 +64,14 @@ export default function ParticipantTabs() {
           elevation: 10,
         },
         tabBarBackground: () => <GlassTabBarBackground />,
-        tabBarItemStyle: { alignItems: 'center', justifyContent: 'center', height: 48, paddingVertical: 0, borderRadius: 22 },
+        tabBarItemStyle: { height: 48, alignItems: 'center', justifyContent: 'center', paddingVertical: 0, borderRadius: 22 },
         tabBarShowLabel: false,
         tabBarActiveTintColor: Brand.purpleDeep,
         tabBarInactiveTintColor: 'rgba(26,19,38,0.50)',
         tabBarIcon: ({ focused, color }) => (
           <TabBarIcon name={tabIcons[route.name] ?? 'overview'} focused={focused} color={color} />
         ),
-        tabBarIconStyle: { height: 49, marginTop: 0, marginBottom: 0 },
+        tabBarIconStyle: { flex: 1, alignItems: 'center', justifyContent: 'center', margin: 0 },
       })}>
       <Tabs.Screen name="home" options={{ title: 'Přehled', tabBarAccessibilityLabel: 'Přehled' }} />
       <Tabs.Screen name="rewards" options={{ title: 'Cesta', tabBarAccessibilityLabel: 'Cesta' }} />

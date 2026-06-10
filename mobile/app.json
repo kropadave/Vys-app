@@ -10,14 +10,27 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
+      "bundleIdentifier": "com.teamvys.app",
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "TeamVYS ověřuje polohu trenéra jen při zápisu docházky u tělocvičny."
+        "NSLocationWhenInUseUsageDescription": "TeamVYS ověřuje polohu trenéra jen při zápisu docházky u tělocvičny.",
+        "NFCReaderUsageDescription": "TeamVYS čte NFC čip pro automatický zápis docházky dítěte.",
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "entitlements": {
+        "com.apple.developer.nfc.readersession.formats": [
+          "NDEF",
+          "TAG",
+          "NDEF",
+          "TAG"
+        ]
       }
     },
     "android": {
+      "package": "com.teamvys.app",
       "permissions": [
         "ACCESS_FINE_LOCATION",
-        "ACCESS_COARSE_LOCATION"
+        "ACCESS_COARSE_LOCATION",
+        "android.permission.NFC"
       ],
       "adaptiveIcon": {
         "backgroundColor": "#0B0612",
@@ -44,11 +57,18 @@
             "backgroundColor": "#0B0612"
           }
         }
-      ]
+      ],
+      "react-native-nfc-manager"
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "ab43c229-e389-4ebe-87c0-4c9ab7174187"
+      }
     }
   }
 }

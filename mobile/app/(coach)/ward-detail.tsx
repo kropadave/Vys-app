@@ -2,6 +2,7 @@ import { Feather } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useMemo, useState, type ReactNode } from 'react';
 import { Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import Animated, { FadeIn, FadeOut, LinearTransition, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 
 import { CoachCard, CoachPageHeader } from '@/components/coach/coach-screen';
 import { StatusPill } from '@/components/parent-card';
@@ -53,9 +54,14 @@ export default function CoachWardDetail() {
     [wardDocuments],
   );
 
+  // Match completed-trick awards by BOTH ward_id and participant_id. Children
+  // registered via the web parent flow live in the `participants` table, so their
+  // QR-claimed tricks are stored with participant_id set and ward_id = null.
+  // ward.id equals the participant id for those children, so matching only on
+  // ward_id would miss every trick they unlocked.
   const wardAwards = useMemo(() => {
     if (!ward) return [];
-    return awards.filter((award) => award.wardId === ward.id);
+    return awards.filter((award) => award.wardId === ward.id || award.participantId === ward.id);
   }, [awards, ward]);
   const progress = useMemo(() => ward ? skillTreeProgressForWard(ward, wardAwards.map((award) => award.trickId)) : null, [ward, wardAwards]);
   const levels = useMemo(() => Array.from(new Set(coachTricks.map((trick) => trick.level))).sort((a, b) => a - b), []);
@@ -328,10 +334,21 @@ export default function CoachWardDetail() {
 
 function CollapsibleCard({ title, badge, defaultOpen = false, children }: { title: string; badge?: string; defaultOpen?: boolean; children: ReactNode }) {
   const [open, setOpen] = useState(defaultOpen);
+  const rotation = useSharedValue(defaultOpen ? 1 : 0);
+  const chevronStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${rotation.value * 180}deg` }],
+  }));
+  const toggle = () => {
+    setOpen((current) => {
+      const next = !current;
+      rotation.value = withTiming(next ? 1 : 0, { duration: 200 });
+      return next;
+    });
+  };
   return (
-    <View style={styles.collapsibleCard}>
+    <Animated.View style={styles.collapsibleCard} layout={LinearTransition.duration(220)}>
       <Pressable
-        onPress={() => setOpen((current) => !current)}
+        onPress={toggle}
         style={({ pressed }) => [styles.collapsibleHeader, pressed && { opacity: 0.85 }]}
       >
         <View style={styles.collapsibleTitleWrap}>
@@ -342,10 +359,16 @@ function CollapsibleCard({ title, badge, defaultOpen = false, children }: { titl
             </View>
           ) : null}
         </View>
-        <Feather name={open ? 'chevron-up' : 'chevron-down'} size={22} color={CoachColors.slate} />
+        <Animated.View style={chevronStyle}>
+          <Feather name="chevron-down" size={22} color={CoachColors.slate} />
+        </Animated.View>
       </Pressable>
-      {open ? <View style={styles.collapsibleBody}>{children}</View> : null}
-    </View>
+      {open ? (
+        <Animated.View entering={FadeIn.duration(180)} exiting={FadeOut.duration(140)} style={styles.collapsibleBody}>
+          {children}
+        </Animated.View>
+      ) : null}
+    </Animated.View>
   );
 }
 

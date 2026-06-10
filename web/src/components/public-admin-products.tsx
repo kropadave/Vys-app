@@ -1,13 +1,263 @@
 'use client';
 
-import { ArrowLeft, ArrowRight, CalendarDays, CheckCircle2, Clock, CreditCard, MapPin, ScanLine, Users } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CalendarDays, CheckCircle2, Clock, CreditCard, MapPin, ScanLine, Search, Users, X } from 'lucide-react';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { Reveal } from '@/components/animated/reveal';
 import { useAdminCreatedProducts } from '@/lib/admin-created-products';
 import { type ParentProduct } from '@/lib/portal-content';
 import { usePublicCoaches, type PublicCoachSummary } from '@/lib/use-public-coaches';
+
+// ─── Weekend calendar helpers ─────────────────────────────────────────────────
+
+type Weekend = { sat: Date; sun: Date };
+
+/** Returns the next N upcoming weekends (starting from today or next Saturday) */
+function buildUpcomingWeekends(count = 10): Weekend[] {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  // Find nearest upcoming Saturday
+  const dayOfWeek = today.getDay(); // 0=Sun … 6=Sat
+  const daysUntilSat = dayOfWeek === 6 ? 0 : (6 - dayOfWeek);
+  const firstSat = new Date(today);
+  firstSat.setDate(today.getDate() + daysUntilSat);
+  const weekends: Weekend[] = [];
+  for (let i = 0; i < count; i++) {
+    const sat = new Date(firstSat);
+    sat.setDate(firstSat.getDate() + i * 7);
+    const sun = new Date(sat);
+    sun.setDate(sat.getDate() + 1);
+    weekends.push({ sat, sun });
+  }
+  return weekends;
+}
+
+function parsePrimaryMetaDate(meta: string): string | null {
+  // Parses "13. 6. 2026 · 10:00 - 17:00" → "2026-06-13"
+  const m = meta.match(/(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{4})/);
+  if (!m) return null;
+  return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+}
+
+function isoDate(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+function formatWeekendLabel(w: Weekend): string {
+  const opts: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'numeric' };
+  const satStr = w.sat.toLocaleDateString('cs-CZ', opts);
+  const sunStr = w.sun.toLocaleDateString('cs-CZ', { day: 'numeric', month: 'numeric', year: 'numeric' });
+  return `${satStr} – ${sunStr}`;
+}
+
+function dayLabel(d: Date): string {
+  return d.toLocaleDateString('cs-CZ', { weekday: 'short', day: 'numeric', month: 'numeric' });
+}
+
+// ─── Workshop Browser (city filter + weekend calendar) ───────────────────────
+
+const CITIES = ['Vše', 'Praha', 'Brno', 'Ostrava'] as const;
+type CityFilter = (typeof CITIES)[number];
+
+export function WorkshopBrowser() {
+  const { products, loading, error } = useAdminCreatedProducts();
+  const { coachesForIds } = usePublicCoaches();
+  const workshops = products.filter((p) => p.type === 'Workshop');
+
+  const weekends = useMemo(() => buildUpcomingWeekends(12), []);
+  const [weekendIdx, setWeekendIdx] = useState(0);
+  const [cityFilter, setCityFilter] = useState<CityFilter>('Vše');
+  const [trickSearch, setTrickSearch] = useState('');
+
+  const selectedWeekend = weekends[weekendIdx];
+
+  // Collect all unique trick names from all workshops for the suggestion dropdown
+  const allTricks = useMemo(() => {
+    const names = new Set<string>();
+    for (const w of workshops) {
+      for (const t of w.trainingFocus) {
+        if (t) names.add(t);
+      }
+    }
+    return Array.from(names).sort((a, b) => a.localeCompare(b, 'cs'));
+  }, [workshops]);
+
+  const trickSearchLower = trickSearch.trim().toLowerCase();
+
+  const filteredSuggestions = useMemo(() => {
+    if (!trickSearchLower) return [];
+    return allTricks.filter((t) => t.toLowerCase().includes(trickSearchLower));
+  }, [allTricks, trickSearchLower]);
+
+  const filteredWorkshops = useMemo(() => {
+    return workshops.filter((w) => {
+      const date = parsePrimaryMetaDate(w.primaryMeta);
+      const matchesWeekend = trickSearchLower
+        ? true // when searching by trick, ignore weekend filter
+        : date
+          ? date === isoDate(selectedWeekend.sat) || date === isoDate(selectedWeekend.sun)
+          : false;
+      const matchesCity = cityFilter === 'Vše' || w.city.toLowerCase().includes(cityFilter.toLowerCase());
+      const matchesTrick = !trickSearchLower || w.trainingFocus.some((t) => t.toLowerCase().includes(trickSearchLower));
+      return matchesWeekend && matchesCity && matchesTrick;
+    });
+  }, [workshops, selectedWeekend, cityFilter, trickSearchLower]);
+
+  // How many workshops exist per weekend (for dot indicators)
+  const weekendCounts = useMemo(() => {
+    return weekends.map((w) =>
+      workshops.filter((ws) => {
+        const d = parsePrimaryMetaDate(ws.primaryMeta);
+        return d === isoDate(w.sat) || d === isoDate(w.sun);
+      }).length,
+    );
+  }, [workshops, weekends]);
+
+  if (loading) return <CatalogInlineState label="Načítám aktuální workshopy..." />;
+  if (error) return <CatalogInlineState label="Aktuální workshopy se nepodařilo načíst." />;
+
+  return (
+    <div className="space-y-6">
+      {/* City filter */}
+      <div className="flex flex-wrap gap-2">
+        {CITIES.map((city) => (
+          <button
+            key={city}
+            type="button"
+            onClick={() => setCityFilter(city)}
+            className={`rounded-[14px] px-4 py-2 text-sm font-black transition ${cityFilter === city ? 'bg-brand-purple text-white shadow-brand' : 'border border-brand-purple/15 bg-white text-brand-ink-soft hover:bg-brand-purple/5 hover:text-brand-purple'}`}
+          >
+            {city}
+          </button>
+        ))}
+      </div>
+
+      {/* Trick search */}
+      <div className="relative">
+        <div className="pointer-events-none absolute inset-y-0 left-4 flex items-center text-brand-purple/50">
+          <Search size={16} />
+        </div>
+        <input
+          type="text"
+          value={trickSearch}
+          onChange={(e) => setTrickSearch(e.target.value)}
+          placeholder="Hledat podle triku (Backflip, Safety roll…)"
+          className="w-full rounded-[14px] border border-brand-purple/15 bg-white py-3 pl-10 pr-10 text-sm font-bold text-brand-ink placeholder:text-brand-ink-soft/50 outline-none focus:border-brand-purple/40 focus:ring-2 focus:ring-brand-purple/10 transition"
+        />
+        {trickSearch && (
+          <button
+            type="button"
+            onClick={() => setTrickSearch('')}
+            className="absolute inset-y-0 right-3 flex items-center text-brand-ink-soft/60 hover:text-brand-ink transition"
+          >
+            <X size={16} />
+          </button>
+        )}
+        {/* Autocomplete suggestions */}
+        {filteredSuggestions.length > 0 && (
+          <ul className="absolute left-0 right-0 top-full z-20 mt-1 max-h-48 overflow-y-auto rounded-[14px] border border-brand-purple/15 bg-white shadow-brand-soft">
+            {filteredSuggestions.map((trick) => (
+              <li key={trick}>
+                <button
+                  type="button"
+                  onClick={() => setTrickSearch(trick)}
+                  className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm font-bold text-brand-ink hover:bg-brand-purple/5 hover:text-brand-purple transition"
+                >
+                  <Search size={13} className="shrink-0 text-brand-purple/40" />
+                  {trick}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {/* Active trick filter badge */}
+      {trickSearchLower && (
+        <div className="flex items-center gap-2 rounded-[12px] border border-brand-purple/15 bg-brand-purple/5 px-4 py-2 text-sm font-black text-brand-purple">
+          <Search size={14} />
+          Triky obsahující: <span className="font-black">{trickSearch.trim()}</span>
+          <button type="button" onClick={() => setTrickSearch('')} className="ml-auto text-brand-purple/60 hover:text-brand-purple transition">
+            <X size={14} />
+          </button>
+          {!trickSearchLower && null}
+        </div>
+      )}
+
+      {/* Weekend calendar */}
+      <div className="rounded-[24px] border border-brand-purple/12 bg-white p-5 shadow-brand-soft">
+        <div className="mb-4 flex items-center gap-2 text-xs font-black uppercase text-brand-ink-soft">
+          <CalendarDays size={14} />
+          Víkend
+        </div>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            disabled={weekendIdx === 0}
+            onClick={() => setWeekendIdx((i) => i - 1)}
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-brand-purple/15 bg-brand-paper text-brand-ink-soft transition hover:bg-brand-purple hover:text-white disabled:pointer-events-none disabled:opacity-30"
+          >
+            <ArrowLeft size={16} />
+          </button>
+
+          <div className="flex-1 text-center">
+            <p className="text-xl font-black text-brand-ink md:text-2xl">{formatWeekendLabel(selectedWeekend)}</p>
+            <div className="mt-2 flex justify-center gap-1.5">
+              <span className="rounded-full bg-brand-paper px-2.5 py-1 text-xs font-bold text-brand-ink-soft">So {dayLabel(selectedWeekend.sat).split(' ').slice(1).join(' ')}</span>
+              <span className="text-brand-ink-soft/40 text-xs font-bold self-center">·</span>
+              <span className="rounded-full bg-brand-paper px-2.5 py-1 text-xs font-bold text-brand-ink-soft">Ne {dayLabel(selectedWeekend.sun).split(' ').slice(1).join(' ')}</span>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            disabled={weekendIdx === weekends.length - 1}
+            onClick={() => setWeekendIdx((i) => i + 1)}
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-brand-purple/15 bg-brand-paper text-brand-ink-soft transition hover:bg-brand-purple hover:text-white disabled:pointer-events-none disabled:opacity-30"
+          >
+            <ArrowRight size={16} />
+          </button>
+        </div>
+
+        {/* Dot indicators for next weekends */}
+        <div className="mt-4 flex justify-center gap-1.5">
+          {weekends.slice(0, 8).map((_, i) => (
+            <button
+              key={i}
+              type="button"
+              onClick={() => setWeekendIdx(i)}
+              className={`h-2 rounded-full transition-all ${i === weekendIdx ? 'w-5 bg-brand-purple' : weekendCounts[i] > 0 ? 'w-2 bg-brand-purple/40' : 'w-2 bg-brand-purple/15'}`}
+            />
+          ))}
+        </div>
+      </div>
+
+      {/* Workshop cards */}
+      {filteredWorkshops.length === 0 ? (
+        <div className="rounded-brand border border-brand-purple/12 bg-white p-8 text-center shadow-brand-soft">
+          <CalendarDays size={32} className="mx-auto mb-3 text-brand-purple/30" />
+          <p className="font-black text-brand-ink">
+            {trickSearchLower ? `Žádný workshop s trikem "${trickSearch.trim()}"` : 'Tento víkend žádný workshop'}
+          </p>
+          <p className="mt-1 text-sm font-bold text-brand-ink-soft">
+            {trickSearchLower
+              ? 'Zkus jiné jméno triku nebo vymaž filtr.'
+              : `${cityFilter !== 'Vše' ? `V ${cityFilter} ` : ''}Zkus jiný víkend nebo vyber jiné město.`}
+          </p>
+        </div>
+      ) : (
+        <div className="grid gap-4 lg:grid-cols-2">
+          {filteredWorkshops.map((workshop, index) => (
+            <Reveal key={workshop.id} delay={index * 80}>
+              <WorkshopPublicCard product={workshop} coaches={coachesForIds(workshop.coachIds ?? [])} />
+            </Reveal>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function AdminCreatedWorkshopCards({ startDelay = 0 }: { startDelay?: number }) {
   const { products, loading, error } = useAdminCreatedProducts();
@@ -243,7 +493,7 @@ export function AdminCreatedCourseDetail({ productId }: { productId: string }) {
               <div className="overflow-hidden rounded-brand shadow-brand-soft">
                 <iframe
                   title="Mapa místa"
-                  src={`https://maps.google.com/maps?q=${encodeURIComponent(product.mapQuery)}&output=embed&hl=cs`}
+                  src={`https://www.openstreetmap.org/export/embed.html?query=${encodeURIComponent(product.mapQuery)}&layer=mapnik`}
                   className="h-64 w-full border-0"
                   loading="lazy"
                   referrerPolicy="no-referrer-when-downgrade"
@@ -393,6 +643,23 @@ function WorkshopPublicCard({ product, coaches = [] }: { product: ParentProduct;
             ))}
           </div>
         ) : null}
+        {(() => {
+          const videos = product.importantInfo.filter((i) => i.label === 'Video trik 1' || i.label === 'Video trik 2');
+          if (videos.length === 0) return null;
+          return (
+            <div className="mt-5 border-t border-black/10 pt-4">
+              <p className="text-xs font-black uppercase text-slate-400">Ukázky triků</p>
+              <div className="mt-3 grid gap-3">
+                {videos.map((v) => (
+                  <div key={v.label}>
+                    <p className="mb-1.5 text-xs font-black text-brand-ink-soft">{v.label.replace('Video t', 'T')}</p>
+                    <video src={v.value} controls className="w-full rounded-[18px] bg-black" style={{ maxHeight: 260 }} playsInline />
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
         <p className="mt-4 inline-flex gap-2 text-sm font-bold text-brand-ink"><CheckCircle2 size={18} className="text-brand-cyan" /> QR ticket po zaplacení</p>
         {coaches.length > 0 ? (
           <div className="mt-5 border-t border-black/10 pt-4">

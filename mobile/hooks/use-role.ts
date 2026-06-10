@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useState } from 'react';
 
-export type AppRole = 'participant' | 'coach';
+export type AppRole = 'participant' | 'coach' | 'parent' | 'admin';
 
 const STORAGE_KEY = 'vys.role';
 
@@ -14,7 +14,7 @@ function emit(role: AppRole | null) {
 }
 
 function parseRole(value: string | null): AppRole | null {
-  if (value === 'participant' || value === 'coach') return value;
+  if (value === 'participant' || value === 'coach' || value === 'parent' || value === 'admin') return value;
   if (value === 'kid') return 'participant';
   return null;
 }

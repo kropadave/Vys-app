@@ -36,17 +36,54 @@ export type WorkshopTicketPayload = {
   tricks: string[];
 };
 
-const workshopSkillIds: Record<string, string[]> = {
-  'workshop-praha-balkan': ['tic-tac', 'kong-vault', 'lazy-vault', 'butterfly-kick', 'tornado-kick', 'macaco'],
+// Each workshop has exactly 2 required tricks.
+// Update this map whenever a new workshop product is created in the DB.
+const workshopSkillIds: Record<string, [string, string]> = {
+  'workshop-praha-balkan': ['tic-tac', 'kong-vault'],
 };
+
+// Fallback pair used when a product ID isn't in the map yet.
+const FALLBACK_WORKSHOP_TRICKS: [string, string] = ['safety-roll', 'safety-vault'];
+
+export const WORKSHOP_TRICKS_COUNT = 2;
+
+export type WorkshopProductInfo = {
+  id: string;
+  title: string;
+};
+
+/** Static list of known workshop products for the coach QR screen.
+ *  Add new entries here when new workshop products are created in the DB. */
+export const workshopProducts: WorkshopProductInfo[] = [
+  { id: 'workshop-praha-balkan', title: 'Workshop Praha · Balkán' },
+];
 
 export function workshopTicketCode(purchase: WorkshopTicketPurchase) {
   return `VYS-WS-${purchase.productId}-${purchase.participantId}-${purchase.id}`.toUpperCase();
 }
 
 export function workshopTicketSkills(productId: string) {
-  const skillIds = workshopSkillIds[productId] ?? workshopSkillIds['workshop-praha-balkan'];
+  const skillIds = workshopSkillIds[productId] ?? FALLBACK_WORKSHOP_TRICKS;
   return skillIds.map((id) => skillTreeTricks.find((trick) => trick.id === id)).filter((trick): trick is NonNullable<typeof trick> => Boolean(trick));
+}
+
+/** Total XP if both workshop tricks are completed. */
+export function workshopTotalXp(productId: string): number {
+  return workshopTicketSkills(productId).reduce((sum, trick) => sum + trick.xp, 0);
+}
+
+/** XP to award based on how many of the 2 workshop tricks the participant has completed.
+ *  0/2 → 0 XP (not unlocked), 1/2 → ceil(total/2), 2/2 → total XP. */
+export function workshopXpForCompletedCount(productId: string, completedCount: number): number {
+  if (completedCount <= 0) return 0;
+  const total = workshopTotalXp(productId);
+  if (completedCount >= WORKSHOP_TRICKS_COUNT) return total;
+  return Math.ceil(total / WORKSHOP_TRICKS_COUNT);
+}
+
+/** IDs of the 2 tricks required for a given workshop product. */
+export function workshopTrickIds(productId: string): string[] {
+  return (workshopSkillIds[productId] ?? FALLBACK_WORKSHOP_TRICKS).slice();
 }
 
 export function workshopProductForPurchase(purchase: WorkshopTicketPurchase) {

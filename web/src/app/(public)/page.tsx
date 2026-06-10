@@ -8,17 +8,25 @@ import { ProgramsSection } from '@/components/sections/programs';
 import { StatsSection } from '@/components/sections/stats';
 import { TrustMarquee } from '@/components/sections/trust-marquee';
 
+function SectionDivider() {
+  return <div aria-hidden className="h-2 bg-white" />;
+}
+
 export default function HomePage() {
   return (
     <>
       <Hero />
+      <SectionDivider />
       <TrustMarquee />
       <StatsSection />
       <ProgramsSection />
+      <SectionDivider />
       <JourneySection />
       <GallerySection />
+      <SectionDivider />
       <PillarsSection />
       <FaqSection />
+      <SectionDivider />
       <FinalCta />
     </>
   );

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { BlurView } from 'expo-blur';
@@ -6,11 +6,13 @@ import QRCode from 'react-native-qrcode-svg';
 
 import { CoachCard, CoachPageHeader } from '@/components/coach/coach-screen';
 import { StatusPill } from '@/components/parent-card';
-import { addQrEvent, type StoredQrEvent } from '@/hooks/use-qr-events';
+import { addQrEvent, getCoachId, type StoredQrEvent } from '@/hooks/use-qr-events';
 import type { CoachTrick } from '@/lib/coach-content';
 import { coachTricks } from '@/lib/coach-content';
 import { CoachColors } from '@/lib/coach-theme';
 import { Radius, Spacing } from '@/lib/theme';
+import type { WorkshopProductInfo } from '@/lib/workshop-ticket';
+import { workshopProducts } from '@/lib/workshop-ticket';
 
 const QR_CLAIM_BASE_URL = 'https://vys-expo-web-export.vercel.app/qr-claim';
 
@@ -21,6 +23,11 @@ export default function CoachQr() {
   const [selectedQrEvent, setSelectedQrEvent] = useState<StoredQrEvent | null>(null);
   const [generatedAt, setGeneratedAt] = useState<number | null>(null);
   const [qrModalVisible, setQrModalVisible] = useState(false);
+
+  const [workshopQrVisible, setWorkshopQrVisible] = useState(false);
+  const [selectedWorkshop, setSelectedWorkshop] = useState<WorkshopProductInfo | null>(null);
+  const [workshopClaimUrl, setWorkshopClaimUrl] = useState('');
+  const [workshopGeneratedAt, setWorkshopGeneratedAt] = useState<number | null>(null);
 
   const levels = useMemo(() => Array.from(new Set(coachTricks.map((trick) => trick.level))).sort((a, b) => a - b), []);
 
@@ -43,11 +50,21 @@ export default function CoachQr() {
     setSelectedQrEvent(event);
   };
 
-  const validUntil = generatedAt ? new Date(generatedAt + 60_000).toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : null;
+  const generateWorkshopQr = async (product: WorkshopProductInfo) => {
+    const coachId = await getCoachId();
+    const ts = Date.now();
+    const url = `${QR_CLAIM_BASE_URL}?workshop=${encodeURIComponent(product.id)}&title=${encodeURIComponent(product.title)}&ts=${ts}&coach=${encodeURIComponent(coachId)}`;
+    setWorkshopClaimUrl(url);
+    setWorkshopGeneratedAt(ts);
+    setSelectedWorkshop(product);
+    setWorkshopQrVisible(true);
+  };
+
   const claimUrl = selectedQrEvent ? `${QR_CLAIM_BASE_URL}?event=${encodeURIComponent(selectedQrEvent.id)}` : QR_CLAIM_BASE_URL;
 
   return (
     <>
+      {/* Trick QR modal */}
       <Modal visible={qrModalVisible} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setQrModalVisible(false)}>
         <BlurView intensity={80} tint="dark" style={styles.blurOverlay}>
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setQrModalVisible(false)} />
@@ -59,10 +76,7 @@ export default function CoachQr() {
             <Text style={styles.qrModalTitle}>{selectedTrick.title}</Text>
             <Text style={styles.qrModalDiscipline}>{selectedTrick.discipline}</Text>
             <Text style={styles.qrModalMuted}>{selectedTrick.levelTitle} · {selectedTrick.bracelet} náramek</Text>
-            <GeneratedQr value={claimUrl} large />
-            {generatedAt ? (
-              <Text style={styles.qrModalValid}>Platí do {validUntil}</Text>
-            ) : null}
+            <QrWithCountdown value={claimUrl} generatedAt={generatedAt} />
             {selectedQrEvent?.syncStatus === 'local' ? (
               <Text style={styles.qrModalWarning}>QR se neuložil do cloudu, takže ho jiné zařízení nemusí najít. Zkontroluj připojení a obnov QR.</Text>
             ) : null}
@@ -131,18 +145,81 @@ export default function CoachQr() {
             })}
           </View>
         </CoachCard>
+
+        {workshopProducts.length > 0 && (
+          <CoachCard title="Workshopy" subtitle="Naskenuj dítěti workshop QR a systém sám zjistí, zda má splněný 1 nebo oba triky workshopu.">
+            <View style={styles.trickGrid}>
+              {workshopProducts.map((product) => (
+                <Pressable
+                  key={product.id}
+                  onPress={() => generateWorkshopQr(product)}
+                  style={({ pressed }) => [styles.trickCard, pressed && { opacity: 0.86 }]}
+                >
+                  <Text style={styles.cardTitle}>{product.title}</Text>
+                  <Text style={styles.chooseText}>Vygenerovat QR</Text>
+                </Pressable>
+              ))}
+            </View>
+          </CoachCard>
+        )}
       </ScrollView>
+
+      {/* Workshop QR modal */}
+      <Modal visible={workshopQrVisible} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setWorkshopQrVisible(false)}>
+        <BlurView intensity={80} tint="dark" style={styles.blurOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setWorkshopQrVisible(false)} />
+          <View style={styles.qrModal}>
+            <View style={styles.qrModalHeader}>
+              <StatusPill label="Workshop" tone="success" />
+              <Text style={styles.qrModalXp}>½ nebo plné XP</Text>
+            </View>
+            <Text style={styles.qrModalTitle}>{selectedWorkshop?.title}</Text>
+            <Text style={styles.qrModalDiscipline}>Workshop QR</Text>
+            <QrWithCountdown value={workshopClaimUrl || QR_CLAIM_BASE_URL} generatedAt={workshopGeneratedAt} />
+            <Text style={styles.qrModalMuted}>Dítě dostane XP podle počtu splněných triků workshopu (1/2 nebo 2/2).</Text>
+            <View style={styles.qrModalActions}>
+              <Pressable
+                style={({ pressed }) => [styles.primaryButton, { flex: 1 }, pressed && { opacity: 0.86 }]}
+                onPress={() => selectedWorkshop && generateWorkshopQr(selectedWorkshop)}
+              >
+                <Text style={styles.primaryButtonText}>Obnovit QR na 60 s</Text>
+              </Pressable>
+              <Pressable style={({ pressed }) => [styles.closeButton, pressed && { opacity: 0.86 }]} onPress={() => setWorkshopQrVisible(false)}>
+                <Text style={styles.closeButtonText}>Zavřít</Text>
+              </Pressable>
+            </View>
+          </View>
+        </BlurView>
+      </Modal>
     </>
   );
 }
 
-function GeneratedQr({ value, large }: { value: string; large?: boolean }) {
-  const size = large ? 280 : 148;
+// QR + live 60s countdown. When it reaches 0 the QR dims and prompts a refresh.
+function QrWithCountdown({ value, generatedAt }: { value: string; generatedAt: number | null }) {
+  const [remaining, setRemaining] = useState(60);
+
+  useEffect(() => {
+    if (generatedAt == null) return;
+    const tick = () => setRemaining(Math.max(0, 60 - Math.floor((Date.now() - generatedAt) / 1000)));
+    tick();
+    const id = setInterval(tick, 500);
+    return () => clearInterval(id);
+  }, [generatedAt]);
+
+  const expired = generatedAt != null && remaining <= 0;
 
   return (
-    <View style={styles.qrBox}>
-      <QRCode value={value} size={size - 16} color={CoachColors.slate} backgroundColor="#fff" />
-    </View>
+    <>
+      <View style={[styles.qrBox, expired && styles.qrBoxExpired]}>
+        <QRCode value={value} size={264} color={CoachColors.slate} backgroundColor="#fff" />
+      </View>
+      {generatedAt != null ? (
+        <Text style={[styles.qrCountdown, expired && styles.qrCountdownExpired]}>
+          {expired ? 'QR vypršel — obnov kód' : `Vyprší za ${remaining} s`}
+        </Text>
+      ) : null}
+    </>
   );
 }
 
@@ -176,6 +253,9 @@ const styles = StyleSheet.create({
   qrModalDiscipline: { color: CoachColors.blue, fontSize: 12, fontWeight: '900', textTransform: 'uppercase' },
   qrModalMuted: { color: CoachColors.slateMuted, fontSize: 13 },
   qrModalValid: { color: CoachColors.teal, fontSize: 14, fontWeight: '900', textAlign: 'center' },
+  qrCountdown: { color: CoachColors.teal, fontSize: 18, fontWeight: '900', textAlign: 'center', letterSpacing: 0.3 },
+  qrCountdownExpired: { color: CoachColors.red },
+  qrBoxExpired: { opacity: 0.22 },
   qrModalWarning: { color: CoachColors.red, fontSize: 12, lineHeight: 17, fontWeight: '800', textAlign: 'center' },
   qrModalCode: { color: CoachColors.slateMuted, fontSize: 11, fontWeight: '800', textAlign: 'center' },
   qrModalActions: { flexDirection: 'row', gap: Spacing.sm, width: '100%', marginTop: Spacing.sm },

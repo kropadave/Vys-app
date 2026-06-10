@@ -17,9 +17,6 @@ export default function CampsPage() {
         eyebrow="Příměstské tábory"
         title="Týden pohybu, her a parkour výzev"
         body="Letní tábory stavíme tak, aby si děti užily bezpečný trénink, nové kamarády a jasný režim dne. Rodič po přihlášení vyřeší platbu, dokumenty i údaje pro trenéra na jednom místě."
-        mascotSrc="/vys-maskot-no-logo3.png"
-        mascotPosition="bottom-right"
-        mascotScale="oversized"
       />
 
       {/* Included + schedule */}

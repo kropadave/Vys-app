@@ -75,7 +75,7 @@ export default function CoachTabs() {
         tabBarIcon: ({ focused, color }) => (
           <CoachTabIcon name={tabIcons[route.name] ?? 'view-dashboard-outline'} focused={focused} color={color} />
         ),
-        tabBarIconStyle: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+        tabBarIconStyle: { flex: 1, alignItems: 'center', justifyContent: 'center', margin: 0 },
       })}>
       <Tabs.Screen name="coach" options={{ title: 'Přehled', tabBarAccessibilityLabel: 'Přehled' }} />
       <Tabs.Screen name="attendance" options={{ title: 'Docházka', tabBarAccessibilityLabel: 'Docházka' }} />
@@ -101,9 +101,11 @@ function CoachTabBarBackground() {
 
 function CoachTabIcon({ name, focused, color }: { name: MaterialIconName; focused: boolean; color: string }) {
   return (
-    <View style={[styles.tabIconShell, focused && styles.tabIconShellActive]}>
-      <MaterialCommunityIcons name={name} size={23} color={focused ? '#fff' : color} />
-      {focused ? <View style={styles.tabIconDot} /> : null}
+    <View style={styles.tabIconWrap}>
+      <View style={[styles.tabIconShell, focused && styles.tabIconShellActive]}>
+        <MaterialCommunityIcons name={name} size={23} color={focused ? '#fff' : color} />
+        {focused ? <View style={styles.tabIconDot} /> : null}
+      </View>
     </View>
   );
 }
@@ -119,6 +121,12 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(255,255,255,0.78)',
     borderRadius: 30,
+  },
+  tabIconWrap: {
+    width: 48,
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   tabIconShell: {
     width: 42,

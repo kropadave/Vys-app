@@ -2,7 +2,7 @@ import { QrCode, Sparkles, Target } from 'lucide-react';
 
 import { Reveal } from '@/components/animated/reveal';
 import { PageHero } from '@/components/page-hero';
-import { AdminCreatedWorkshopCards } from '@/components/public-admin-products';
+import { WorkshopBrowser } from '@/components/public-admin-products';
 
 export const metadata = {
   title: 'Workshopy',
@@ -22,11 +22,6 @@ export default function WorkshopsPage() {
         eyebrow="Workshopy a open jamy"
         title="Jednorázové akce pro rychlý progres"
         body="Když dítě chce potrénovat konkrétní přeskok, flow nebo tricking kombinaci, workshop je ideální. Kratší, intenzivní a s jasným výsledkem."
-        mascotSrc="/vys-maskot-no-logo4.png"
-        mascotPosition="bottom-right"
-        mascotScale="oversized"
-        mascotWidthClass="w-[360px] lg:w-[420px] xl:w-[470px]"
-        mascotDesktopPositionClass="-right-8 -top-36 rotate-3 lg:-top-44"
       />
 
       <section className="section-shell grid gap-3 py-10 md:grid-cols-3">
@@ -52,8 +47,8 @@ export default function WorkshopsPage() {
           </div>
         </Reveal>
 
-        <div className="mt-7 grid gap-4 lg:grid-cols-2">
-          <AdminCreatedWorkshopCards />
+        <div className="mt-7">
+          <WorkshopBrowser />
         </div>
       </section>
     </>

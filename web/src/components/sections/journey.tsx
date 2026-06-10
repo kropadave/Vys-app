@@ -1,6 +1,5 @@
 'use client';
 
-import { motion } from 'framer-motion';
 import { CreditCard, ScanLine, Search, Trophy } from 'lucide-react';
 
 import { Reveal } from '@/components/animated/reveal';
@@ -12,92 +11,46 @@ const journey = [
   { step: '04', title: 'Odemkni progres', body: 'Triky, XP a náramky drží motivaci i bezpečný postup.', icon: Trophy },
 ];
 
-const stepEase = [0.22, 1, 0.36, 1] as const;
-
-const stepsListVariants = {
-  hidden: {},
-  visible: { transition: { staggerChildren: 0.08 } },
-};
-
-const stepVariants = {
-  hidden: { opacity: 0, y: 24, scale: 0.98 },
-  visible: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.56, ease: stepEase } },
-};
-
 export function JourneySection() {
   return (
-    <section className="section-shell py-14 md:py-16">
-      <div className="overflow-hidden rounded-[32px] border border-brand-purple/12 bg-white text-brand-ink shadow-brand-float">
-        {/* Heading */}
-        <div className="p-6 pb-0 sm:p-8 sm:pb-0 md:p-10 md:pb-0">
-          <Reveal>
-            <p className="text-xs font-black uppercase text-brand-pink">Jak to běží</p>
-            <h2 className="mt-3 text-3xl font-black leading-tight md:text-5xl">
-              Od výběru k prvnímu odemčenému triku.
-            </h2>
-          </Reveal>
-        </div>
+    <section className="relative overflow-hidden" style={{ background: '#080412' }}>
+      <div aria-hidden className="absolute inset-x-0 top-0 z-20 h-[2px] bg-white" />
+      <div aria-hidden className="absolute inset-x-0 bottom-0 z-20 h-[2px] bg-white" />
+      <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute right-[-10%] top-[20%] h-[50vh] w-[50vh] rounded-full bg-[radial-gradient(circle,rgba(241,43,179,0.14)_0%,transparent_70%)]" />
+        <div className="absolute bottom-0 left-[10%] h-[40vh] w-[60vh] rounded-full bg-[radial-gradient(circle,rgba(139,29,255,0.2)_0%,transparent_70%)]" />
+      </div>
+      <div aria-hidden className="absolute inset-0 [background-image:linear-gradient(rgba(255,255,255,0.04)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.04)_1px,transparent_1px)] [background-size:60px_60px] [mask-image:radial-gradient(ellipse_80%_60%_at_50%_50%,black,transparent)]" />
 
-        {/* Mobile: numbered timeline list */}
-        <motion.div
-          initial="hidden"
-          whileInView="visible"
-          viewport={{ once: true, margin: '-90px' }}
-          variants={stepsListVariants}
-          className="flex flex-col gap-0 p-5 pt-7 sm:hidden"
-        >
-          {journey.map((step, index) => {
+      <div className="section-shell relative py-24 md:py-32">
+        <Reveal>
+          <p className="text-xs font-black uppercase tracking-[0.18em] text-brand-pink">Jak to běží</p>
+          <h2 className="mt-4 max-w-[18ch] text-[clamp(2.4rem,5vw,4.5rem)] font-black leading-[0.94] tracking-[-0.03em] text-white">
+            Od výběru k prvnímu odemčenému triku.
+          </h2>
+        </Reveal>
+
+        <div className="mt-16 grid gap-px overflow-hidden rounded-[32px] border border-white/10 bg-white/10 sm:grid-cols-2 md:grid-cols-4">
+          {journey.map((step, i) => {
             const Icon = step.icon;
             return (
-              <motion.div key={step.step} variants={stepVariants} className="relative flex gap-4 pb-6 last:pb-0">
-                {/* Vertical connector */}
-                {index < journey.length - 1 && (
-                  <div aria-hidden className="absolute left-[19px] top-12 h-[calc(100%-36px)] w-[2px] bg-gradient-to-b from-brand-purple/20 to-transparent" />
-                )}
-                {/* Icon circle */}
-                <div className="relative z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-brand-purple text-white shadow-lg">
-                  <Icon size={17} />
-                </div>
-                <div className="min-w-0 pt-1">
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-[10px] font-black text-brand-pink">{step.step}</span>
-                    <h3 className="text-base font-black text-brand-ink">{step.title}</h3>
+              <Reveal key={step.step} delay={i * 80}>
+                <div className="group flex h-full min-h-[250px] flex-col bg-white/[0.04] p-8 backdrop-blur-sm transition-colors duration-500 hover:bg-white/[0.08]">
+                  <span className="text-[11px] font-black tracking-[0.2em] text-white/35">{step.step}</span>
+
+                  <div className="mt-6 flex h-14 w-14 items-center justify-center rounded-[18px] bg-gradient-brand text-white shadow-lg">
+                    <Icon size={22} />
                   </div>
-                  <p className="mt-1 text-sm leading-5 text-brand-ink-soft">{step.body}</p>
-                </div>
-              </motion.div>
-            );
-          })}
-        </motion.div>
+                  <h3 className="mt-6 text-xl font-black text-white">{step.title}</h3>
 
-        {/* Desktop (sm+): 2×2 grid on sm, 4-col on md */}
-        <motion.div
-          initial="hidden"
-          whileInView="visible"
-          viewport={{ once: true, margin: '-90px' }}
-          variants={stepsListVariants}
-          className="hidden gap-px bg-brand-purple/8 sm:grid sm:grid-cols-2 md:grid-cols-4"
-        >
-          {journey.map((step, index) => {
-            const Icon = step.icon;
-            return (
-              <motion.div
-                key={step.step}
-                variants={stepVariants}
-                whileHover={{ scale: 1.02 }}
-                transition={{ type: 'spring', stiffness: 400, damping: 22 }}
-                className="flex h-full flex-col bg-white p-6 transition-colors hover:bg-brand-paper md:p-7"
-              >
-                <span className="text-[11px] font-black tracking-wide text-brand-pink">{step.step}</span>
-                <div className="mt-4 flex h-12 w-12 items-center justify-center rounded-[18px] bg-brand-purple text-white shadow-md">
-                  <Icon size={20} />
+                  <p className="mt-2 flex-1 text-[15px] leading-6 text-white/50 transition-all duration-500 ease-out md:translate-y-1 md:opacity-0 md:group-hover:translate-y-0 md:group-hover:opacity-100">
+                    {step.body}
+                  </p>
                 </div>
-                <h3 className="mt-4 text-xl font-black text-brand-ink">{step.title}</h3>
-                <p className="mt-2 flex-1 text-sm leading-6 text-brand-ink-soft">{step.body}</p>
-              </motion.div>
+              </Reveal>
             );
           })}
-        </motion.div>
+        </div>
       </div>
     </section>
   );

@@ -2,13 +2,12 @@ import { FontAwesome5 } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import { useCallback, useMemo, useState, type ComponentProps } from 'react';
-import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useMemo, useRef, useState, type ComponentProps } from 'react';
+import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { AnimatedCounter, AnimatedProgressBar, FadeInUp, PulseGlow } from '@/components/animated/motion';
 import { ParticipantActivePurchases } from '@/components/participant-active-purchases';
 import { ParticipantCard } from '@/components/participant-card';
-import { useAuth } from '@/hooks/use-auth';
 import { passesForParticipant, useDigitalPasses } from '@/hooks/use-digital-passes';
 import { useParticipantProfile } from '@/hooks/use-participant-profile';
 import { activityColors } from '@/lib/activity-theme';
@@ -16,7 +15,6 @@ import { ALL_MASCOTS, demoOwnedMascots, rarityColor, rarityLabel, type MascotRar
 import { Brand, BrandGradient } from '@/lib/brand';
 import { digitalPassProgress, remainingEntries, type DigitalPass } from '@/lib/digital-pass-content';
 import { rewardPathForXp, type ParticipantProfile } from '@/lib/participant-content';
-import { hasSupabaseConfig, supabase } from '@/lib/supabase';
 import { Palette, Radius, Shadow, Spacing } from '@/lib/theme';
 import { useBreakpoint } from '@/lib/use-breakpoint';
 
@@ -29,9 +27,9 @@ export default function ParticipantOverview() {
   const courseColors = activityColors('Kroužek');
   const { digitalPasses } = useDigitalPasses();
   const participantPasses = passesForParticipant(digitalPasses, profile.id);
-  const activePass = participantPasses[0] ?? null;
-  const passProgress = activePass ? digitalPassProgress(activePass) : 0;
-  const passProgressPercent = Math.round(passProgress * 100);
+  const [activePassIndex, setActivePassIndex] = useState(0);
+  const safePassIndex = Math.min(activePassIndex, Math.max(participantPasses.length - 1, 0));
+  const activePass = participantPasses[safePassIndex] ?? null;
   const entriesLeft = activePass ? remainingEntries(activePass) : 0;
   const nextReward = liveRewardPath.find((item) => !item.unlocked);
   const nextRewardDistance = Math.max(0, (nextReward?.xp ?? profile.xp) - profile.xp);
@@ -61,11 +59,10 @@ export default function ParticipantOverview() {
       </View>
 
       {activePass ? (
-        <DigitalPassCard
-          activePass={activePass}
-          passProgress={passProgress}
-          passProgressPercent={passProgressPercent}
-          entriesLeft={entriesLeft}
+        <DigitalPassPager
+          passes={participantPasses}
+          activeIndex={safePassIndex}
+          onIndexChange={setActivePassIndex}
           courseColors={courseColors}
           isMobile={isMobile}
         />
@@ -79,7 +76,7 @@ export default function ParticipantOverview() {
 
       <ParticipantActivePurchases title="Zakoupeno" participantId={profile.id} participantName={profile.name} />
 
-      <BirthNumberBanner profile={profile} />
+      <ClaimCodeBanner profile={profile} />
 
       {nextReward ? (
         <ParticipantCard variant="gradient" gradient={BrandGradient.warm} pattern title="Další odměna">
@@ -434,6 +431,82 @@ function SummaryStat({ icon, label, value, color, soft, compact = false }: { ico
   );
 }
 
+function DigitalPassPager({
+  passes,
+  activeIndex,
+  onIndexChange,
+  courseColors,
+  isMobile,
+}: {
+  passes: DigitalPass[];
+  activeIndex: number;
+  onIndexChange: (index: number) => void;
+  courseColors: { soft: string; border: string };
+  isMobile: boolean;
+}) {
+  const [width, setWidth] = useState(0);
+  const scrollRef = useRef<ScrollView>(null);
+
+  const renderCard = (pass: DigitalPass) => {
+    const progress = digitalPassProgress(pass);
+    return (
+      <DigitalPassCard
+        activePass={pass}
+        passProgress={progress}
+        passProgressPercent={Math.round(progress * 100)}
+        entriesLeft={remainingEntries(pass)}
+        courseColors={courseColors}
+        isMobile={isMobile}
+      />
+    );
+  };
+
+  if (passes.length === 1) {
+    return renderCard(passes[0]);
+  }
+
+  return (
+    <View onLayout={(event) => setWidth(event.nativeEvent.layout.width)}>
+      {width > 0 ? (
+        <ScrollView
+          ref={scrollRef}
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          scrollEventThrottle={16}
+          onMomentumScrollEnd={(event) => {
+            const index = Math.round(event.nativeEvent.contentOffset.x / width);
+            if (index !== activeIndex) onIndexChange(index);
+          }}
+        >
+          {passes.map((pass) => (
+            <View key={pass.id} style={{ width }}>
+              {renderCard(pass)}
+            </View>
+          ))}
+        </ScrollView>
+      ) : (
+        renderCard(passes[activeIndex] ?? passes[0])
+      )}
+
+      <View style={styles.passPagerControls}>
+        {passes.map((pass, index) => (
+          <Pressable
+            key={pass.id}
+            hitSlop={8}
+            onPress={() => {
+              onIndexChange(index);
+              scrollRef.current?.scrollTo({ x: index * width, animated: true });
+            }}
+            style={[styles.passPagerDot, index === activeIndex && styles.passPagerDotActive]}
+          />
+        ))}
+      </View>
+      <Text style={styles.passPagerHint}>Přejeď pro další permanentku ({activeIndex + 1}/{passes.length})</Text>
+    </View>
+  );
+}
+
 function DigitalPassCard({
   activePass,
   passProgress,
@@ -511,112 +584,27 @@ function hexToSoft(hex: string, alpha: number) {
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
-// ─── BirthNumberBanner ───────────────────────────────────────────────────────
+// ─── ClaimCodeBanner ─────────────────────────────────────────────────────────
 
-function BirthNumberBanner({ profile }: { profile: ParticipantProfile }) {
-  const { session } = useAuth();
-  const userId = profile.id || session?.userId || '';
-  const [open, setOpen] = useState(false);
-  const [value, setValue] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-
-  const save = useCallback(async () => {
-    const digits = value.replace(/\D/g, '');
-    if (digits.length < 4) {
-      Alert.alert('Zadej rodné číslo', 'Musí mít aspoň 4 číslice.');
-      return;
-    }
-    const formatted = digits.length >= 7 ? `${digits.slice(0, 6)}/${digits.slice(6)}` : digits;
-    if (!hasSupabaseConfig || !supabase || !userId) return;
-    setSaving(true);
-    // Try update first; if no row exists, upsert with minimal required fields
-    const { error: updateError } = await supabase
-      .from('participants')
-      .update({ birth_number_masked: formatted })
-      .eq('id', userId);
-    if (updateError && updateError.code !== 'PGRST116') {
-      setSaving(false);
-      Alert.alert('Chyba', updateError.message);
-      return;
-    }
-    // Check if row actually exists
-    const { data: existingRow } = await supabase.from('participants').select('id').eq('id', userId).maybeSingle();
-    if (!existingRow) {
-      // Row doesn't exist — fetch name from app_profiles first
-      const { data: ap } = await supabase.from('app_profiles').select('name').eq('id', userId).maybeSingle();
-      const nameParts = (ap?.name || '').trim().split(/\s+/);
-      const { error: upsertError } = await supabase.from('participants').upsert(
-        { id: userId, first_name: nameParts[0] || 'Účastník', last_name: nameParts.slice(1).join(' ') || 'TeamVYS',
-          birth_number_masked: formatted, paid_status: 'due', active_purchases: [], without_phone: true },
-        { onConflict: 'id' }
-      );
-      if (upsertError) {
-        setSaving(false);
-        Alert.alert('Chyba', upsertError.message);
-        return;
-      }
-    }
-    setSaving(false);
-    setSaved(true);
-    setOpen(false);
-    setValue('');
-  }, [value, userId]);
-
-  if (saved || profile.birthNumberMasked) return null;
+function ClaimCodeBanner({ profile }: { profile: ParticipantProfile }) {
+  if (!profile.claimCode) return null;
 
   return (
-    <>
-      <Pressable
-        onPress={() => setOpen(true)}
-        style={bnStyles.banner}
-      >
-        <FontAwesome5 name="id-card" size={15} color={Brand.purple} style={{ marginRight: 8 }} />
-        <View style={{ flex: 1 }}>
-          <Text style={bnStyles.title}>Doplň rodné číslo</Text>
-          <Text style={bnStyles.sub}>Potřebuješ ho pro propojení s rodičovským portálem.</Text>
-        </View>
-        <FontAwesome5 name="chevron-right" size={12} color={Brand.purple} />
-      </Pressable>
-
-      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
-        <View style={bnStyles.overlay}>
-          <View style={bnStyles.sheet}>
-            <Text style={bnStyles.sheetTitle}>Rodné číslo</Text>
-            <Text style={bnStyles.sheetSub}>Zadej 6 číslic, lomítko se přidá automaticky.</Text>
-            <TextInput
-              style={bnStyles.input}
-              placeholder="045212/1234"
-              placeholderTextColor="#bbb"
-              value={value}
-              onChangeText={(text) => {
-                const digits = text.replace(/\D/g, '');
-                if (digits.length <= 6) setValue(digits);
-                else setValue(`${digits.slice(0, 6)}/${digits.slice(6, 10)}`);
-              }}
-              keyboardType="number-pad"
-              maxLength={11}
-              autoFocus
-            />
-            <View style={bnStyles.row}>
-              <Pressable style={bnStyles.btnSecondary} onPress={() => setOpen(false)}>
-                <Text style={bnStyles.btnSecondaryText}>Zrušit</Text>
-              </Pressable>
-              <Pressable style={[bnStyles.btnPrimary, saving && { opacity: 0.6 }]} onPress={save} disabled={saving}>
-                <Text style={bnStyles.btnPrimaryText}>{saving ? 'Ukládám…' : 'Uložit'}</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
-    </>
+    <View style={bnStyles.banner}>
+      <FontAwesome5 name="qrcode" size={15} color={Brand.purple} style={{ marginRight: 8 }} />
+      <View style={{ flex: 1 }}>
+        <Text style={bnStyles.title}>Tvůj propojovací kód</Text>
+        <Text style={bnStyles.code}>{profile.claimCode}</Text>
+        <Text style={bnStyles.sub}>Sdílej tento kód rodiči — přidá tě do rodičovského portálu.</Text>
+      </View>
+    </View>
   );
 }
 
 const bnStyles = StyleSheet.create({
   banner: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     backgroundColor: '#F0EAFF',
     borderRadius: 14,
     padding: 14,
@@ -624,26 +612,9 @@ const bnStyles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(139,29,255,0.18)',
   },
-  title: { fontSize: 14, fontWeight: '700', color: Brand.purple },
+  title: { fontSize: 12, fontWeight: '700', color: Brand.purple, textTransform: 'uppercase', letterSpacing: 0.5 },
+  code: { fontSize: 20, fontWeight: '900', color: '#1a1a2e', letterSpacing: 3, marginTop: 2, marginBottom: 2 },
   sub: { fontSize: 12, color: '#666', marginTop: 2 },
-  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', alignItems: 'center' },
-  sheet: { backgroundColor: '#fff', borderRadius: 20, padding: 24, width: '85%', maxWidth: 380 },
-  sheetTitle: { fontSize: 18, fontWeight: '800', color: '#1a1a2e', marginBottom: 6 },
-  sheetSub: { fontSize: 13, color: '#666', marginBottom: 16 },
-  input: {
-    borderWidth: 1.5,
-    borderColor: 'rgba(139,29,255,0.3)',
-    borderRadius: 10,
-    padding: 12,
-    fontSize: 16,
-    color: '#1a1a2e',
-    marginBottom: 18,
-  },
-  row: { flexDirection: 'row', gap: 10 },
-  btnSecondary: { flex: 1, padding: 12, borderRadius: 10, borderWidth: 1.5, borderColor: '#ccc', alignItems: 'center' },
-  btnSecondaryText: { fontSize: 14, fontWeight: '600', color: '#555' },
-  btnPrimary: { flex: 1, padding: 12, borderRadius: 10, backgroundColor: Brand.purple, alignItems: 'center' },
-  btnPrimaryText: { fontSize: 14, fontWeight: '700', color: '#fff' },
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -983,6 +954,10 @@ const styles = StyleSheet.create({
   sideColumn: { gap: Spacing.lg, minWidth: 0 },
 
   passCard: { borderColor: 'rgba(46,231,214,0.22)' },
+  passPagerControls: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 7, marginTop: 10 },
+  passPagerDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: 'rgba(46,231,214,0.28)' },
+  passPagerDotActive: { width: 22, backgroundColor: Brand.cyanDeep },
+  passPagerHint: { textAlign: 'center', color: Palette.textMuted, fontSize: 12, lineHeight: 17, fontWeight: '700', marginTop: 6 },
   cardTitleRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
   cardTitleRowMobile: { alignItems: 'flex-start' },
   sectionKicker: { color: Brand.cyanDeep, fontSize: 12, lineHeight: 17, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 1 },

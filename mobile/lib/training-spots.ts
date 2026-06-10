@@ -1,4 +1,16 @@
 // Hardcoded verified training spots — also seeded to Supabase via migration.
+export type SpotType =
+  | 'gym'
+  | 'parkour_park'
+  | 'skatepark'
+  | 'playground'
+  | 'foam_pit_hall'
+  | 'trampoline_park'
+  | 'workout_park'
+  | 'other';
+
+export type SpotEnvironment = 'outdoor' | 'indoor' | 'both';
+
 export type TrainingSpot = {
   id: string;
   name: string;
@@ -13,6 +25,37 @@ export type TrainingSpot = {
   is_verified: boolean;
   added_by: string | null;
   created_at: string;
+  spot_type?: SpotType | null;
+  environment?: SpotEnvironment | null;
+  opening_hours?: string | null;
+};
+
+export const SPOT_TYPE_LABELS: Record<SpotType, string> = {
+  gym: 'Tělocvična / hala',
+  parkour_park: 'Parkour park',
+  skatepark: 'Skatepark',
+  playground: 'Hřiště',
+  foam_pit_hall: 'Sál s molitanovou jámou',
+  trampoline_park: 'Trampolínový park',
+  workout_park: 'Workout / kalisthenika',
+  other: 'Jiné',
+};
+
+export const SPOT_TYPE_ICONS: Record<SpotType, string> = {
+  gym: 'dumbbell',
+  parkour_park: 'run-fast',
+  skatepark: 'skateboard',
+  playground: 'slide',
+  foam_pit_hall: 'cube-outline',
+  trampoline_park: 'arrow-up-bold-hexagon-outline',
+  workout_park: 'weight-lifter',
+  other: 'map-marker-outline',
+};
+
+export const ENVIRONMENT_LABELS: Record<SpotEnvironment, string> = {
+  outdoor: 'Venkovní',
+  indoor: 'Vnitřní',
+  both: 'Vnitřní i venkovní',
 };
 
 export const HARDCODED_SPOTS: TrainingSpot[] = [

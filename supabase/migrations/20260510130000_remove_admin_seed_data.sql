@@ -2,10 +2,29 @@
 -- Each statement runs independently so one failure does NOT roll back the rest.
 
 -- ── 1. QR events (cascade child of coach_wards) ────────────────────────────
-delete from public.qr_events
-where ward_id in ('ward-eliska', 'ward-alex', 'ward-nela')
-   or coach_id = 'coach-demo'
-   or session_id in ('session-vyskov-nadrazni', 'session-vyskov-purkynova', 'session-prostejov');
+do $$
+begin
+   -- Older schema had ward_id/session_id in qr_events, newer schema only has coach_id/trick_id.
+   if exists (
+      select 1
+      from information_schema.columns
+      where table_schema = 'public'
+         and table_name = 'qr_events'
+         and column_name = 'ward_id'
+   ) then
+      execute $sql$
+         delete from public.qr_events
+         where ward_id in ('ward-eliska', 'ward-alex', 'ward-nela')
+             or coach_id = 'coach-demo'
+             or session_id in ('session-vyskov-nadrazni', 'session-vyskov-purkynova', 'session-prostejov')
+      $sql$;
+   else
+      execute $sql$
+         delete from public.qr_events
+         where coach_id = 'coach-demo'
+      $sql$;
+   end if;
+end $$;
 
 -- ── 2. NFC / bracelet (cascade children of coach_wards) ─────────────────────
 delete from public.nfc_chip_assignments

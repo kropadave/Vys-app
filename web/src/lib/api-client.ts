@@ -8,6 +8,7 @@ type CheckoutPayload = {
   participantName: string;
   successUrl: string;
   cancelUrl: string;
+  receiptEmail?: string;
   discountCode?: string;
 };
 
@@ -49,7 +50,6 @@ type SaveCourseDocumentsPayload = {
   participantName: string;
   participantFirstName: string;
   participantLastName: string;
-  birthNumberMasked?: string;
   documents: SaveCourseDocument[];
 };
 
@@ -69,7 +69,6 @@ type CreateManualParticipantPayload = {
   parentProfileId?: string;
   firstName: string;
   lastName: string;
-  birthNumberMasked?: string;
   dateOfBirth: string;
   schoolYear: string;
   parentName: string;
@@ -96,9 +95,7 @@ type CreateManualParticipantResponse = {
 
 type LinkParticipantPayload = {
   parentProfileId?: string;
-  firstName: string;
-  lastName: string;
-  birthNumber: string;
+  claimCode: string;
 };
 
 type LinkParticipantResponse = {
@@ -109,6 +106,19 @@ type LinkParticipantResponse = {
     active_course: string | null;
     parent_profile_id: string | null;
   };
+};
+
+type RegisterWorkshopInterestPayload = {
+  parentProfileId?: string;
+  productId: string;
+  participantId: string;
+  participantName: string;
+};
+
+type RegisterWorkshopInterestResponse = {
+  interestCount: number;
+  canPurchase: boolean;
+  threshold: number;
 };
 
 type ConfirmResponse = {
@@ -226,7 +236,7 @@ export async function createManualParticipantProfile(payload: CreateManualPartic
   }, { auth: true });
 }
 
-export async function linkParticipantByBirthNumber(payload: LinkParticipantPayload): Promise<LinkParticipantResponse> {
+export async function linkParticipantByClaimCode(payload: LinkParticipantPayload): Promise<LinkParticipantResponse> {
   // This route lives in the Next.js app itself — use a relative fetch, NOT the external apiUrl
   const init = await withAuthHeader({
     method: 'POST',
@@ -237,6 +247,14 @@ export async function linkParticipantByBirthNumber(payload: LinkParticipantPaylo
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
   return data as LinkParticipantResponse;
+}
+
+export async function registerWorkshopInterest(payload: RegisterWorkshopInterestPayload): Promise<RegisterWorkshopInterestResponse> {
+  return requestJson('/api/workshop-interests', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }, { auth: true });
 }
 
 export async function confirmCheckoutSession(sessionId: string): Promise<ConfirmResponse> {
@@ -337,6 +355,8 @@ export type AdminProductRow = {
   expires_at?: string;
   capacity_total?: number;
   capacity_current: number;
+  interest_count?: number;
+  can_purchase?: boolean;
   hero_image?: string;
   gallery: string[];
   map_query?: string;
@@ -390,6 +410,7 @@ export type AdminInvoiceRow = {
   cislo_faktury: string | null;
   popis: string | null;
   file_url: string | null;
+  kategorie: string | null;
   zaplaceno: boolean;
   datum_zaplaceni: string | null;
   odeslal: string | null;
@@ -401,9 +422,11 @@ export type AdminInvoiceInput = {
   description: string;
   amount: number;
   issuedDate: string;
-  dueDate: string;
+  dueDate?: string;
   paid?: boolean;
   paidDate?: string;
+  category?: string;
+  fileUrl?: string;
 };
 
 export async function loadAdminInvoices(): Promise<AdminInvoiceRow[]> {
@@ -431,4 +454,20 @@ export async function updateAdminInvoicePayment(invoiceId: string, paid: boolean
 
 export async function deleteAdminInvoice(invoiceId: string): Promise<void> {
   await requestJson(`/api/admin/invoices/${encodeURIComponent(invoiceId)}`, { method: 'DELETE' }, { auth: true });
+}
+
+export async function createAdminInvoiceUploadUrl(filename: string): Promise<{ signedUrl: string; path: string }> {
+  return requestJson<{ signedUrl: string; path: string }>('/api/admin/invoices/upload-url', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filename }),
+  }, { auth: true });
+}
+
+export async function createProductVideoUploadUrl(filename: string): Promise<{ signedUrl: string; path: string }> {
+  return requestJson<{ signedUrl: string; path: string }>('/api/admin/products/video-upload-url', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filename }),
+  }, { auth: true });
 }

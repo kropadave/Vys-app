@@ -21,9 +21,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS training_spots_name_city_idx ON training_spots
 
 ALTER TABLE training_spots ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "spots_select" ON training_spots;
 CREATE POLICY "spots_select" ON training_spots
   FOR SELECT TO authenticated USING (true);
 
+DROP POLICY IF EXISTS "spots_insert" ON training_spots;
 CREATE POLICY "spots_insert" ON training_spots
   FOR INSERT TO authenticated WITH CHECK (auth.uid() = added_by OR is_verified = TRUE);
 
@@ -41,15 +43,19 @@ CREATE TABLE IF NOT EXISTS spot_reviews (
 
 ALTER TABLE spot_reviews ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "reviews_select" ON spot_reviews;
 CREATE POLICY "reviews_select" ON spot_reviews
   FOR SELECT TO authenticated USING (true);
 
+DROP POLICY IF EXISTS "reviews_insert" ON spot_reviews;
 CREATE POLICY "reviews_insert" ON spot_reviews
   FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "reviews_update" ON spot_reviews;
 CREATE POLICY "reviews_update" ON spot_reviews
   FOR UPDATE TO authenticated USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "reviews_delete" ON spot_reviews;
 CREATE POLICY "reviews_delete" ON spot_reviews
   FOR DELETE TO authenticated USING (auth.uid() = user_id);
 

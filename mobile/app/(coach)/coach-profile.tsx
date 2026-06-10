@@ -11,14 +11,98 @@ import { useCoachCamps } from '@/hooks/use-coach-camps';
 import { useCoachProfile } from '@/hooks/use-coach-profile';
 import { useCoachReviews } from '@/hooks/use-coach-reviews';
 import { useCoachSessions } from '@/hooks/use-coach-sessions';
-import { type CoachSession } from '@/lib/coach-content';
+import { WORKSHOP_HOURLY_RATE, WORKSHOP_MAX_COACHES, type CoachSession, type WorkshopCity, type WorkshopSlot } from '@/lib/coach-content';
 import { coachReviewStats, reviewsForCoach } from '@/lib/coach-reviews';
 import { CoachColors, CoachShadow } from '@/lib/coach-theme';
 import { coachInitials } from '@/lib/course-coaches';
 import { courses, type Course } from '@/lib/public-content';
+import { hasSupabaseConfig, supabase } from '@/lib/supabase';
 import { Radius, Spacing } from '@/lib/theme';
 
 const FALLBACK_COACH_ID = 'coach-demo';
+const WORKSHOP_SESSION_PREFIX = 'coach-workshop-';
+
+function workshopDayLabel(dateIso: string) {
+  const date = new Date(`${dateIso}T12:00:00`);
+  const labels = ['Neděle', 'Pondělí', 'Úterý', 'Středa', 'Čtvrtek', 'Pátek', 'Sobota'];
+  return labels[date.getDay()] ?? 'Sobota';
+}
+function formatWorkshopDate(dateIso: string) {
+  const date = new Date(`${dateIso}T12:00:00`);
+  return `${workshopDayLabel(dateIso)} ${date.getDate()}. ${date.getMonth() + 1}. ${date.getFullYear()}`;
+}
+function parseWorkshopMeta(primaryMeta: string): { dateIso: string; time: string } {
+  const isoDates = primaryMeta.match(/\d{4}-\d{2}-\d{2}/g) ?? [];
+  const czechDates = Array.from(primaryMeta.matchAll(/(\d{1,2})\.(\s*)(\d{1,2})\.(\s*)(\d{4})?/g)).map((m) => {
+    const year = m[5] ? Number(m[5]) : new Date().getFullYear();
+    return `${year}-${String(Number(m[3])).padStart(2, '0')}-${String(Number(m[1])).padStart(2, '0')}`;
+  });
+  const dateIso = isoDates[0] ?? czechDates[0] ?? new Date().toISOString().slice(0, 10);
+  const timeMatch = primaryMeta.match(/\d{1,2}:\d{2}\s*(?:[-\u2013]\s*\d{1,2}:\d{2})?/);
+  const time = timeMatch ? timeMatch[0].replace(/\s*[-\u2013]\s*/, ' - ') : '10:00 - 17:00';
+  return { dateIso, time };
+}
+function workshopCityFromString(city: string): WorkshopCity {
+  if (city === 'Praha' || city === 'Ostrava' || city === 'Brno') return city;
+  return 'Brno';
+}
+function workshopSessionId(coachId: string, slotId: string) {
+  return `${WORKSHOP_SESSION_PREFIX}${coachId}-${slotId}`;
+}
+function workshopDurationHours(time: string) {
+  const match = time.match(/(\d{1,2}):(\d{2})\s*[-\u2013]\s*(\d{1,2}):(\d{2})/);
+  if (!match) return 4;
+  const start = Number(match[1]) * 60 + Number(match[2]);
+  const end = Number(match[3]) * 60 + Number(match[4]);
+  return end > start ? (end - start) / 60 : 4;
+}
+async function loadWorkshopSlots(): Promise<WorkshopSlot[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+  const { data: productsData } = await supabase
+    .from('products')
+    .select('id, city, venue, primary_meta, capacity_current, important_info, coach_ids')
+    .eq('type', 'Workshop');
+  if (!productsData) return [];
+  const products = productsData as Array<{ id: string; city: string; venue: string; primary_meta: string; capacity_current: number; important_info: Array<{ label: string; value: string }> | null }>;
+  const { data: rowsData } = await supabase
+    .from('coach_sessions')
+    .select('id, coach_id')
+    .like('id', `${WORKSHOP_SESSION_PREFIX}%`);
+  const rows = (rowsData as Array<{ id: string; coach_id: string }> | null) ?? [];
+  const coachIds = Array.from(new Set(rows.map((r) => r.coach_id).filter(Boolean)));
+  const nameById = new Map<string, string>();
+  if (coachIds.length > 0) {
+    const { data: profilesData } = await supabase.from('app_profiles').select('id, name').in('id', coachIds);
+    for (const p of (profilesData as Array<{ id: string; name: string | null }> | null) ?? []) nameById.set(p.id, p.name ?? 'Trenér');
+  }
+  const coachesBySlotId = new Map<string, WorkshopSlot['coaches']>();
+  for (const row of rows) {
+    const prefix = `${WORKSHOP_SESSION_PREFIX}${row.coach_id}-`;
+    const slotId = row.id.startsWith(prefix) ? row.id.slice(prefix.length) : null;
+    if (!slotId) continue;
+    const coaches = coachesBySlotId.get(slotId) ?? [];
+    if (!coaches.some((c) => c.coachId === row.coach_id)) coaches.push({ coachId: row.coach_id, coachName: nameById.get(row.coach_id) ?? 'Trenér' });
+    coachesBySlotId.set(slotId, coaches);
+  }
+  return products.map((product) => {
+    const { dateIso, time } = parseWorkshopMeta(product.primary_meta);
+    const info = Array.isArray(product.important_info) ? product.important_info : [];
+    return {
+      id: product.id,
+      date: dateIso,
+      dateTo: dateIso,
+      time,
+      city: workshopCityFromString(product.city),
+      venue: product.venue,
+      coaches: coachesBySlotId.get(product.id) ?? [],
+      maxCoaches: WORKSHOP_MAX_COACHES,
+      trick1: info.find((i) => i.label === 'Trik 1')?.value,
+      trick2: info.find((i) => i.label === 'Trik 2')?.value,
+      enrolledKids: product.capacity_current,
+      updatedAt: '',
+    };
+  }).sort((a, b) => a.date.localeCompare(b.date));
+}
 
 function courseLocation(course: Course) {
   return `${course.city} · ${course.venue}`;
@@ -44,7 +128,7 @@ export default function CoachProfile() {
   const { session } = useAuth();
   const currentCoachId = session?.userId ?? FALLBACK_COACH_ID;
   const { coach, saveCoachProfilePhoto, saveCoachPayoutDetails, saveCoachPhone } = useCoachProfile(currentCoachId);
-  const { sessions: myCoachSessions, loading: coachSessionsLoading, assignCourse, removeSession } = useCoachSessions();
+  const { sessions: myCoachSessions, loading: coachSessionsLoading, addSession, assignCourse, removeSession } = useCoachSessions();
   const { camps: myCamps, loading: campsLoading } = useCoachCamps(currentCoachId);
   const coachLevel = Math.max(1, Math.floor(coach.taughtTricksCount / 20) + 1);
   const coachXp = coach.taughtTricksCount * 25;
@@ -70,10 +154,53 @@ export default function CoachProfile() {
   const [coursesSheetOpen, setCoursesSheetOpen] = useState(false);
   const [courseActionId, setCourseActionId] = useState<string | null>(null);
   const [courseMessage, setCourseMessage] = useState('');
+  const [workshopsSheetOpen, setWorkshopsSheetOpen] = useState(false);
+  const [workshopSlots, setWorkshopSlots] = useState<WorkshopSlot[]>([]);
+  const [workshopLoading, setWorkshopLoading] = useState(false);
+  const [workshopActionId, setWorkshopActionId] = useState<string | null>(null);
+  const [workshopMessage, setWorkshopMessage] = useState('');
+  const [adminCourses, setAdminCourses] = useState<Course[]>([]);
+  const staticCourseIds = useMemo(() => new Set(courses.map((c) => c.id)), []);
+  const allCourses = useMemo(() => [...courses, ...adminCourses], [adminCourses]);
   const assignedCourseIds = useMemo(
-    () => new Set(courses.filter((course) => myCoachSessions.some((session) => courseMatchesSession(course, session))).map((course) => course.id)),
-    [myCoachSessions],
+    () => new Set(allCourses.filter((course) => myCoachSessions.some((sessionItem) => courseMatchesSession(course, sessionItem))).map((course) => course.id)),
+    [allCourses, myCoachSessions],
   );
+
+  useEffect(() => {
+    async function loadAdminCourses() {
+      try {
+        const { courses: raw } = await apiClient.courses() as { courses: Array<{ id: string; city: string; venue: string; place: string; primary_meta: string; price: number; price_label: string; capacity_total: number }> };
+        const parsed: Course[] = raw
+          .filter((item) => !staticCourseIds.has(item.id))
+          .map((item) => {
+            const match = (item.primary_meta ?? '').match(/^(.+?)\s*·\s*(\d+:\d+)\s*[-\u2013]\s*(\d+:\d+)/);
+            const day = match ? match[1].trim() : item.primary_meta ?? '';
+            const from = match ? match[2].trim() : '';
+            const to = match ? match[3].trim() : '';
+            return {
+              id: item.id,
+              city: item.city,
+              venue: item.venue || item.place,
+              day,
+              from,
+              to,
+              price: item.price_label || `${item.price} Kč`,
+              priceAmount: item.price,
+              capacityTotal: item.capacity_total,
+            };
+          });
+        setAdminCourses(parsed);
+      } catch {
+        // keep static list as fallback
+      }
+    }
+    void loadAdminCourses();
+  }, [staticCourseIds]);
+
+  useEffect(() => {
+    loadWorkshopSlots().then(setWorkshopSlots).catch(() => {});
+  }, []);
 
   useEffect(() => {
     setPayoutForm({
@@ -120,6 +247,44 @@ export default function CoachProfile() {
     }
   }
 
+  async function openWorkshopsSheet() {
+    setWorkshopsSheetOpen(true);
+    setWorkshopLoading(true);
+    try {
+      const slots = await loadWorkshopSlots();
+      setWorkshopSlots(slots);
+    } finally {
+      setWorkshopLoading(false);
+    }
+  }
+
+  async function toggleWorkshopAssignment(slot: WorkshopSlot) {
+    const isAssigned = slot.coaches.some((c) => c.coachId === currentCoachId);
+    setWorkshopActionId(slot.id);
+    setWorkshopMessage('');
+    try {
+      if (isAssigned) {
+        if (!hasSupabaseConfig || !supabase) throw new Error('Nejsi přihlášen.');
+        await supabase.from('coach_sessions').delete().eq('id', workshopSessionId(currentCoachId, slot.id)).eq('coach_id', currentCoachId);
+        setWorkshopSlots((prev) => prev.map((s) => s.id !== slot.id ? s : { ...s, coaches: s.coaches.filter((c) => c.coachId !== currentCoachId) }));
+        setWorkshopMessage(`${slot.city} odebráno.`);
+      } else {
+        if (slot.coaches.length >= slot.maxCoaches) throw new Error('Workshop je plně obsazen.');
+        if (!hasSupabaseConfig || !supabase) throw new Error('Nejsi přihlášen.');
+        const row = { id: workshopSessionId(currentCoachId, slot.id), coach_id: currentCoachId, city: slot.city, venue: slot.venue, day: workshopDayLabel(slot.date), time: slot.time, group_name: `Workshop:${slot.id}`, enrolled: 0, present: 0, duration_hours: workshopDurationHours(slot.time), hourly_rate: WORKSHOP_HOURLY_RATE, latitude: null, longitude: null, check_in_radius_meters: 300 };
+        const { error } = await supabase.from('coach_sessions').upsert(row);
+        if (error) throw error;
+        const { data: profile } = await supabase.from('app_profiles').select('name').eq('id', currentCoachId).maybeSingle();
+        const myName = (profile as { name?: string } | null)?.name ?? 'Trenér';
+        setWorkshopSlots((prev) => prev.map((s) => s.id !== slot.id ? s : { ...s, coaches: [...s.coaches, { coachId: currentCoachId, coachName: myName }] }));
+        setWorkshopMessage(`${slot.city} přidáno.`);
+      }
+    } catch (err) {
+      setWorkshopMessage(err instanceof Error ? err.message : 'Akci se nepodařilo uložit.');
+    } finally {
+      setWorkshopActionId(null);
+    }
+  }
   async function toggleCourseAssignment(course: Course) {
     const assignedSession = myCoachSessions.find((sessionItem) => courseMatchesSession(course, sessionItem));
     setCourseActionId(course.id);
@@ -129,8 +294,22 @@ export default function CoachProfile() {
       if (assignedSession) {
         await removeSession(assignedSession.id);
         setCourseMessage(`${courseLocation(course)} odebráno z tvých kroužků.`);
-      } else {
+      } else if (staticCourseIds.has(course.id)) {
         await assignCourse(course.id);
+        setCourseMessage(`${courseLocation(course)} přidáno do tvých kroužků.`);
+      } else {
+        // Admin-created course — build session input directly
+        const fromMin = course.from ? (() => { const [h, m] = course.from.split(':').map(Number); return h * 60 + m; })() : 0;
+        const toMin = course.to ? (() => { const [h, m] = course.to.split(':').map(Number); return h * 60 + m; })() : 60;
+        const durationHrs = toMin > fromMin ? (toMin - fromMin) / 60 : 1;
+        await addSession({
+          city: course.city,
+          venue: course.venue,
+          day: course.day,
+          time: `${course.from} - ${course.to}`,
+          group: `Kroužek ${course.city}`,
+          durationHours: durationHrs,
+        });
         setCourseMessage(`${courseLocation(course)} přidáno do tvých kroužků.`);
       }
     } catch (error) {
@@ -336,7 +515,7 @@ export default function CoachProfile() {
       >
         {coachSessionsLoading ? <Text style={styles.muted}>Načítám aktuální kroužky...</Text> : null}
         <View style={styles.courseList}>
-          {courses.map((course) => {
+          {allCourses.map((course) => {
             const isAssigned = assignedCourseIds.has(course.id);
             const isSaving = courseActionId === course.id;
             return (
@@ -378,6 +557,73 @@ export default function CoachProfile() {
           })}
         </View>
         {courseMessage ? <Text style={styles.photoMessage}>{courseMessage}</Text> : null}
+      </ProfileSheet>
+
+      <CoachCard title="Moje workshopy">
+        {workshopSlots.filter((s) => s.coaches.some((c) => c.coachId === currentCoachId)).length === 0 ? (
+          <Text style={styles.muted}>Zatím ti není přiřazen žádný workshop.</Text>
+        ) : (
+          workshopSlots.filter((s) => s.coaches.some((c) => c.coachId === currentCoachId)).map((s) => (
+            <View key={s.id} style={styles.campRow}>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={styles.cardTitle}>{s.city} · {s.time}</Text>
+                <Text style={styles.muted}>{formatWorkshopDate(s.date)} · {s.venue}</Text>
+              </View>
+              <StatusPill label="Zapsáno" tone="warning" />
+            </View>
+          ))
+        )}
+        <Pressable
+          onPress={() => void openWorkshopsSheet()}
+          style={({ pressed }: any) => [styles.courseButton, { marginTop: 8, alignSelf: 'flex-end' }, pressed && styles.photoButtonPressed]}
+        >
+          <Text style={styles.courseButtonGlyph}>⊕</Text>
+          <Text style={styles.courseButtonText}>Přidat / odebrat workshop</Text>
+        </Pressable>
+      </CoachCard>
+
+      <ProfileSheet
+        visible={workshopsSheetOpen}
+        title="Workshopy"
+        subtitle="Přihlášení a odhlášení z workshopů."
+        onClose={() => { setWorkshopsSheetOpen(false); setWorkshopMessage(''); }}
+      >
+        {workshopLoading ? <Text style={styles.muted}>Načítám workshopy...</Text> : null}
+        <View style={styles.courseList}>
+          {workshopSlots.map((slot) => {
+            const isAssigned = slot.coaches.some((c) => c.coachId === currentCoachId);
+            const isSaving = workshopActionId === slot.id;
+            const isFull = !isAssigned && slot.coaches.length >= slot.maxCoaches;
+            return (
+              <View key={slot.id} style={[styles.courseRow, isAssigned && styles.courseRowActive]}>
+                <View style={styles.courseTitleRow}>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={styles.courseCity}>{slot.city}</Text>
+                    <Text style={styles.courseVenue}>{slot.venue}</Text>
+                  </View>
+                  <StatusPill label={isAssigned ? 'Zapsáno' : isFull ? 'Obsazeno' : 'Volné'} tone={isAssigned ? 'warning' : isFull ? 'danger' : 'neutral'} />
+                </View>
+                <Text style={styles.courseMeta}>{formatWorkshopDate(slot.date)} · {slot.time}</Text>
+                <View style={styles.courseActions}>
+                  <Pressable
+                    disabled={isSaving || isFull}
+                    onPress={() => void toggleWorkshopAssignment(slot)}
+                    style={({ pressed }: any) => [
+                      styles.courseButton,
+                      isAssigned && styles.courseButtonRemove,
+                      pressed && styles.photoButtonPressed,
+                      (isSaving || isFull) && styles.photoButtonDisabled,
+                    ]}
+                  >
+                    <Text style={[styles.courseButtonGlyph, isAssigned && styles.courseButtonGlyphRemove]}>{isAssigned ? '-' : '+'}</Text>
+                    <Text style={[styles.courseButtonText, isAssigned && styles.courseButtonTextRemove]}>{isSaving ? 'Ukládám...' : isAssigned ? 'Odebrat' : 'Přidat'}</Text>
+                  </Pressable>
+                </View>
+              </View>
+            );
+          })}
+        </View>
+        {workshopMessage ? <Text style={styles.photoMessage}>{workshopMessage}</Text> : null}
       </ProfileSheet>
 
       <CoachCard title="Moje tábory">

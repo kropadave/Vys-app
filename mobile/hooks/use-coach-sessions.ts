@@ -33,6 +33,19 @@ type CoachNameRow = {
   name: string | null;
 };
 
+type AdminCourseProductRow = {
+  id: string;
+  city: string;
+  venue: string;
+  primary_meta: string;
+};
+
+function parseAdminCoursePrimaryMeta(primaryMeta: string): { day: string; time: string } | null {
+  const match = primaryMeta.match(/^(.+?)\s*[·\u00b7]\s*(\d{1,2}:\d{2})\s*[-\u2013]\s*(\d{1,2}:\d{2})/);
+  if (!match) return null;
+  return { day: match[1].trim(), time: `${match[2].trim()} - ${match[3].trim()}` };
+}
+
 let sharedSlotsCache: SharedTrainingSlot[] = courseSlots();
 const sharedSlotListeners = new Set<(slots: SharedTrainingSlot[]) => void>();
 
@@ -121,19 +134,44 @@ function emitSharedSlots(slots: SharedTrainingSlot[]) {
 async function loadSharedCoachSessionSlots(): Promise<SharedTrainingSlot[]> {
   if (!hasSupabaseConfig || !supabase) return courseSlots();
 
-  const [{ data: sessionsData }, { data: profilesData }] = await Promise.all([
+  const [{ data: sessionsData }, { data: profilesData }, { data: adminProductsData }] = await Promise.all([
     supabase.from('coach_sessions').select('*'),
     supabase.from('app_profiles').select('id, name'),
+    supabase.from('products').select('id, city, venue, primary_meta').eq('type', 'Kroužek'),
   ]);
 
   const nameById = new Map<string, string>(
     ((profilesData as CoachNameRow[] | null) ?? []).map((profile) => [profile.id, profile.name ?? 'Trenér']),
   );
 
+  const staticCourseIds = new Set(courses.map((c) => c.id));
   const slotByKey = new Map<string, SharedTrainingSlot>();
+
+  // Seed with static courses
   for (const slot of courseSlots()) {
     const course = courses.find((item) => item.id === slot.id);
     if (course) slotByKey.set(courseKey(course), slot);
+  }
+
+  // Seed with admin-created courses from products table
+  for (const product of (adminProductsData as AdminCourseProductRow[] | null) ?? []) {
+    if (staticCourseIds.has(product.id)) continue;
+    const parsed = parseAdminCoursePrimaryMeta(product.primary_meta ?? '');
+    if (!parsed) continue;
+    const key = `${product.city}|${product.venue}|${parsed.day}|${parsed.time}`;
+    if (!slotByKey.has(key)) {
+      slotByKey.set(key, {
+        id: product.id,
+        activityType: 'Krouzek' as const,
+        day: parsed.day,
+        time: parsed.time,
+        place: `${product.city} · ${product.venue}`,
+        group: `Kroužek ${product.city}`,
+        regularCoachId: '',
+        regularCoachName: '',
+        updatedAt: 'aktuální nabídka kroužků',
+      });
+    }
   }
 
   for (const row of (sessionsData as CoachSessionRow[] | null) ?? []) {

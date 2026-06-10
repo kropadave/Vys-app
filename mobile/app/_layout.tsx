@@ -31,7 +31,7 @@ const AppTheme = {
 };
 
 function routeForRole(role: AppRole) {
-  if (role === 'coach') return '/coach';
+  if (role === 'coach' || role === 'admin') return '/coach';
   return '/tricks';
 }
 
@@ -81,7 +81,7 @@ export default function RootLayout() {
     const inShared = first === 'spots';
 
     if (inPublic) {
-      if (first === undefined && session && role) router.replace(routeForRole(role));
+      if (first === undefined && session && role) router.replace(routeForRole(role) as never);
       return;
     }
 
@@ -96,12 +96,12 @@ export default function RootLayout() {
     }
 
     const inCorrectArea =
-      (role === 'coach' && inCoach) ||
+      ((role === 'coach' || role === 'admin') && inCoach) ||
       (role === 'participant' && inParticipant) ||
       inShared;
 
     if (!inCorrectArea) {
-      router.replace(routeForRole(role));
+      router.replace(routeForRole(role) as never);
     }
   }, [session, loading, roleReady, role, segments, router]);
 
