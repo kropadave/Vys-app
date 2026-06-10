@@ -135,8 +135,14 @@ export default function CoachWardDetail() {
 
   const departureSigned = departureDocument?.status === 'signed';
   const departureSignedAt = departureDocument?.signedAt ?? '';
-  const departureTone = !departureSigned ? 'danger' : ward.departure.mode === 'alone' ? 'success' : 'warning';
-  const canLeaveAlone = departureSigned && ward.departure.mode === 'alone';
+  // Prefer the departure mode from the signed document (parent filled it in).
+  // ward.departure.mode comes from participants.departure_mode which may not be
+  // synced back from the document, so the document value is the source of truth.
+  const departureModeFromDoc = departureSigned && departureDocument?.values?.departureMode
+    ? String(departureDocument.values.departureMode) as 'alone' | 'authorized' | 'parent'
+    : ward.departure.mode;
+  const departureTone = !departureSigned ? 'danger' : departureModeFromDoc === 'alone' ? 'success' : 'warning';
+  const canLeaveAlone = departureSigned && departureModeFromDoc === 'alone';
 
   return (
     <ScrollView style={styles.page} contentContainerStyle={styles.container}>
@@ -186,7 +192,7 @@ export default function CoachWardDetail() {
             <Feather name={canLeaveAlone ? 'check-circle' : departureSigned ? 'users' : 'alert-triangle'} size={24} color={CoachColors.slate} />
           </View>
           <View style={{ flex: 1, minWidth: 220 }}>
-            <Text style={styles.consentTitle}>{departureModeLabel(ward.departure.mode)}</Text>
+            <Text style={styles.consentTitle}>{departureModeLabel(departureModeFromDoc)}</Text>
             <Text style={styles.muted}>{departureSigned ? `Podepsáno ${departureSignedAt}`.trim() : 'Souhlas s odchodem chybí'}</Text>
           </View>
           <StatusPill label={canLeaveAlone ? 'Může jít samo' : departureSigned ? 'Kontrolovat osobu' : 'Nepouštět samo'} tone={departureTone} />
