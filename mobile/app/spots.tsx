@@ -208,6 +208,8 @@ export default function SpotsScreen() {
   const [addSpotLoading, setAddSpotLoading] = useState(false);
   const [geocoding, setGeocoding] = useState(false);
   const [addSpotError, setAddSpotError] = useState('');
+  const [manualCoords, setManualCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [gpsLoading, setGpsLoading] = useState(false);
   const [newRating, setNewRating] = useState(0);
   const [newComment, setNewComment] = useState('');
   const [addReviewLoading, setAddReviewLoading] = useState(false);
@@ -283,6 +285,27 @@ export default function SpotsScreen() {
     }),
   ).current;
 
+  // ── Use current GPS position ───────────────────────────────────────────────
+  const useCurrentLocation = () => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      setAddSpotError('Geolokace není na tomto zařízení dostupná.');
+      return;
+    }
+    setGpsLoading(true);
+    setAddSpotError('');
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setManualCoords({ lat: position.coords.latitude, lng: position.coords.longitude });
+        setGpsLoading(false);
+      },
+      () => {
+        setAddSpotError('Nepodařilo se získat polohu. Povol přístup k poloze v prohlížeči.');
+        setGpsLoading(false);
+      },
+      { enableHighAccuracy: true, timeout: 10000 },
+    );
+  };
+
   // ── Submit new spot ─────────────────────────────────────────────────────────
   const submitAddSpot = async () => {
     setAddSpotError('');
@@ -294,11 +317,14 @@ export default function SpotsScreen() {
     if (!session?.userId) { setAddSpotError('Přihlas se prosím.'); return; }
     if (!hasSupabaseConfig || !supabase) { setAddSpotError('Databáze není dostupná.'); return; }
     setAddSpotLoading(true);
-    // Resolve real coordinates from the address so the spot shows up on the map
-    // immediately. Falls back to the city centre, and only 0,0 if all fails.
-    setGeocoding(true);
-    const geo = await geocodeSpot({ name: newSpot.name, address: newSpot.address, city: newSpot.city });
-    setGeocoding(false);
+    // If the coach tapped "Use current location" we already have exact coords.
+    // Otherwise resolve from the address via Nominatim.
+    let geo = manualCoords;
+    if (!geo) {
+      setGeocoding(true);
+      geo = await geocodeSpot({ name: newSpot.name, address: newSpot.address, city: newSpot.city });
+      setGeocoding(false);
+    }
     if (!geo) {
       setAddSpotError('Nepodařilo se najít adresu na mapě. Zkontroluj město a adresu.');
       setAddSpotLoading(false);
@@ -324,6 +350,7 @@ export default function SpotsScreen() {
       setAddSpotError('Nepodařilo se přidat místo.');
     } else {
       setNewSpot(BLANK_SPOT);
+      setManualCoords(null);
       setShowAddSpot(false);
       await loadSpots();
     }
@@ -676,12 +703,12 @@ export default function SpotsScreen() {
       {/* ════════════════════════════════════════════════════════════════════ */}
       <Modal visible={showAddSpot} animationType="slide" transparent onRequestClose={() => setShowAddSpot(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
-          <Pressable style={styles.modalDismiss} onPress={() => setShowAddSpot(false)} />
+          <Pressable style={styles.modalDismiss} onPress={() => { setShowAddSpot(false); setManualCoords(null); }} />
           <View style={[styles.sheet, { maxHeight: '94%' }]}>
             <View style={styles.dragHandle} />
             <View style={styles.sheetHeaderRow}>
               <Text style={[styles.sheetTitle, { flex: 1 }]}>Přidat trénovací spot</Text>
-              <Pressable onPress={() => setShowAddSpot(false)} hitSlop={8} style={({ pressed }) => [styles.closeBtn, pressed && { opacity: 0.6 }]}>
+              <Pressable onPress={() => { setShowAddSpot(false); setManualCoords(null); }} hitSlop={8} style={({ pressed }) => [styles.closeBtn, pressed && { opacity: 0.6 }]}>
                 <FontAwesome5 name="times" size={15} color={Palette.textMuted} />
               </Pressable>
             </View>
@@ -751,9 +778,20 @@ export default function SpotsScreen() {
               <FormField
                 label="Adresa"
                 value={newSpot.address}
-                onChangeText={(t) => setNewSpot((p) => ({ ...p, address: t }))}
+                onChangeText={(t) => { setNewSpot((p) => ({ ...p, address: t })); setManualCoords(null); }}
                 placeholder="Ulice, číslo popisné"
               />
+              {/* GPS location button */}
+              <Pressable
+                onPress={useCurrentLocation}
+                disabled={gpsLoading}
+                style={({ pressed }) => [styles.gpsBtn, pressed && { opacity: 0.8 }, gpsLoading && { opacity: 0.6 }]}
+              >
+                <MaterialCommunityIcons name="crosshairs-gps" size={15} color={manualCoords ? Brand.purple : Palette.textMuted} />
+                <Text style={[styles.gpsBtnText, manualCoords && { color: Brand.purple }]}>
+                  {gpsLoading ? 'Získávám polohu…' : manualCoords ? `Poloha zachycena (${manualCoords.lat.toFixed(5)}, ${manualCoords.lng.toFixed(5)})` : 'Použít moji aktuální polohu'}
+                </Text>
+              </Pressable>
               <FormField
                 label="Popis"
                 value={newSpot.description}
@@ -762,20 +800,20 @@ export default function SpotsScreen() {
                 multiline
               />
               <FormField
-                label="Otevírací doba"
+                label="Otevírací doba (nepovinné)"
                 value={newSpot.opening_hours}
                 onChangeText={(t) => setNewSpot((p) => ({ ...p, opening_hours: t }))}
                 placeholder="např. Po–Pá 14–22, So–Ne 10–20"
               />
               <FormField
-                label="Web"
+                label="Web (nepovinné)"
                 value={newSpot.website}
                 onChangeText={(t) => setNewSpot((p) => ({ ...p, website: t }))}
                 placeholder="www.example.cz"
                 keyboardType="url"
               />
               <FormField
-                label="Vstup / cena"
+                label="Vstup / cena (nepovinné)"
                 value={newSpot.entry_fee}
                 onChangeText={(t) => setNewSpot((p) => ({ ...p, entry_fee: t }))}
                 placeholder="např. 150 Kč / hodina, nebo Zdarma"
@@ -809,7 +847,7 @@ export default function SpotsScreen() {
               <View style={styles.geoHint}>
                 <MaterialCommunityIcons name="map-marker-radius-outline" size={13} color={Brand.purple} />
                 <Text style={styles.geoHintText}>
-                  Polohu na mapě určíme automaticky z města a adresy.
+                  {manualCoords ? 'Poloha zachycena z GPS — spot se zobrazí přesně.' : 'Polohu určíme automaticky z adresy, nebo použij tlačítko GPS výše.'}
                 </Text>
               </View>
 
@@ -1070,6 +1108,13 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   geoHintText: { color: Palette.textMuted, fontSize: 12, fontWeight: '600', flex: 1 },
+  gpsBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 7,
+    borderWidth: 1, borderColor: Palette.border,
+    borderRadius: Radius.md, paddingVertical: 9, paddingHorizontal: 11,
+    marginBottom: 12, backgroundColor: Palette.surface,
+  },
+  gpsBtnText: { color: Palette.textMuted, fontSize: 12, fontWeight: '700', flex: 1 },
   submitBtn: { borderRadius: Radius.lg, overflow: 'hidden' },
   submitBtnGradient: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
