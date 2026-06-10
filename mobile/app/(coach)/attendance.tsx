@@ -173,27 +173,30 @@ export default function CoachAttendance() {
       return;
     }
 
-    const courseLocation = ward.locations.includes(selectedLocation) ? selectedLocation : ward.locations[0];
-    const session = coachSessions.find((item) => sessionLocation(item) === courseLocation);
-
-    if (!courseLocation || !session) {
-      setMessage(`${ward.name} má profil bez navázané tréninkové lokality. Docházku nejde automaticky zařadit.`);
+    // Manual entry always records into the CURRENTLY selected location/session.
+    // It must not silently reroute to the child's home course (that caused the
+    // confusing "přeplo na úterý" behaviour).
+    if (!isTodayTraining) {
+      setMessage(`Dnes není trénink v lokalitě ${selectedLocation} (${selectedSession?.day}). Ruční zápis jde jen v den tréninku.`);
       return;
     }
 
-    // Attendance can only be logged on the actual training day. The child's
-    // course (e.g. Blansko) might not train today even though another location
-    // (e.g. Vyškov) does — without this guard the child could be marked present
-    // on a day their training never happened.
-    if (czechWeekdayIndex[session.day] !== new Date().getDay()) {
-      setMessage(`${ward.name} má trénink v kroužku ${courseLocation} jen v ${session.day.toLowerCase()}. Dnes ho nelze zapsat.`);
+    // The child must actually belong to the selected location.
+    if (ward.locations.length > 0 && !ward.locations.includes(selectedLocation)) {
+      setMessage(`${ward.name} chodí do kroužku ${ward.locations.join(', ')}, ne do ${selectedLocation}. Nahoře vyber správnou lokalitu.`);
       return;
     }
 
-    setSelectedSessionId(session.id);
-    await addChildAttendanceEntry({ sessionId: session.id, participantName: ward.name, location: courseLocation, method: 'Ručně' });
-    await addParentAttendanceNotification({ participantName: ward.name, location: courseLocation, method: 'Ručně' });
-    setMessage(`${ward.name} zapsán ručně bez NFC čipu do kroužku ${courseLocation}. Rodiči odešla zpráva, že dítě dorazilo v pořádku.`);
+    const result = await addChildAttendanceEntry({ sessionId: selectedSession.id, participantName: ward.name, location: selectedLocation, method: 'Ručně' });
+
+    if (result.status === 'already-registered') {
+      setMessage(`${ward.name} už má dnes v ${selectedLocation} zapsanou docházku. Podruhé se nezapisuje (klubíčka se nepřičtou znovu).`);
+      setManualName('');
+      return;
+    }
+
+    await addParentAttendanceNotification({ participantName: ward.name, location: selectedLocation, method: 'Ručně' });
+    setMessage(`${ward.name} zapsán ručně bez NFC čipu do kroužku ${selectedLocation}. Rodiči odešla zpráva, že dítě dorazilo v pořádku.`);
     setManualName('');
   };
 

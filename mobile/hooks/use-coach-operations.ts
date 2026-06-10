@@ -494,7 +494,7 @@ export function useCoachOperations() {
       // upsert. dateOverride backfills also use the plain upsert (no retroactive
       // coins).
       if (method === 'Ručně' && !dateOverride) {
-        const { error } = await supabase.rpc('teamvys_record_manual_attendance', {
+        const { data, error } = await supabase.rpc('teamvys_record_manual_attendance', {
           p_participant_name: participantName,
           p_location: location,
           p_session_id: sessionId ?? null,
@@ -502,6 +502,15 @@ export function useCoachOperations() {
         if (error) {
           const { error: upsertError } = await supabase.from('child_attendance_records').upsert(childAttendanceToRow(nextRecord, sessionId));
           if (upsertError) await saveLocalChildAttendance(nextChildRecords);
+        } else {
+          const rpcStatus = Array.isArray(data) ? (data[0]?.status as string | undefined) : undefined;
+          if (rpcStatus === 'already-registered') {
+            // Child already counted today (e.g. via NFC). Don't double-emit.
+            return { record: currentRecord ?? nextRecord, status: 'already-registered' as const };
+          }
+          if (rpcStatus === 'unknown') {
+            return { record: nextRecord, status: 'unknown' as const };
+          }
         }
       } else {
         const { error } = await supabase.from('child_attendance_records').upsert(childAttendanceToRow(nextRecord, sessionId));
@@ -512,7 +521,7 @@ export function useCoachOperations() {
     }
 
     emit(nextState);
-    return nextRecord;
+    return { record: nextRecord, status: 'registered' as const };
   };
 
   const assignNfcChipToWard = async ({ chipId, wardId, participantName, location }: { chipId: string; wardId: string; participantName?: string; location?: string }) => {
@@ -581,7 +590,7 @@ export function useCoachOperations() {
     if (passResult.status !== 'updated') return { status: 'pass-rejected', chipId: normalizedChipId, assignment, passResult };
 
     const record = await addChildAttendanceEntry({ sessionId, location, participantName: assignment.participantName, method: 'NFC', syncBackend: !passResult.attendanceSynced });
-    return { status: 'logged', chipId: normalizedChipId, assignment, record, passResult };
+    return { status: 'logged', chipId: normalizedChipId, assignment, record: record.record, passResult };
   };
 
   return {
