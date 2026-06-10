@@ -181,6 +181,15 @@ export default function CoachAttendance() {
       return;
     }
 
+    // Attendance can only be logged on the actual training day. The child's
+    // course (e.g. Blansko) might not train today even though another location
+    // (e.g. Vyškov) does — without this guard the child could be marked present
+    // on a day their training never happened.
+    if (czechWeekdayIndex[session.day] !== new Date().getDay()) {
+      setMessage(`${ward.name} má trénink v kroužku ${courseLocation} jen v ${session.day.toLowerCase()}. Dnes ho nelze zapsat.`);
+      return;
+    }
+
     setSelectedSessionId(session.id);
     await addChildAttendanceEntry({ sessionId: session.id, participantName: ward.name, location: courseLocation, method: 'Ručně' });
     await addParentAttendanceNotification({ participantName: ward.name, location: courseLocation, method: 'Ručně' });
