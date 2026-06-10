@@ -380,9 +380,9 @@ export function ParentPortalDashboard({ displayName, displayEmail, parentProfile
   return (
     <ParentPortalDataContext.Provider value={portalData}>
     <div className="grid gap-5 xl:grid-cols-[240px_minmax(0,1fr)]">
-      <section className="fixed inset-x-2 bottom-2 z-50 self-start rounded-[22px] border border-neutral-200 bg-white p-1.5 shadow-md xl:sticky xl:inset-x-auto xl:bottom-auto xl:top-3 xl:rounded-2xl xl:border xl:border-neutral-200 xl:bg-white xl:p-0 xl:shadow-sm xl:overflow-hidden xl:self-start">
+      <section className="fixed inset-x-2 bottom-2 z-50 self-start rounded-[22px] border border-neutral-200 bg-white p-1.5 shadow-md xl:sticky xl:inset-x-auto xl:bottom-auto xl:top-3 xl:rounded-2xl xl:border xl:border-neutral-200 xl:bg-white xl:p-4 xl:shadow-[0_4px_20px_rgba(0,0,0,0.08)] xl:overflow-hidden xl:self-start">
         <div className="flex items-center gap-2 xl:block">
-          <div className="hidden xl:flex items-center gap-3 px-4 py-4 border-b border-neutral-100">
+          <div className="hidden xl:flex items-center gap-3 pb-4 border-b border-neutral-100">
             <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl text-sm font-bold text-white shadow-[0_4px_10px_rgba(232,76,196,0.25)] ${BRAND_GRADIENT}`}>
               {initialsFromName(displayName)}
             </span>
@@ -392,7 +392,7 @@ export function ParentPortalDashboard({ displayName, displayEmail, parentProfile
             </div>
           </div>
 
-          <nav className="grid min-w-0 flex-1 grid-cols-4 gap-1 xl:mt-2 xl:grid-cols-1 xl:gap-1 xl:rounded-xl xl:bg-neutral-50 xl:p-1.5">
+          <nav className="grid min-w-0 flex-1 grid-cols-4 gap-1 xl:mt-3 xl:grid-cols-1 xl:gap-0.5">
           {sections.map((section) => {
             const isActive = activeSection === section.key;
             return (
@@ -1798,13 +1798,15 @@ function HeroSignal({ value, label, tone }: { value: string; label: string; tone
 
 function ActionTile({ icon, label, value, onClick }: { icon: React.ReactNode; label: string; value: string; onClick: () => void }) {
   return (
-    <button type="button" onClick={onClick} className="group flex items-center gap-3.5 rounded-xl border border-neutral-200 bg-white px-4 py-4 text-left transition-all hover:-translate-y-0.5 hover:border-violet-200 hover:shadow-[0_8px_24px_rgba(107,61,245,0.12)]">
-      <span className={`grid h-12 w-12 shrink-0 place-items-center rounded-full text-white shadow-[0_6px_14px_rgba(232,76,196,0.28)] ${BRAND_GRADIENT}`}>{icon}</span>
-      <span className="min-w-0 flex-1">
-        <span className="block text-sm font-semibold text-neutral-900">{label}</span>
-        <span className="mt-1 block text-[13px] leading-relaxed text-neutral-500">{value}</span>
+    <button type="button" onClick={onClick} className="group flex flex-col items-start gap-4 rounded-2xl border border-neutral-200 bg-white p-5 text-left transition-all hover:-translate-y-1 hover:border-violet-200 hover:shadow-[0_8px_28px_rgba(107,61,245,0.14)]">
+      <span className={`grid h-12 w-12 place-items-center rounded-full text-white shadow-[0_6px_14px_rgba(232,76,196,0.28)] ${BRAND_GRADIENT}`}>{icon}</span>
+      <span className="min-w-0 w-full">
+        <span className="flex items-center justify-between gap-2">
+          <span className="text-[15px] font-bold text-neutral-900">{label}</span>
+          <ArrowRight size={15} className="shrink-0 text-neutral-300 transition-all group-hover:translate-x-0.5 group-hover:text-violet-500" />
+        </span>
+        <span className="mt-1.5 block text-[13px] leading-relaxed text-neutral-500">{value}</span>
       </span>
-      <ArrowRight size={16} className="shrink-0 text-neutral-300 transition-all group-hover:translate-x-0.5 group-hover:text-violet-500" />
     </button>
   );
 }
