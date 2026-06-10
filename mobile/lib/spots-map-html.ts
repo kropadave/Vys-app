@@ -48,7 +48,7 @@ export function buildSpotsMapHtml(
     latDelta: initialRegion.latitudeDelta,
     lngDelta: initialRegion.longitudeDelta,
   }));
-  const selectedJson = escapeForScript(selectedSpotId ?? '');
+  const selectedJson = escapeForScript(JSON.stringify(selectedSpotId ?? ''));
 
   return `<!DOCTYPE html>
 <html>

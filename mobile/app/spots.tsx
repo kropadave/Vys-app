@@ -129,32 +129,30 @@ const rowStyle = StyleSheet.create({ wrap: { flexDirection: 'row', gap: 3, align
 function SpotCard({ spot, onPress, selected }: { spot: SpotRow; onPress: () => void; selected: boolean }) {
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [styles.spotCard, selected && styles.spotCardSelected, pressed && { opacity: 0.88 }]}>
-      <View style={styles.spotCardHeader}>
-        <View style={[styles.spotPin, { backgroundColor: spot.is_verified ? Brand.purple : Palette.textSubtle }]}>
-          <MaterialCommunityIcons name={spot.is_verified ? 'check' : 'map-marker'} size={10} color="#fff" />
-        </View>
-        <View style={styles.spotCardMeta}>
-          <Text style={styles.spotCardName} numberOfLines={2}>{spot.name}</Text>
-          <Text style={styles.spotCardCity}>{spot.city}</Text>
-        </View>
+      <Text style={styles.spotCardName} numberOfLines={2}>{spot.name}</Text>
+      <Text style={styles.spotCardCity} numberOfLines={1}>{spot.city}</Text>
+
+      <View style={styles.spotCardFooter}>
+        {spot.review_count > 0 ? (
+          <View style={styles.spotCardRating}>
+            <StarRow rating={spot.avg_rating} size={11} />
+            <Text style={styles.spotCardReviewCount}>({spot.review_count})</Text>
+          </View>
+        ) : (
+          <Text style={styles.spotCardNoRating}>Zatím bez hodnocení</Text>
+        )}
+        {spot.tags.length > 0 && (
+          <View style={styles.tagRow}>
+            {spot.tags.slice(0, 2).map((tag) => (
+              <View key={tag} style={[styles.tagChip, { backgroundColor: `${TAG_COLORS[tag] ?? Brand.purple}22` }]}>
+                <Text style={[styles.tagChipText, { color: TAG_COLORS[tag] ?? Brand.purple }]}>
+                  {TAG_LABELS[tag] ?? tag}
+                </Text>
+              </View>
+            ))}
+          </View>
+        )}
       </View>
-      {spot.review_count > 0 && (
-        <View style={styles.spotCardRating}>
-          <StarRow rating={spot.avg_rating} size={11} />
-          <Text style={styles.spotCardReviewCount}>({spot.review_count})</Text>
-        </View>
-      )}
-      {spot.tags.length > 0 && (
-        <View style={styles.tagRow}>
-          {spot.tags.slice(0, 2).map((tag) => (
-            <View key={tag} style={[styles.tagChip, { backgroundColor: `${TAG_COLORS[tag] ?? Brand.purple}22` }]}>
-              <Text style={[styles.tagChipText, { color: TAG_COLORS[tag] ?? Brand.purple }]}>
-                {TAG_LABELS[tag] ?? tag}
-              </Text>
-            </View>
-          ))}
-        </View>
-      )}
     </Pressable>
   );
 }
@@ -938,20 +936,19 @@ const styles = StyleSheet.create({
 
   // Spot card
   spotCard: {
-    width: 190, backgroundColor: Palette.surface,
+    width: 190, height: 118, backgroundColor: Palette.surface,
     borderRadius: Radius.lg, padding: 14,
     borderWidth: 1.5, borderColor: Palette.border,
     ...Shadow.soft,
   },
   spotCardSelected: { borderColor: Brand.purple, backgroundColor: `${Brand.purple}06` },
-  spotCardHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginBottom: 4 },
-  spotPin: { width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
-  spotCardMeta: { flex: 1, minWidth: 0 },
-  spotCardName: { fontSize: 12, fontWeight: '900', color: Palette.text, letterSpacing: -0.2 },
-  spotCardCity: { fontSize: 11, color: Palette.textMuted, fontWeight: '600', marginTop: 1 },
-  spotCardRating: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 4 },
+  spotCardName: { fontSize: 13, fontWeight: '900', color: Palette.text, letterSpacing: -0.2 },
+  spotCardCity: { fontSize: 11, color: Palette.textMuted, fontWeight: '600', marginTop: 2 },
+  spotCardFooter: { marginTop: 'auto' },
+  spotCardRating: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 6 },
   spotCardReviewCount: { fontSize: 10, color: Palette.textSubtle, fontWeight: '600' },
-  tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 2 },
+  spotCardNoRating: { fontSize: 10, color: Palette.textSubtle, fontWeight: '700', marginBottom: 6 },
+  tagRow: { flexDirection: 'row', flexWrap: 'nowrap', gap: 4, overflow: 'hidden' },
   tagChip: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: Radius.sm },
   tagChipText: { fontSize: 9, fontWeight: '800', letterSpacing: 0.1 },
 
