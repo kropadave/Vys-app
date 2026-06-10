@@ -24,7 +24,16 @@ type ParticipantRow = {
   medication_note: string | null;
   coach_note: string | null;
   school_year: string | null;
+  date_of_birth: string | null;
+  address: string | null;
+  paid_status: string | null;
 };
+
+function birthYearFromText(value: string | null): number {
+  if (!value) return 0;
+  const match = value.match(/(19|20)\d{2}/);
+  return match ? Number(match[0]) : 0;
+}
 
 function wardFromRow(row: ParticipantRow): CoachWard {
   const xp = Number(row.xp ?? 0);
@@ -39,7 +48,7 @@ function wardFromRow(row: ParticipantRow): CoachWard {
     activityType: 'krouzek',
     parentPhone: row.parent_phone ?? '',
     emergencyPhone: row.emergency_phone ?? '',
-    birthYear: 0,
+    birthYear: birthYearFromText(row.date_of_birth),
     schoolYear: row.school_year ?? '',
     coachNote: row.coach_note ?? '',
     departure: {
@@ -58,7 +67,7 @@ function wardFromRow(row: ParticipantRow): CoachWard {
     level: Number(row.level ?? 1),
     bracelet: bracelet.title,
     braceletColor: bracelet.color,
-    paymentStatus: 'Zaplaceno',
+    paymentStatus: row.paid_status === 'paid' ? 'Zaplaceno' : 'Čeká na platbu',
     physicalBraceletReceived: false,
     hasNfcChip: false,
     passTitle: '',
@@ -92,16 +101,35 @@ export function useCoachWards() {
     (async () => {
       setLoading(true);
 
-      // 1. Get this coach's assigned courses
-      let assignedCourses: string[] = [];
+      // 1. Get this coach's assigned courses from BOTH sources:
+      //    - coach_profiles.assigned_courses (legacy / explicit list)
+      //    - products.coach_ids (canonical admin assignment) → product.place
+      // A child created/paid via the web parent flow gets active_course =
+      // product.place, so we must match against the product places the coach is
+      // assigned to, otherwise the child stays invisible to the coach.
+      const courseSet = new Set<string>();
       if (session?.userId) {
-        const { data: coachData } = await supabase
-          .from('coach_profiles')
-          .select('assigned_courses')
-          .eq('id', session.userId)
-          .maybeSingle();
-        assignedCourses = (coachData?.assigned_courses as string[] | null) ?? [];
+        const [{ data: coachData }, { data: assignedProducts }] = await Promise.all([
+          supabase
+            .from('coach_profiles')
+            .select('assigned_courses')
+            .eq('id', session.userId)
+            .maybeSingle(),
+          supabase
+            .from('products')
+            .select('place')
+            .contains('coach_ids', [session.userId]),
+        ]);
+
+        for (const course of (coachData?.assigned_courses as string[] | null) ?? []) {
+          if (course) courseSet.add(course);
+        }
+        for (const product of (assignedProducts as { place: string | null }[] | null) ?? []) {
+          if (product.place) courseSet.add(product.place);
+        }
       }
+
+      const assignedCourses = Array.from(courseSet);
 
       if (assignedCourses.length === 0) {
         setWards([]);
@@ -113,7 +141,7 @@ export function useCoachWards() {
       const query = supabase
         .from('participants')
         .select(
-          'id,first_name,last_name,parent_name,parent_phone,emergency_phone,active_course,level,xp,bracelet,bracelet_color,departure_mode,authorized_people,allergies,health_limits,medication_note,coach_note,school_year',
+          'id,first_name,last_name,parent_name,parent_phone,emergency_phone,active_course,level,xp,bracelet,bracelet_color,departure_mode,authorized_people,allergies,health_limits,medication_note,coach_note,school_year,date_of_birth,address,paid_status',
         )
         .order('first_name', { ascending: true });
 
