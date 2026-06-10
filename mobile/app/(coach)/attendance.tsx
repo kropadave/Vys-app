@@ -181,7 +181,29 @@ export default function CoachAttendance() {
       return;
     }
 
-    // The child must actually belong to the selected location.
+    // Already recorded today at this location? Report that first — a child can
+    // attend a location that isn't their primary active_course (e.g. NFC pass at
+    // Vyškov while their course is Blansko), so this must win over the
+    // "doesn't attend here" guard below.
+    const todayKey = dateKeyFromDate(new Date());
+    const alreadyRecordedHere = childAttendanceRecords.some((record) => {
+      const recordDate = parseCzechDate(record.date);
+      return (
+        record.location === selectedLocation &&
+        recordDate !== null &&
+        dateKeyFromDate(recordDate) === todayKey &&
+        record.attendees.some((attendee) => normalizeFullName(attendee.name) === normalizeFullName(ward.name))
+      );
+    });
+    if (alreadyRecordedHere) {
+      setMessage(`${ward.name} už má dnes v ${selectedLocation} zapsanou docházku. Podruhé se nezapisuje (klubíčka se nepřičtou znovu).`);
+      setManualName('');
+      return;
+    }
+
+    // The child must actually belong to the selected location. Skipped when the
+    // child already has a record here (handled above) — this only blocks a brand
+    // new entry into a location the child has no link to at all.
     if (ward.locations.length > 0 && !ward.locations.includes(selectedLocation)) {
       setMessage(`${ward.name} chodí do kroužku ${ward.locations.join(', ')}, ne do ${selectedLocation}. Nahoře vyber správnou lokalitu.`);
       return;
