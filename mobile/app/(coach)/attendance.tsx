@@ -100,6 +100,21 @@ export default function CoachAttendance() {
   const calendarDays = useMemo(() => buildTrainingCalendar(calendarMonth, childAttendanceRecords, coachSessions), [calendarMonth, childAttendanceRecords, coachSessions]);
   const selectedCalendarDay = calendarDays.find((day) => day.dateKey === selectedCalendarDate) ?? calendarDays.find((day) => day.sessions.length > 0) ?? calendarDays[0];
 
+  // Source of truth for manual lookups: real wards from Supabase, falling back to
+  // the bundled demo wards only when no live data is available.
+  const attendanceWards = liveWards.length > 0 ? liveWards : coachWards;
+
+  // Live suggestions while the coach types a name — matches partial first/last
+  // name so already-registered children show up even with a partial query.
+  const manualSuggestions = useMemo(() => {
+    const query = normalizeFullName(manualName);
+    if (!query) return [];
+    const matches = attendanceWards.filter((ward) => normalizeFullName(ward.name).includes(query));
+    // Hide the list once the typed text exactly matches a single ward.
+    if (matches.length === 1 && normalizeFullName(matches[0].name) === query) return [];
+    return matches.slice(0, 6);
+  }, [manualName, attendanceWards]);
+
   if (sessionsLoading) {
     return (
       <ScrollView style={styles.page} contentContainerStyle={styles.container}>
@@ -151,7 +166,7 @@ export default function CoachAttendance() {
       return;
     }
 
-    const ward = findWardByFullName(trimmedName);
+    const ward = findWardByFullName(trimmedName, attendanceWards);
 
     if (!ward) {
       setMessage(`Účastník "${trimmedName}" není v seznamu svěřenců. Zadej celé jméno a příjmení přesně podle profilu dítěte.`);
@@ -374,6 +389,22 @@ export default function CoachAttendance() {
               style={styles.input}
               editable={childrenAttendanceStarted}
             />
+            {childrenAttendanceStarted && manualSuggestions.length > 0 && (
+              <View style={styles.suggestionList}>
+                {manualSuggestions.map((ward) => (
+                  <Pressable
+                    key={ward.id}
+                    style={({ pressed }) => [styles.suggestionRow, pressed && { backgroundColor: CoachColors.panelAlt }]}
+                    onPress={() => setManualName(ward.name)}
+                  >
+                    <Text style={styles.suggestionName}>{ward.name}</Text>
+                    {ward.locations.length > 0 && (
+                      <Text style={styles.suggestionMeta} numberOfLines={1}>{ward.locations[0]}</Text>
+                    )}
+                  </Pressable>
+                ))}
+              </View>
+            )}
             <Pressable disabled={!childrenAttendanceStarted} style={({ pressed }) => [styles.secondaryButton, !childrenAttendanceStarted && styles.disabledButton, pressed && { opacity: 0.86 }]} onPress={logManualChild}>
               <Text style={[styles.secondaryButtonText, !childrenAttendanceStarted && styles.disabledButtonText]}>Zapsat ručně</Text>
             </Pressable>
@@ -649,9 +680,9 @@ type GeolocationLike = {
   ) => void;
 };
 
-function findWardByFullName(name: string) {
+function findWardByFullName(name: string, wards: CoachWard[]) {
   const normalizedName = normalizeFullName(name);
-  return coachWards.find((ward) => normalizeFullName(ward.name) === normalizedName);
+  return wards.find((ward) => normalizeFullName(ward.name) === normalizedName);
 }
 
 function normalizeFullName(value: string) {
@@ -741,6 +772,10 @@ const styles = StyleSheet.create({
   attendeeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.md, alignItems: 'center', borderTopWidth: 1, borderTopColor: CoachColors.border, paddingTop: Spacing.sm },
   sectionLabel: { color: CoachColors.slateMuted, fontSize: 11, lineHeight: 15, fontWeight: '900', textTransform: 'uppercase' },
   input: { backgroundColor: CoachColors.panelAlt, borderColor: CoachColors.border, borderWidth: 1, borderRadius: Radius.md, color: CoachColors.slate, padding: Spacing.md, fontSize: 15 },
+  suggestionList: { marginTop: Spacing.sm, borderColor: CoachColors.border, borderWidth: 1, borderRadius: Radius.md, backgroundColor: CoachColors.panel, overflow: 'hidden' },
+  suggestionRow: { paddingHorizontal: Spacing.md, paddingVertical: Spacing.md, borderBottomColor: CoachColors.border, borderBottomWidth: StyleSheet.hairlineWidth, gap: 2 },
+  suggestionName: { color: CoachColors.slate, fontSize: 15, fontWeight: '800' },
+  suggestionMeta: { color: CoachColors.slateMuted, fontSize: 12, fontWeight: '600' },
 });
 
 // ─── Unassigned chip panel ────────────────────────────────────────────────────
