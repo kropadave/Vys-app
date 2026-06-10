@@ -487,8 +487,26 @@ export function useCoachOperations() {
     const nextState = { ...state, childAttendanceRecords: nextChildRecords };
 
     if (syncBackend && hasSupabaseConfig && supabase) {
-      const { error } = await supabase.from('child_attendance_records').upsert(childAttendanceToRow(nextRecord, sessionId));
-      if (error) await saveLocalChildAttendance(nextChildRecords);
+      // Manual entries route through the secure RPC so the child also earns
+      // klubíčka — it increments participants.attendance_done (with a same-day
+      // guard) and writes the attendance row server-side. NFC entries already
+      // had attendance_done incremented by the scan RPC, so they keep the plain
+      // upsert. dateOverride backfills also use the plain upsert (no retroactive
+      // coins).
+      if (method === 'Ručně' && !dateOverride) {
+        const { error } = await supabase.rpc('teamvys_record_manual_attendance', {
+          p_participant_name: participantName,
+          p_location: location,
+          p_session_id: sessionId ?? null,
+        });
+        if (error) {
+          const { error: upsertError } = await supabase.from('child_attendance_records').upsert(childAttendanceToRow(nextRecord, sessionId));
+          if (upsertError) await saveLocalChildAttendance(nextChildRecords);
+        }
+      } else {
+        const { error } = await supabase.from('child_attendance_records').upsert(childAttendanceToRow(nextRecord, sessionId));
+        if (error) await saveLocalChildAttendance(nextChildRecords);
+      }
     } else {
       await saveLocalChildAttendance(nextChildRecords);
     }
