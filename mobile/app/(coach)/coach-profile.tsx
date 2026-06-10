@@ -560,71 +560,25 @@ export default function CoachProfile() {
       </ProfileSheet>
 
       <CoachCard title="Moje workshopy">
-        {workshopSlots.filter((s) => s.coaches.some((c) => c.coachId === currentCoachId)).length === 0 ? (
-          <Text style={styles.muted}>Zatím ti není přiřazen žádný workshop.</Text>
+        {workshopSlots.filter((s) => s.coaches.some((c) => c.coachId === currentCoachId) && s.date >= new Date().toISOString().slice(0, 10)).length === 0 ? (
+          <Text style={styles.muted}>Nemáš přiřazený žádný nadcházející workshop.</Text>
         ) : (
-          workshopSlots.filter((s) => s.coaches.some((c) => c.coachId === currentCoachId)).map((s) => (
-            <View key={s.id} style={styles.campRow}>
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={styles.cardTitle}>{s.city} · {s.time}</Text>
-                <Text style={styles.muted}>{formatWorkshopDate(s.date)} · {s.venue}</Text>
+          workshopSlots
+            .filter((s) => s.coaches.some((c) => c.coachId === currentCoachId) && s.date >= new Date().toISOString().slice(0, 10))
+            .sort((a, b) => a.date.localeCompare(b.date))
+            .map((s) => (
+              <View key={s.id} style={styles.campRow}>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={styles.cardTitle}>{s.city} · {s.time}</Text>
+                  <Text style={styles.muted}>{formatWorkshopDate(s.date)} · {s.venue}</Text>
+                </View>
+                <StatusPill label="Přiřazeno" tone="warning" />
               </View>
-              <StatusPill label="Zapsáno" tone="warning" />
-            </View>
-          ))
+            ))
         )}
-        <Pressable
-          onPress={() => void openWorkshopsSheet()}
-          style={({ pressed }: any) => [styles.courseButton, { marginTop: 8, alignSelf: 'flex-end' }, pressed && styles.photoButtonPressed]}
-        >
-          <Text style={styles.courseButtonGlyph}>⊕</Text>
-          <Text style={styles.courseButtonText}>Přidat / odebrat workshop</Text>
-        </Pressable>
       </CoachCard>
 
-      <ProfileSheet
-        visible={workshopsSheetOpen}
-        title="Workshopy"
-        subtitle="Přihlášení a odhlášení z workshopů."
-        onClose={() => { setWorkshopsSheetOpen(false); setWorkshopMessage(''); }}
-      >
-        {workshopLoading ? <Text style={styles.muted}>Načítám workshopy...</Text> : null}
-        <View style={styles.courseList}>
-          {workshopSlots.map((slot) => {
-            const isAssigned = slot.coaches.some((c) => c.coachId === currentCoachId);
-            const isSaving = workshopActionId === slot.id;
-            const isFull = !isAssigned && slot.coaches.length >= slot.maxCoaches;
-            return (
-              <View key={slot.id} style={[styles.courseRow, isAssigned && styles.courseRowActive]}>
-                <View style={styles.courseTitleRow}>
-                  <View style={{ flex: 1, minWidth: 0 }}>
-                    <Text style={styles.courseCity}>{slot.city}</Text>
-                    <Text style={styles.courseVenue}>{slot.venue}</Text>
-                  </View>
-                  <StatusPill label={isAssigned ? 'Zapsáno' : isFull ? 'Obsazeno' : 'Volné'} tone={isAssigned ? 'warning' : isFull ? 'danger' : 'neutral'} />
-                </View>
-                <Text style={styles.courseMeta}>{formatWorkshopDate(slot.date)} · {slot.time}</Text>
-                <View style={styles.courseActions}>
-                  <Pressable
-                    disabled={isSaving || isFull}
-                    onPress={() => void toggleWorkshopAssignment(slot)}
-                    style={({ pressed }: any) => [
-                      styles.courseButton,
-                      isAssigned && styles.courseButtonRemove,
-                      pressed && styles.photoButtonPressed,
-                      (isSaving || isFull) && styles.photoButtonDisabled,
-                    ]}
-                  >
-                    <Text style={[styles.courseButtonGlyph, isAssigned && styles.courseButtonGlyphRemove]}>{isAssigned ? '-' : '+'}</Text>
-                    <Text style={[styles.courseButtonText, isAssigned && styles.courseButtonTextRemove]}>{isSaving ? 'Ukládám...' : isAssigned ? 'Odebrat' : 'Přidat'}</Text>
-                  </Pressable>
-                </View>
-              </View>
-            );
-          })}
-        </View>
-        {workshopMessage ? <Text style={styles.photoMessage}>{workshopMessage}</Text> : null}
-      </ProfileSheet>
+
 
       <CoachCard title="Moje tábory">
         {campsLoading ? <Text style={styles.muted}>Načítám přiřazené tábory...</Text> : null}
