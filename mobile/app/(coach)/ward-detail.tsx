@@ -2,7 +2,7 @@ import { Feather } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useMemo, useState, type ReactNode } from 'react';
 import { Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import Animated, { FadeIn, FadeOut, LinearTransition, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import Animated, { FadeIn, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 
 import { CoachCard, CoachPageHeader } from '@/components/coach/coach-screen';
 import { StatusPill } from '@/components/parent-card';
@@ -346,7 +346,7 @@ function CollapsibleCard({ title, badge, defaultOpen = false, children }: { titl
     });
   };
   return (
-    <Animated.View style={styles.collapsibleCard} layout={LinearTransition.duration(220)}>
+    <View style={styles.collapsibleCard}>
       <Pressable
         onPress={toggle}
         style={({ pressed }) => [styles.collapsibleHeader, pressed && { opacity: 0.85 }]}
@@ -364,11 +364,11 @@ function CollapsibleCard({ title, badge, defaultOpen = false, children }: { titl
         </Animated.View>
       </Pressable>
       {open ? (
-        <Animated.View entering={FadeIn.duration(180)} exiting={FadeOut.duration(140)} style={styles.collapsibleBody}>
+        <Animated.View entering={FadeIn.duration(160)} style={styles.collapsibleBody}>
           {children}
         </Animated.View>
       ) : null}
-    </Animated.View>
+    </View>
   );
 }
 
