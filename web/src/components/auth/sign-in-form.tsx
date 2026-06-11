@@ -7,9 +7,12 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { DEV_BYPASS_AUTH } from '@/lib/dev-config';
 import { createBrowserSupabaseClient, hasSupabaseBrowserConfig } from '@/lib/supabase/browser';
 import { cn } from '@/lib/utils';
+import { VYS_ORG_ID } from '@shared/feature-flags';
 
 type WebRole = 'admin' | 'parent';
 type Mode = 'sign-in' | 'sign-up' | 'verify-email' | 'forgot-password' | 'reset-password';
+
+type OrgOption = { id: string; name: string; org_type: string };
 
 type AuthUser = {
   id: string;
@@ -48,6 +51,8 @@ export function SignInForm() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [orgOptions, setOrgOptions] = useState<OrgOption[]>([]);
+  const [selectedOrgId, setSelectedOrgId] = useState<string>(VYS_ORG_ID);
 
   const configReady = DEV_BYPASS_AUTH || hasSupabaseBrowserConfig();
   const strength = passwordStrength(password);
@@ -62,6 +67,22 @@ export function SignInForm() {
   useEffect(() => {
     if (searchParams.get('mode') === 'reset-password') setMode('reset-password');
   }, [searchParams]);
+
+  useEffect(() => {
+    if (DEV_BYPASS_AUTH || !hasSupabaseBrowserConfig()) return;
+    if (mode !== 'sign-up' || orgOptions.length > 0) return;
+
+    let cancelled = false;
+    const supabase = createBrowserSupabaseClient();
+    supabase.rpc('teamvys_public_organizations').then(({ data, error }) => {
+      if (cancelled || error || !Array.isArray(data)) return;
+      setOrgOptions(data as OrgOption[]);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, orgOptions.length]);
 
   useEffect(() => {
     if (DEV_BYPASS_AUTH || !hasSupabaseBrowserConfig()) return;
@@ -285,7 +306,11 @@ export function SignInForm() {
               password,
               options: {
                 emailRedirectTo: emailRedirectUrl(),
-                data: { role: 'parent', name: name.trim() || email.trim().toLowerCase() },
+                data: {
+                  role: 'parent',
+                  name: name.trim() || email.trim().toLowerCase(),
+                  ...(selectedOrgId !== VYS_ORG_ID ? { org_id: selectedOrgId } : {}),
+                },
               },
             });
 
@@ -384,6 +409,27 @@ export function SignInForm() {
             className="w-full rounded-[16px] border border-brand-purple/12 bg-white px-4 py-3 text-brand-ink outline-none transition focus:border-brand-purple"
             placeholder="Tvoje jméno a příjmení"
           />
+        </label>
+      ) : null}
+
+      {mode === 'sign-up' && orgOptions.length > 1 ? (
+        <label className="block space-y-2">
+          <span className="text-xs font-black uppercase text-brand-ink-soft">Organizace / klub *</span>
+          <select
+            required
+            value={selectedOrgId}
+            onChange={(event) => setSelectedOrgId(event.target.value)}
+            className="w-full rounded-[16px] border border-brand-purple/12 bg-white px-4 py-3 text-brand-ink outline-none transition focus:border-brand-purple"
+          >
+            {orgOptions.map((org) => (
+              <option key={org.id} value={org.id}>
+                {org.name}
+              </option>
+            ))}
+          </select>
+          <span className="block text-xs font-bold leading-5 text-brand-ink-soft">
+            Vyber organizaci, ve které máš děti přihlášené. Účet se k ní naváže napevno.
+          </span>
         </label>
       ) : null}
 

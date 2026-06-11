@@ -9,12 +9,15 @@ import { FadeInUp, PulseGlow } from '@/components/animated/motion';
 import { useRole, type AppRole } from '@/hooks/use-role';
 import { Brand } from '@/lib/brand';
 import { DEV_BYPASS_AUTH } from '@/lib/dev-config';
+import { VYS_ORG_ID } from '@/lib/feature-flags';
 import { hasSupabaseConfig, supabase } from '@/lib/supabase';
 import { Palette, Radius, Shadow, Spacing } from '@/lib/theme';
 import { useBreakpoint } from '@/lib/use-breakpoint';
 
 type AuthMode = 'login' | 'register' | 'forgot' | 'reset';
 type CoachApprovalStatus = 'pending' | 'approved' | 'rejected' | 'suspended';
+
+type OrgOption = { id: string; name: string; org_type: string };
 
 type RoleOption = {
   role: AppRole;
@@ -174,6 +177,8 @@ export default function SignInScreen() {
   const [focusedField, setFocusedField] = useState<FormField | null>(null);
   const [pendingApproval, setPendingApproval] = useState(false);
   const [visibleFields, setVisibleFields] = useState<Partial<Record<FormField, boolean>>>({});
+  const [orgOptions, setOrgOptions] = useState<OrgOption[]>([]);
+  const [selectedOrgId, setSelectedOrgId] = useState<string>(VYS_ORG_ID);
 
   const selectedOption = ROLES.find((option) => option.role === selectedRole) ?? ROLES[0];
   const fields = useMemo(() => {
@@ -200,6 +205,23 @@ export default function SignInScreen() {
 
     return () => subscription.data.subscription.unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (DEV_BYPASS_AUTH || !hasSupabaseConfig || !supabase) return;
+    if (mode !== 'register' || orgOptions.length > 0) return;
+
+    let cancelled = false;
+    supabase
+      .rpc('teamvys_public_organizations')
+      .then(({ data, error }) => {
+        if (cancelled || error || !Array.isArray(data)) return;
+        setOrgOptions(data as OrgOption[]);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, orgOptions.length]);
 
   function updateField(key: FormField, value: string) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -371,6 +393,7 @@ const emailRedirectTo = typeof window !== 'undefined' && window.location?.origin
             phone: form.phone.trim(),
             birthDate: form.birthDate.trim(),
             coachMessage: form.coachMessage.trim(),
+            ...(selectedOrgId !== VYS_ORG_ID ? { org_id: selectedOrgId } : {}),
           },
         },
       });
@@ -393,7 +416,7 @@ const emailRedirectTo = typeof window !== 'undefined' && window.location?.origin
     if (mode === 'login') {
       const { data: profile, error } = await supabase
         .from('app_profiles')
-        .select('role,name')
+        .select('role,name,org_id')
         .eq('id', user.id)
         .maybeSingle();
 
@@ -414,7 +437,7 @@ const emailRedirectTo = typeof window !== 'undefined' && window.location?.origin
             const firstName = nameParts[0] || 'Účastník';
             const lastName = nameParts.slice(1).join(' ') || 'TeamVYS';
             await supabase.from('participants').upsert(
-              { id: user.id, first_name: firstName, last_name: lastName, paid_status: 'due', active_purchases: [], without_phone: true },
+              { id: user.id, first_name: firstName, last_name: lastName, paid_status: 'due', active_purchases: [], without_phone: true, org_id: profile.org_id ?? VYS_ORG_ID },
               { onConflict: 'id' }
             );
           }
@@ -565,6 +588,33 @@ const emailRedirectTo = typeof window !== 'undefined' && window.location?.origin
                   })}
                 </View>
                 </View> : null}
+
+                {!DEV_BYPASS_AUTH && mode === 'register' && orgOptions.length > 1 ? (
+                  <View style={styles.sectionBlock}>
+                    <Text style={styles.sectionLabel}>Organizace / klub</Text>
+                    <View style={styles.orgList}>
+                      {orgOptions.map((org) => {
+                        const active = org.id === selectedOrgId;
+                        return (
+                          <Pressable
+                            key={org.id}
+                            onPress={() => setSelectedOrgId(org.id)}
+                            accessibilityRole="radio"
+                            accessibilityState={{ selected: active }}
+                            style={({ pressed }: any) => [styles.orgOption, active && styles.orgOptionActive, pressed && styles.pressed]}
+                          >
+                            <View style={[styles.orgRadio, active && styles.orgRadioActive]}>
+                              {active ? <View style={styles.orgRadioDot} /> : null}
+                            </View>
+                            <Text style={[styles.orgOptionText, active && styles.orgOptionTextActive]} numberOfLines={1}>
+                              {org.name}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </View>
+                ) : null}
 
                 {DEV_BYPASS_AUTH ? null : (
                   <View style={styles.sectionBlock}>
@@ -831,6 +881,32 @@ const styles = StyleSheet.create({
 
   sectionBlock: { gap: Spacing.sm },
   sectionLabel: { color: Brand.ink, fontSize: 11, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 1.1 },
+  orgList: { gap: Spacing.xs },
+  orgOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: 'rgba(139, 29, 255, 0.14)',
+    backgroundColor: Brand.white,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 11,
+  },
+  orgOptionActive: { borderColor: Brand.purple, backgroundColor: 'rgba(139, 29, 255, 0.07)' },
+  orgRadio: {
+    width: 19,
+    height: 19,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: 'rgba(139, 29, 255, 0.3)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  orgRadioActive: { borderColor: Brand.purple },
+  orgRadioDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: Brand.purple },
+  orgOptionText: { flex: 1, color: Brand.inkSoft, fontSize: 14, fontWeight: '700' },
+  orgOptionTextActive: { color: Brand.ink, fontWeight: '900' },
   roleGrid: { flexDirection: 'row', gap: Spacing.sm },
   roleButton: {
     flex: 1,
