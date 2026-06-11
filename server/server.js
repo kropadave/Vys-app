@@ -1984,7 +1984,9 @@ async function sendOrgOnboardingEmail(org, adminName, actionLink, trialEndsAt) {
     '',
     `Zkušební období zdarma běží do ${trialEndDate}. Poté se účtuje ${ORG_MONTHLY_PRICE_CZK} Kč měsíčně.`,
     '',
-    actionLink ? `Nastavte si heslo a přihlaste se: ${actionLink}` : 'Přihlaste se přes obnovu hesla na přihlašovací stránce.',
+    actionLink ? `Nastavte si heslo a přihlaste se: ${actionLink}` : `Nastavte si heslo přes „Zapomenuté heslo" na ${WEB_APP_URL}/sign-in`,
+    '',
+    `Administrace organizace: ${WEB_APP_URL}/sign-in (záložka Admin)`,
     '',
     'První kroky: nahrajte logo, pozvěte prvního trenéra a založte první kroužek.',
     '',
@@ -2270,7 +2272,11 @@ app.post('/api/orgs/:orgId/approve', asyncRoute(async (request, response) => {
   // Welcome email with a password-setup link for the org admin.
   let actionLink = null;
   try {
-    const { data: linkData } = await supabase.auth.admin.generateLink({ type: 'recovery', email: org.contact_email });
+    const { data: linkData } = await supabase.auth.admin.generateLink({
+      type: 'recovery',
+      email: org.contact_email,
+      options: { redirectTo: `${WEB_APP_URL}/sign-in?mode=reset-password` },
+    });
     actionLink = linkData?.properties?.action_link || null;
   } catch (linkError) {
     console.warn(`Org approval: recovery link generation failed for ${org.contact_email}: ${linkError.message}`);
