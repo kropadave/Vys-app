@@ -1,4 +1,4 @@
-import { ClipboardCheck, Shirt, Smartphone, Users, Utensils, UtensilsCrossed } from 'lucide-react';
+import { ClipboardCheck, Shirt, Smartphone, Trophy, Users, Utensils } from 'lucide-react';
 
 import { Reveal } from '@/components/animated/reveal';
 import { PageHero } from '@/components/page-hero';
@@ -40,43 +40,43 @@ export default function CampsPage() {
 
             <div className="relative grid gap-3 p-4 sm:grid-cols-2 md:p-5">
               {/* 1 */}
-              <div className="flex items-start gap-4 rounded-[24px] border border-brand-purple/15 bg-brand-purple/[0.045] p-4 transition-transform duration-300 hover:-translate-y-0.5 md:p-5">
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-brand-purple/25 bg-gradient-to-br from-brand-purple/20 to-brand-purple/5 shadow-[0_10px_24px_rgba(139,29,255,0.12)]">
-                  <Utensils size={20} className="text-brand-purple" />
+              <div className="flex flex-col items-start gap-4 rounded-[24px] border border-brand-purple/15 bg-brand-purple/[0.045] p-5 transition-transform duration-300 hover:-translate-y-0.5">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-brand-purple/25 bg-gradient-to-br from-brand-purple/20 to-brand-purple/5 shadow-[0_10px_24px_rgba(139,29,255,0.12)]">
+                  <Utensils size={21} className="text-brand-purple" />
                 </div>
                 <div>
                   <p className="text-sm font-black text-brand-ink">Jídlo a pitný režim</p>
-                  <p className="mt-1 text-sm font-semibold leading-6 text-brand-ink-soft">Obědy a svačiny po celý den, zdravá strava i pitný režim.</p>
+                  <p className="mt-1.5 text-xs leading-5 text-brand-ink-soft">Obědy a svačiny po celý den, zdravá strava i pitný režim.</p>
                 </div>
               </div>
               {/* 2 */}
-              <div className="flex items-start gap-4 rounded-[24px] border border-brand-pink/15 bg-brand-pink/[0.045] p-4 transition-transform duration-300 hover:-translate-y-0.5 md:p-5">
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-brand-pink/25 bg-gradient-to-br from-brand-pink/20 to-brand-pink/5 shadow-[0_10px_24px_rgba(241,43,179,0.12)]">
-                  <Shirt size={20} className="text-brand-pink" />
+              <div className="flex flex-col items-start gap-4 rounded-[24px] border border-brand-pink/15 bg-brand-pink/[0.045] p-5 transition-transform duration-300 hover:-translate-y-0.5">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-brand-pink/25 bg-gradient-to-br from-brand-pink/20 to-brand-pink/5 shadow-[0_10px_24px_rgba(241,43,179,0.12)]">
+                  <Shirt size={21} className="text-brand-pink" />
                 </div>
                 <div>
                   <p className="text-sm font-black text-brand-ink">Letní TeamVYS tričko</p>
-                  <p className="mt-1 text-sm font-semibold leading-6 text-brand-ink-soft">Designové tričko z nové letní kolekce TeamVYS.</p>
+                  <p className="mt-1.5 text-xs leading-5 text-brand-ink-soft">Designové tričko z nové letní kolekce TeamVYS.</p>
                 </div>
               </div>
               {/* 3 */}
-              <div className="flex items-start gap-4 rounded-[24px] border border-brand-purple/15 bg-brand-purple/[0.045] p-4 transition-transform duration-300 hover:-translate-y-0.5 md:p-5">
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-brand-purple/25 bg-gradient-to-br from-brand-purple/20 to-brand-purple/5 shadow-[0_10px_24px_rgba(139,29,255,0.12)]">
-                  <Users size={20} className="text-brand-purple" />
+              <div className="flex flex-col items-start gap-4 rounded-[24px] border border-brand-purple/15 bg-brand-purple/[0.045] p-5 transition-transform duration-300 hover:-translate-y-0.5">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-brand-purple/25 bg-gradient-to-br from-brand-purple/20 to-brand-purple/5 shadow-[0_10px_24px_rgba(139,29,255,0.12)]">
+                  <Users size={21} className="text-brand-purple" />
                 </div>
                 <div>
                   <p className="text-sm font-black text-brand-ink">Trenéři a animátoři</p>
-                  <p className="mt-1 text-sm font-semibold leading-6 text-brand-ink-soft">Certifikovaní trenéři a animátoři, kteří děti opravdu baví.</p>
+                  <p className="mt-1.5 text-xs leading-5 text-brand-ink-soft">Certifikovaní trenéři a animátoři, kteří děti opravdu baví.</p>
                 </div>
               </div>
               {/* 4 */}
-              <div className="flex items-start gap-4 rounded-[24px] border border-brand-cyan/15 bg-brand-cyan/[0.045] p-4 transition-transform duration-300 hover:-translate-y-0.5 md:p-5">
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-brand-cyan/25 bg-gradient-to-br from-brand-cyan/20 to-brand-cyan/5 shadow-[0_10px_24px_rgba(124,45,219,0.12)]">
-                  <UtensilsCrossed size={20} className="text-brand-cyan" />
+              <div className="flex flex-col items-start gap-4 rounded-[24px] border border-brand-cyan/15 bg-brand-cyan/[0.045] p-5 transition-transform duration-300 hover:-translate-y-0.5">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-brand-cyan/25 bg-gradient-to-br from-brand-cyan/20 to-brand-cyan/5 shadow-[0_10px_24px_rgba(124,45,219,0.12)]">
+                  <Trophy size={21} className="text-brand-cyan" />
                 </div>
                 <div>
                   <p className="text-sm font-black text-brand-ink">Trénink, hry a výzvy</p>
-                  <p className="mt-1 text-sm font-semibold leading-6 text-brand-ink-soft">Bohatý program: trénink, hry, překážková dráha i kreativní výzvy.</p>
+                  <p className="mt-1.5 text-xs leading-5 text-brand-ink-soft">Bohatý program: trénink, hry, překážková dráha i kreativní výzvy.</p>
                 </div>
               </div>
             </div>
