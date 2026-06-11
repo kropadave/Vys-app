@@ -204,6 +204,25 @@ export async function createCheckoutSession(payload: CheckoutPayload): Promise<C
   }, { auth: true });
 }
 
+export type RegisterOrganizationPayload = {
+  orgName: string;
+  contactEmail: string;
+  adminFirstName: string;
+  adminLastName: string;
+  sportType?: string;
+  city?: string;
+  successUrl: string;
+  cancelUrl: string;
+};
+
+export async function registerOrganization(payload: RegisterOrganizationPayload): Promise<CheckoutResponse> {
+  return requestJson('/api/orgs/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function createEmbeddedPaymentIntent(payload: EmbeddedPaymentIntentPayload): Promise<EmbeddedPaymentIntentResponse> {
   return requestJson('/api/payments/payment-intent', {
     method: 'POST',
