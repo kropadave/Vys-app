@@ -73,6 +73,7 @@ import {
     type WorkshopSlot
 } from '@/lib/portal-content';
 import { createBrowserSupabaseClient, hasSupabaseBrowserConfig } from '@/lib/supabase/browser';
+import { useFeatureFlags } from '@/lib/use-feature-flags';
 
 export type AdminFinanceResponse = {
   purchases?: Array<{ id: string; title: string; participant_name: string; amount: number; status: string; paid_at: string }>;
@@ -167,6 +168,7 @@ type AdminDashboardProps = {
   financeError: string | null;
   showSignOut: boolean;
   devMode: boolean;
+  superAdmin?: boolean;
   initialCoachSummaries?: AdminCoachSummary[] | null;
   initialCoachAccessRequests?: AdminCoachAccessRequest[] | null;
 };
@@ -310,7 +312,7 @@ function computePayoutPeriod(offsetFromPrevMonth: number) {
   };
 }
 
-export function AdminDashboard({ finance, financeError, showSignOut, devMode, initialCoachSummaries, initialCoachAccessRequests }: AdminDashboardProps) {
+export function AdminDashboard({ finance, financeError, showSignOut, devMode, superAdmin = false, initialCoachSummaries, initialCoachAccessRequests }: AdminDashboardProps) {
   const [activeSection, setActiveSection] = useState<SectionKey>('overview');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [attendanceQuery, setAttendanceQuery] = useState('');
@@ -741,7 +743,7 @@ export function AdminDashboard({ finance, financeError, showSignOut, devMode, in
       </div>
 
       <main className="min-w-0 space-y-5 pb-8 lg:pb-0">
-        <AdminHeader activeSection={currentSection} devMode={devMode} showSignOut={showSignOut} totals={totals} />
+        <AdminHeader activeSection={currentSection} devMode={devMode} showSignOut={showSignOut} superAdmin={superAdmin} totals={totals} />
 
         {financeError ? <BackendNotice title="Backend finance teď neodpověděl" error={financeError} /> : null}
         {productsError ? <BackendNotice title="Produkty se nenačetly" error={productsError} /> : null}
@@ -801,7 +803,7 @@ export function AdminDashboard({ finance, financeError, showSignOut, devMode, in
   );
 }
 
-function AdminHeader({ activeSection, devMode, showSignOut, totals }: { activeSection: (typeof sections)[number]; devMode: boolean; showSignOut: boolean; totals: AdminTotals }) {
+function AdminHeader({ activeSection, devMode, showSignOut, superAdmin, totals }: { activeSection: (typeof sections)[number]; devMode: boolean; showSignOut: boolean; superAdmin: boolean; totals: AdminTotals }) {
   return (
     <div className="relative overflow-hidden rounded-[22px] border border-brand-purple/20 bg-gradient-to-br from-[#331650] via-[#27113D] to-[#4A1D78] px-4 py-4 text-white shadow-brand sm:px-5">
       <div className="absolute inset-x-0 top-0 h-1 bg-gradient-brand" />
@@ -818,6 +820,11 @@ function AdminHeader({ activeSection, devMode, showSignOut, totals }: { activeSe
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <StatusPill label={`${totals.missingDocuments} dokumentů chybí`} tone={totals.missingDocuments > 0 ? 'orange' : 'mint'} />
+          {superAdmin ? (
+            <a href="/admin/organizace" className="inline-flex items-center gap-1.5 rounded-full bg-white/12 px-3 py-1.5 text-[11px] font-black uppercase tracking-wide text-brand-cyan ring-1 ring-white/15 transition hover:bg-white/20">
+              Organizace
+            </a>
+          ) : null}
           {showSignOut ? <SignOutButton /> : null}
         </div>
       </div>
@@ -951,6 +958,7 @@ function OverviewSection({ totals, coaches, coachAttendanceRecords, dppDocuments
 }
 
 function AttendanceSection({ query, onQueryChange, activityRows, campTurnusy, workshopSlots, workshopAttendanceRecords, coaches, coachAttendanceRecords, onAddCoachAttendance, onOpenActivityDetail, onOpenParticipantDetail, participants, products }: { query: string; onQueryChange: (value: string) => void; activityRows: ReturnType<typeof adminActivityRows>; campTurnusy: CampTurnus[]; workshopSlots: WorkshopSlot[]; workshopAttendanceRecords: WorkshopAttendanceRecord[]; coaches: AdminCoachSummary[]; coachAttendanceRecords: CoachAttendanceRecord[]; onAddCoachAttendance: (input: ManualCoachAttendanceInput) => CoachAttendanceRecord; onOpenActivityDetail: (activity: ReturnType<typeof adminActivityRows>[number]) => void; onOpenParticipantDetail: (participant: ParentParticipant, activityType: ActivityType, place: string) => void; participants: ParentParticipant[]; products: ParentProduct[] }) {
+  const { flags } = useFeatureFlags();
   const visibleActivities = filterActivityRows(activityRows, query);
   const visibleCoaches = coaches.filter((coach) => matchesQuery(`${coach.name} ${coach.locations.join(' ')}`, query) || recordsForCoach(coach, coachAttendanceRecords).some((record) => matchesQuery(`${record.coachName} ${record.sessionTitle} ${record.date}`, query)));
   const courseStats = buildCourseLocationStats(visibleActivities);
@@ -978,8 +986,8 @@ function AttendanceSection({ query, onQueryChange, activityRows, campTurnusy, wo
       </Panel>
 
       <div className="grid gap-4 xl:grid-cols-2">
-        <CampTurnusModalPanel campTurnusy={pastCampTurnusy} activities={activityRows.filter((a) => a.type === 'Tabor')} onOpenActivityDetail={onOpenActivityDetail} participants={participants} products={products} />
-        <WorkshopCalendarAttendancePanel slots={pastWsSlots} allSlots={workshopSlots} activities={workshopActivities} attendanceRecords={workshopAttendanceRecords} />
+        {flags.trainer_camps ? <CampTurnusModalPanel campTurnusy={pastCampTurnusy} activities={activityRows.filter((a) => a.type === 'Tabor')} onOpenActivityDetail={onOpenActivityDetail} participants={participants} products={products} /> : null}
+        {flags.trainer_workshop_registration ? <WorkshopCalendarAttendancePanel slots={pastWsSlots} allSlots={workshopSlots} activities={workshopActivities} attendanceRecords={workshopAttendanceRecords} /> : null}
       </div>
 
       <CollapsiblePanel icon={<Banknote size={18} />} title="Trenérská docházka podle trenéra" subtitle="celý záznam trenéra včetně admin doplnění" count={`${visibleCoaches.length} trenérů`} defaultOpen={false}>
@@ -3238,6 +3246,7 @@ function groupCampProducts(camps: ParentProduct[]): Array<{ baseId: string; firs
 }
 
 function ProductsSection({ products, coaches, onAddProduct, onRemoveProduct, onUpdateProduct, onProductCoachIdsChange }: { products: ParentProduct[]; coaches: AdminCoachSummary[]; onAddProduct: (input: AdminProductInput) => Promise<ParentProduct>; onRemoveProduct: (productId: string) => Promise<void>; onUpdateProduct: (product: ParentProduct) => Promise<ParentProduct>; onProductCoachIdsChange: (product: ParentProduct, coachIds: string[]) => Promise<void> }) {
+  const { flags } = useFeatureFlags();
   const [activeTab, setActiveTab] = useState<ActivityType>('Krouzek');
   const [removedBaseIds, setRemovedBaseIds] = useState<Set<string>>(new Set());
   const [editedProducts, setEditedProducts] = useState<Map<string, ProductEdits>>(new Map());
@@ -3318,7 +3327,9 @@ function ProductsSection({ products, coaches, onAddProduct, onRemoveProduct, onU
         <Panel className="p-5">
           <SectionTitle icon={<ListChecks size={18} />} title="Produkty na webu" subtitle={`${activeTab === 'Krouzek' ? courseGroupCount : activeTab === 'Tabor' ? campCount : workshopCount} v kategorii`} />
           <div className="mt-4 grid grid-cols-3 gap-1.5 rounded-[16px] border border-brand-purple/10 bg-brand-paper p-1">
-            {([['Krouzek', 'Kroužky', courseGroupCount], ['Tabor', 'Tábory', campCount], ['Workshop', 'Workshopy', workshopCount]] as const).map(([type, label, count]) => (
+            {([['Krouzek', 'Kroužky', courseGroupCount], ['Tabor', 'Tábory', campCount], ['Workshop', 'Workshopy', workshopCount]] as const)
+              .filter(([type]) => (type === 'Tabor' ? flags.trainer_camps : type === 'Workshop' ? flags.trainer_workshop_registration : true))
+              .map(([type, label, count]) => (
               <button key={type} type="button" onClick={() => setActiveTab(type)} className={`flex items-center justify-center gap-1.5 rounded-[12px] px-3 py-2 text-sm font-black transition ${activeTab === type ? 'bg-brand-purple text-white shadow-brand' : 'text-brand-ink-soft hover:text-brand-ink'}`}>
                 {label}
                 <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-black ${activeTab === type ? 'bg-white/20 text-white' : 'bg-brand-purple/10 text-brand-purple'}`}>{count}</span>
@@ -3392,6 +3403,7 @@ function ProductsSection({ products, coaches, onAddProduct, onRemoveProduct, onU
 }
 
 function ProductCreateForm({ coaches, onAddProduct }: { coaches: AdminCoachSummary[]; onAddProduct: (input: AdminProductInput) => Promise<ParentProduct> }) {
+  const { flags } = useFeatureFlags();
   const [type, setType] = useState<ActivityType>('Krouzek');
   const availableCoaches = useMemo(() => coaches.filter((coach) => coach.status !== 'Pozastaveny'), [coaches]);
   const [title, setTitle] = useState('');
@@ -3540,7 +3552,9 @@ function ProductCreateForm({ coaches, onAddProduct }: { coaches: AdminCoachSumma
   return (
     <form onSubmit={submitProduct} className="grid gap-3">
         <div className="grid grid-cols-3 rounded-[16px] border border-brand-purple/10 bg-brand-paper p-1">
-          {(['Krouzek', 'Tabor', 'Workshop'] as const).map((item) => (
+          {(['Krouzek', 'Tabor', 'Workshop'] as const)
+            .filter((item) => (item === 'Tabor' ? flags.trainer_camps : item === 'Workshop' ? flags.trainer_workshop_registration : true))
+            .map((item) => (
             <button key={item} type="button" onClick={() => selectType(item)} className={`rounded-[12px] px-3 py-2 text-xs font-black transition ${type === item ? 'bg-brand-purple text-white shadow-sm' : 'text-brand-ink-soft hover:text-brand-purple'}`}>
               {activityLabel(item)}
             </button>
@@ -4594,14 +4608,15 @@ function WorkshopUpcomingPanel({ slots, products, participants, attendanceRecord
 }
 
 function ParticipantTypeSwitch({ activeType, groupsByType, workshopUpcomingCount, onChange }: { activeType: ActivityType; groupsByType: Record<ActivityType, ParticipantGroup[]>; workshopUpcomingCount: number; onChange: (type: ActivityType) => void }) {
+  const { flags } = useFeatureFlags();
   const typeOptions: Array<{ type: ActivityType; label: string; sublabel: string; icon: ReactNode; count: number }> = [
     { type: 'Krouzek', label: 'Kroužky', sublabel: `${groupsByType.Krouzek.length} lokalit`, icon: <MapPin size={17} />, count: groupsByType.Krouzek.reduce((s, g) => s + g.participants.length, 0) },
-    { type: 'Tabor', label: 'Tábory', sublabel: `${groupsByType.Tabor.length} turnusů`, icon: <ShieldCheck size={17} />, count: groupsByType.Tabor.reduce((s, g) => s + g.participants.length, 0) },
-    { type: 'Workshop', label: 'Workshopy', sublabel: 'nadcházející termíny', icon: <ListChecks size={17} />, count: workshopUpcomingCount },
+    ...(flags.trainer_camps ? [{ type: 'Tabor' as ActivityType, label: 'Tábory', sublabel: `${groupsByType.Tabor.length} turnusů`, icon: <ShieldCheck size={17} />, count: groupsByType.Tabor.reduce((s, g) => s + g.participants.length, 0) }] : []),
+    ...(flags.trainer_workshop_registration ? [{ type: 'Workshop' as ActivityType, label: 'Workshopy', sublabel: 'nadcházející termíny', icon: <ListChecks size={17} />, count: workshopUpcomingCount }] : []),
   ];
 
   return (
-    <div className="grid gap-2 rounded-[18px] border border-brand-purple/10 bg-brand-paper p-1.5 sm:grid-cols-3">
+    <div className={`grid gap-2 rounded-[18px] border border-brand-purple/10 bg-brand-paper p-1.5 ${typeOptions.length === 3 ? 'sm:grid-cols-3' : typeOptions.length === 2 ? 'sm:grid-cols-2' : 'sm:grid-cols-1'}`}>
       {typeOptions.map((option) => {
         const active = activeType === option.type;
         return (

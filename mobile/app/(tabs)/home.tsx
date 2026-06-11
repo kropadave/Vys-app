@@ -9,6 +9,7 @@ import { AnimatedCounter, AnimatedProgressBar, FadeInUp, PulseGlow } from '@/com
 import { ParticipantActivePurchases } from '@/components/participant-active-purchases';
 import { ParticipantCard } from '@/components/participant-card';
 import { passesForParticipant, useDigitalPasses } from '@/hooks/use-digital-passes';
+import { useFeatureFlags } from '@/hooks/use-feature-flags';
 import { useParticipantProfile } from '@/hooks/use-participant-profile';
 import { activityColors } from '@/lib/activity-theme';
 import { ALL_MASCOTS, demoOwnedMascots, rarityColor, rarityLabel, type MascotRarity, type OwnedMascot } from '@/lib/attendance-coins';
@@ -21,6 +22,7 @@ import { useBreakpoint } from '@/lib/use-breakpoint';
 export default function ParticipantOverview() {
   const { isMobile } = useBreakpoint();
   const { profile, profileReady, loading: profileLoading, authLoading } = useParticipantProfile();
+  const { flags } = useFeatureFlags();
   const router = useRouter();
   const liveRewardPath = useMemo(() => rewardPathForXp(profile.xp), [profile.xp]);
   const progress = Math.min(profile.xp / profile.nextBraceletXp, 1);
@@ -86,6 +88,7 @@ export default function ParticipantOverview() {
       ) : null}
 
       {/* Tutorials shortcut */}
+      {flags.participant_tutorials ? (
       <Pressable
         onPress={() => router.push('/tutorials' as never)}
         style={({ pressed }) => [styles.tutorialsCard, pressed && { opacity: 0.85 }]}
@@ -108,8 +111,10 @@ export default function ParticipantOverview() {
           <FontAwesome5 name="chevron-right" size={13} color="rgba(255,255,255,0.7)" />
         </LinearGradient>
       </Pressable>
+      ) : null}
 
       {/* Training spots shortcut */}
+      {flags.participant_spots_map ? (
       <Pressable
         onPress={() => router.push('/spots' as never)}
         style={({ pressed }) => [styles.spotsCard, pressed && { opacity: 0.85 }]}
@@ -132,6 +137,7 @@ export default function ParticipantOverview() {
           <FontAwesome5 name="chevron-right" size={13} color="rgba(255,255,255,0.7)" />
         </LinearGradient>
       </Pressable>
+      ) : null}
 
     </ScrollView>
   );

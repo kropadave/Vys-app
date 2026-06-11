@@ -70,6 +70,7 @@ import {
     type RequiredDocumentTemplate,
 } from '@/lib/portal-content';
 import { createBrowserSupabaseClient, hasSupabaseBrowserConfig } from '@/lib/supabase/browser';
+import { useFeatureFlags } from '@/lib/use-feature-flags';
 
 type SectionKey = 'overview' | 'participants' | 'payments' | 'documents' | 'profile';
 type ProductGroup = {
@@ -934,6 +935,8 @@ function PaymentsSection({
   registeredInterestProductIds: Set<string>;
 }) {
   const { payments } = useParentPortalData();
+  const { flags } = useFeatureFlags();
+  const visiblePaymentTypes = paymentTypes.filter((type) => (type.key === 'Tabor' ? flags.trainer_camps : type.key === 'Workshop' ? flags.trainer_workshop_registration : true));
   const visibleGroups = productGroups
     .filter((group) => group.type === activeProductType)
     .sort((a, b) => productSortScore(a, selectedParticipant) - productSortScore(b, selectedParticipant) || a.place.localeCompare(b.place, 'cs'));
@@ -944,8 +947,8 @@ function PaymentsSection({
       <Panel className="p-5">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <SectionTitle icon={<WalletCards size={18} />} title="Platby a nové produkty" subtitle="aktuální nabídka, lokality a varianty permanentek" />
-          <div className="grid grid-cols-3 rounded-lg border border-neutral-200 bg-neutral-50 p-1">
-            {paymentTypes.map((type) => (
+          <div className={`grid rounded-lg border border-neutral-200 bg-neutral-50 p-1 ${visiblePaymentTypes.length === 3 ? 'grid-cols-3' : visiblePaymentTypes.length === 2 ? 'grid-cols-2' : 'grid-cols-1'}`}>
+            {visiblePaymentTypes.map((type) => (
               <button
                 key={type.key}
                 type="button"
@@ -1087,15 +1090,16 @@ function PaymentHistoryRow({ payment }: { payment: ParentPayment }) {
 
 function DocumentsSection({ onOpenDocument, onGoToPayments }: { onOpenDocument: (document: ParentDocument) => void; onGoToPayments: () => void }) {
   const { documents } = useParentPortalData();
+  const { flags } = useFeatureFlags();
   const missingDocuments = documents.filter((document) => document.status !== 'signed');
 
   return (
     <div className="grid items-start gap-5">
       <Panel className="p-5">
-        <SectionTitle icon={<ShieldCheck size={18} />} title="Co je nutné vyplnit" subtitle="kroužek a tábor mají odlišný balíček dokumentů" />
+        <SectionTitle icon={<ShieldCheck size={18} />} title="Co je nutné vyplnit" subtitle={flags.trainer_camps ? 'kroužek a tábor mají odlišný balíček dokumentů' : 'dokumenty ke kroužku'} />
         <div className="mt-4 grid gap-6 md:grid-cols-2">
           <DocumentChecklist title="Kroužek" productType="Krouzek" />
-          <DocumentChecklist title="Tábor" productType="Tabor" />
+          {flags.trainer_camps ? <DocumentChecklist title="Tábor" productType="Tabor" /> : null}
         </div>
         {missingDocuments.length > 0 ? (
           <button type="button" onClick={() => onOpenDocument(missingDocuments[0])} className="mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 text-sm font-medium text-white transition hover:bg-violet-700">

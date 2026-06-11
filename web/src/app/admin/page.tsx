@@ -25,7 +25,7 @@ export default async function AdminPage() {
     const user = userResult.user;
     if (!user) redirect('/sign-in?next=/admin');
 
-    const { data: profile } = await supabase.from('app_profiles').select('role,name,email').eq('id', user.id).maybeSingle();
+    const { data: profile } = await supabase.from('app_profiles').select('role,name,email,super_admin').eq('id', user.id).maybeSingle();
     if (profile?.role !== 'admin') redirect('/rodic');
     showSignOut = true;
     coachData = await loadAdminCoachData(hasSupabaseAdminConfig() ? createAdminSupabaseClient() : supabase);
@@ -34,7 +34,7 @@ export default async function AdminPage() {
     return (
       <main className="min-h-dvh bg-brand-paper px-4 py-6 text-brand-ink texture-grid md:px-6 md:py-8">
         <div className="mx-auto max-w-[1280px]">
-          <AdminDashboard finance={finance.data} financeError={finance.error} showSignOut={showSignOut} devMode={DEV_BYPASS_AUTH} initialCoachSummaries={coachData.summaries} initialCoachAccessRequests={coachData.requests} />
+          <AdminDashboard finance={finance.data} financeError={finance.error} showSignOut={showSignOut} devMode={DEV_BYPASS_AUTH} superAdmin={profile?.super_admin === true} initialCoachSummaries={coachData.summaries} initialCoachAccessRequests={coachData.requests} />
         </div>
       </main>
     );

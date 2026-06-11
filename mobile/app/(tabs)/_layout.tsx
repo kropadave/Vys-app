@@ -3,6 +3,7 @@ import { Tabs } from 'expo-router';
 import { GlassTabBarBackground } from '@/components/glass-tab-bar-background';
 import { NavigationHeaderBackground } from '@/components/navigation-header-background';
 import { TabBarIcon, type TabIconName } from '@/components/tab-bar-icon';
+import { useFeatureFlags } from '@/hooks/use-feature-flags';
 import { Brand } from '@/lib/brand';
 import { Palette } from '@/lib/theme';
 import { useBreakpoint } from '@/lib/use-breakpoint';
@@ -17,13 +18,14 @@ const tabIcons: Record<string, TabIconName> = {
 
 export default function ParticipantTabs() {
   const { width, isMobile } = useBreakpoint();
+  const { flags } = useFeatureFlags();
   const tabBarGap = isMobile ? 14 : 20;
   const tabBarWidth = Math.min(Math.max(width - tabBarGap * 2, 280), 430);
   const tabBarLeft = Math.max(tabBarGap, (width - tabBarWidth) / 2);
 
   return (
     <Tabs
-      initialRouteName="tricks"
+      initialRouteName={flags.participant_trick_xp ? 'tricks' : 'home'}
       screenOptions={({ route }) => ({
         headerShown: route.name !== 'tricks',
         headerBackground: () => <NavigationHeaderBackground />,
@@ -75,9 +77,9 @@ export default function ParticipantTabs() {
       })}>
       <Tabs.Screen name="home" options={{ title: 'Přehled', tabBarAccessibilityLabel: 'Přehled' }} />
       <Tabs.Screen name="rewards" options={{ title: 'Cesta', tabBarAccessibilityLabel: 'Cesta' }} />
-      <Tabs.Screen name="tricks" options={{ title: 'Skill tree', tabBarAccessibilityLabel: 'Triky' }} />
+      <Tabs.Screen name="tricks" options={{ href: flags.participant_trick_xp ? undefined : null, title: 'Skill tree', tabBarAccessibilityLabel: 'Triky' }} />
       <Tabs.Screen name="dochazka" options={{ title: 'Docházka', tabBarAccessibilityLabel: 'Docházka' }} />
-      <Tabs.Screen name="leaderboard" options={{ title: 'Žebříček', tabBarAccessibilityLabel: 'Žebříček' }} />
+      <Tabs.Screen name="leaderboard" options={{ href: flags.participant_vys_leaderboard ? undefined : null, title: 'Žebříček', tabBarAccessibilityLabel: 'Žebříček' }} />
       <Tabs.Screen name="tutorials" options={{ href: null, title: 'Tutoriály', headerShown: false }} />
     </Tabs>
   );

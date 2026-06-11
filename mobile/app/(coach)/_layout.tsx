@@ -2,6 +2,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
 import { StyleSheet, View } from 'react-native';
 
+import { useFeatureFlags } from '@/hooks/use-feature-flags';
 import { CoachColors } from '@/lib/coach-theme';
 import { useBreakpoint } from '@/lib/use-breakpoint';
 
@@ -22,6 +23,7 @@ const tabIcons: Record<string, MaterialIconName> = {
 
 export default function CoachTabs() {
   const { width, isMobile } = useBreakpoint();
+  const { flags } = useFeatureFlags();
   const tabBarGap = isMobile ? 12 : 20;
   const tabBarWidth = Math.min(Math.max(width - tabBarGap * 2, 320), 620);
   const tabBarLeft = Math.max(tabBarGap, (width - tabBarWidth) / 2);
@@ -79,13 +81,13 @@ export default function CoachTabs() {
       })}>
       <Tabs.Screen name="coach" options={{ title: 'Přehled', tabBarAccessibilityLabel: 'Přehled' }} />
       <Tabs.Screen name="attendance" options={{ title: 'Docházka', tabBarAccessibilityLabel: 'Docházka' }} />
-      <Tabs.Screen name="qr" options={{ title: 'QR kódy', tabBarAccessibilityLabel: 'QR kódy' }} />
+      <Tabs.Screen name="qr" options={{ href: flags.trainer_qr_codes ? undefined : null, title: 'QR kódy', tabBarAccessibilityLabel: 'QR kódy' }} />
       <Tabs.Screen name="wards" options={{ title: 'Svěřenci', tabBarAccessibilityLabel: 'Svěřenci' }} />
       <Tabs.Screen name="ward-detail" options={{ href: null, title: 'Detail dítěte' }} />
       <Tabs.Screen name="participant-search" options={{ href: null, title: 'Hledat účastníka' }} />
       <Tabs.Screen name="coach-inspiration" options={{ href: null, title: 'Inspirace' }} />
       <Tabs.Screen name="coach-games" options={{ href: null, title: 'Hry na trénink' }} />
-      <Tabs.Screen name="coach-leaderboard" options={{ title: 'Žebříček', tabBarAccessibilityLabel: 'Žebříček' }} />
+      <Tabs.Screen name="coach-leaderboard" options={{ href: flags.trainer_leaderboard_qr_xp ? undefined : null, title: 'Žebříček', tabBarAccessibilityLabel: 'Žebříček' }} />
       <Tabs.Screen name="coach-profile" options={{ title: 'Profil', tabBarAccessibilityLabel: 'Profil' }} />
     </Tabs>
   );
