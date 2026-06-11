@@ -81,6 +81,26 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
     await markPaymentIntentFailed(event.data.object);
   }
 
+  // --- Multi-tenant SaaS: organization subscription lifecycle (Phase 5) ---
+  // Routed by stripe_customer_id; the VYS org has stripe_customer_id = NULL
+  // and subscription_status = 'exempt', so it never matches any branch here.
+  if (event.type === 'checkout.session.completed' && event.data.object.mode === 'subscription'
+    && event.data.object.metadata?.org_registration === 'true') {
+    await provisionOrganizationFromCheckout(event.data.object);
+  }
+
+  if (event.type === 'invoice.paid') {
+    await handleOrgInvoicePaid(event.data.object);
+  }
+
+  if (event.type === 'customer.subscription.updated' || event.type === 'customer.subscription.deleted') {
+    await syncOrgSubscriptionStatus(event.data.object, event.type === 'customer.subscription.deleted');
+  }
+
+  if (event.type === 'customer.subscription.trial_will_end') {
+    await sendOrgTrialEndingEmail(event.data.object);
+  }
+
   response.json({ received: true });
 }));
 
@@ -1730,6 +1750,265 @@ app.delete('/api/admin/products/:id', asyncRoute(async (request, response) => {
   const { error } = await supabase.from('products').delete().eq('id', id);
   if (error) throw error;
   response.json({ ok: true });
+}));
+
+// ============================================================================
+// Multi-tenant SaaS (Phase 5): organization registration + subscription billing
+// ============================================================================
+// Pricing: 790 Kč/month per organization, first 30 days free (Stripe trial).
+// The VYS org is the platform owner: stripe_customer_id = NULL,
+// subscription_status = 'exempt' — exempt from every check in this section.
+
+const ORG_MONTHLY_PRICE_CZK = 790;
+const ORG_TRIAL_DAYS = 30;
+
+function mapStripeSubscriptionStatus(stripeStatus) {
+  switch (stripeStatus) {
+    case 'trialing': return 'trialing';
+    case 'active': return 'active';
+    case 'past_due': return 'past_due';
+    case 'canceled':
+    case 'unpaid':
+    case 'incomplete_expired':
+      return 'canceled';
+    default: return null; // 'incomplete', 'paused' → leave current status untouched
+  }
+}
+
+async function orgByStripeCustomerId(customerId) {
+  if (!customerId) return null;
+  const { data, error } = await supabase
+    .from('organizations')
+    .select('id,name,contact_email,subscription_status')
+    .eq('stripe_customer_id', customerId)
+    .neq('subscription_status', 'exempt')
+    .maybeSingle();
+  if (error) throw error;
+  return data || null;
+}
+
+async function provisionOrganizationFromCheckout(session) {
+  const metadata = session.metadata || {};
+  const customerId = typeof session.customer === 'string' ? session.customer : session.customer?.id;
+  if (!customerId) throw new Error('Org checkout session is missing a Stripe customer.');
+
+  // Idempotency: webhook retries must not create duplicate orgs.
+  const existing = await orgByStripeCustomerId(customerId);
+  if (existing) return existing;
+
+  const orgName = requiredString(metadata.org_name, 'org_name');
+  const contactEmail = requiredString(metadata.contact_email, 'contact_email').toLowerCase();
+  const adminName = requiredString(metadata.admin_name, 'admin_name');
+  const trialEndsAt = new Date(Date.now() + ORG_TRIAL_DAYS * MS_PER_DAY).toISOString();
+
+  const { data: org, error: orgError } = await supabase
+    .from('organizations')
+    .insert({
+      name: orgName,
+      org_type: 'external',
+      sport_type: optionalString(metadata.sport_type),
+      city: optionalString(metadata.city),
+      contact_email: contactEmail,
+      stripe_customer_id: customerId,
+      subscription_status: 'trialing',
+      trial_ends_at: trialEndsAt,
+      feature_flags: {
+        org_type: 'external',
+        participant_wristbands: false,
+        participant_trick_xp: false,
+        participant_vys_leaderboard: false,
+        participant_spots_map: false,
+        participant_vys_quest_map: false,
+        participant_tutorials: false,
+        trainer_workshop_registration: false,
+        trainer_qr_codes: false,
+        trainer_spots: false,
+        trainer_leaderboard_qr_xp: false,
+        trainer_camps: false,
+        shared_arenas: true,
+        shared_mascots: true,
+        shared_attendance_quest_map: true,
+        shared_leaderboard: true,
+      },
+    })
+    .select('id,name,contact_email')
+    .single();
+  if (orgError) throw orgError;
+
+  // Allow the admin email through the existing admin-invite gate, scoped to the new org.
+  const { error: inviteError } = await supabase
+    .from('admin_account_invites')
+    .upsert({ email: contactEmail, active: true, note: `Org registration: ${orgName}`, org_id: org.id }, { onConflict: 'email' });
+  if (inviteError) throw inviteError;
+
+  // Create the org admin auth account; the org-aware signup trigger stamps org_id.
+  const { data: created, error: createError } = await supabase.auth.admin.createUser({
+    email: contactEmail,
+    email_confirm: true,
+    user_metadata: { role: 'admin', name: adminName, org_id: org.id },
+  });
+  if (createError && !/already.*registered|already.*exists/i.test(createError.message || '')) throw createError;
+
+  let actionLink = null;
+  try {
+    const { data: linkData } = await supabase.auth.admin.generateLink({ type: 'recovery', email: contactEmail });
+    actionLink = linkData?.properties?.action_link || null;
+  } catch (linkError) {
+    console.warn(`Org onboarding: recovery link generation failed for ${contactEmail}: ${linkError.message}`);
+  }
+
+  await sendOrgOnboardingEmail(org, adminName, actionLink, trialEndsAt);
+  console.info(`Provisioned organization ${org.id} (${orgName}) for Stripe customer ${customerId}.`);
+  return { ...org, adminUserId: created?.user?.id || null };
+}
+
+async function handleOrgInvoicePaid(invoice) {
+  const customerId = typeof invoice.customer === 'string' ? invoice.customer : invoice.customer?.id;
+  const org = await orgByStripeCustomerId(customerId);
+  if (!org) return; // not an org-subscription invoice
+
+  const periodEnd = invoice.lines?.data?.[0]?.period?.end;
+  const { error } = await supabase
+    .from('organizations')
+    .update({
+      subscription_status: 'active',
+      subscription_ends_at: periodEnd ? new Date(periodEnd * 1000).toISOString() : null,
+    })
+    .eq('id', org.id)
+    .neq('subscription_status', 'exempt');
+  if (error) throw error;
+}
+
+async function syncOrgSubscriptionStatus(subscription, isDeleted) {
+  const customerId = typeof subscription.customer === 'string' ? subscription.customer : subscription.customer?.id;
+  const org = await orgByStripeCustomerId(customerId);
+  if (!org) return;
+
+  const mapped = isDeleted ? 'canceled' : mapStripeSubscriptionStatus(subscription.status);
+  if (!mapped) return;
+
+  const update = { subscription_status: mapped };
+  if (subscription.trial_end) update.trial_ends_at = new Date(subscription.trial_end * 1000).toISOString();
+  if (subscription.current_period_end) update.subscription_ends_at = new Date(subscription.current_period_end * 1000).toISOString();
+
+  const { error } = await supabase
+    .from('organizations')
+    .update(update)
+    .eq('id', org.id)
+    .neq('subscription_status', 'exempt');
+  if (error) throw error;
+}
+
+async function sendOrgOnboardingEmail(org, adminName, actionLink, trialEndsAt) {
+  const emailer = paymentEmailer();
+  if (!emailer || !org.contact_email) {
+    console.info(`Org onboarding email skipped for ${org.id}: SMTP not configured or missing contact email.`);
+    return;
+  }
+
+  const trialEndDate = new Date(trialEndsAt).toLocaleDateString('cs-CZ');
+  const lines = [
+    `Dobrý den, ${adminName},`,
+    '',
+    `vítejte na platformě TeamVYS! Organizace ${org.name} je aktivní.`,
+    '',
+    `Zkušební období zdarma běží do ${trialEndDate}. Poté se účtuje ${ORG_MONTHLY_PRICE_CZK} Kč měsíčně.`,
+    '',
+    actionLink ? `Nastavte si heslo a přihlaste se: ${actionLink}` : 'Přihlaste se přes obnovu hesla na přihlašovací stránce.',
+    '',
+    'První kroky: nahrajte logo, pozvěte prvního trenéra a založte první kroužek.',
+    '',
+    'Děkujeme, TeamVYS',
+  ];
+
+  await emailer.sendMail({
+    from: smtpFrom,
+    to: org.contact_email,
+    subject: `Vítejte na TeamVYS — ${org.name}`,
+    text: lines.join('\n'),
+  });
+}
+
+async function sendOrgTrialEndingEmail(subscription) {
+  const customerId = typeof subscription.customer === 'string' ? subscription.customer : subscription.customer?.id;
+  const org = await orgByStripeCustomerId(customerId);
+  if (!org) return;
+
+  const emailer = paymentEmailer();
+  if (!emailer || !org.contact_email) return;
+
+  const trialEnd = subscription.trial_end ? new Date(subscription.trial_end * 1000).toLocaleDateString('cs-CZ') : 'brzy';
+  await emailer.sendMail({
+    from: smtpFrom,
+    to: org.contact_email,
+    subject: `TeamVYS — zkušební období organizace ${org.name} brzy končí`,
+    text: `Dobrý den,\n\nzkušební období organizace ${org.name} končí ${trialEnd}. Poté bude automaticky účtováno ${ORG_MONTHLY_PRICE_CZK} Kč měsíčně.\n\nDěkujeme, TeamVYS`,
+  });
+}
+
+// Public endpoint: organization self-registration → Stripe Checkout (web only).
+app.post('/api/orgs/register', asyncRoute(async (request, response) => {
+  requireServices();
+  requireStripe();
+
+  const orgName = requiredString(request.body.orgName, 'orgName');
+  const contactEmail = requiredString(request.body.contactEmail, 'contactEmail').toLowerCase();
+  const adminFirstName = requiredString(request.body.adminFirstName, 'adminFirstName');
+  const adminLastName = requiredString(request.body.adminLastName, 'adminLastName');
+  const sportType = optionalString(request.body.sportType);
+  const city = optionalString(request.body.city);
+  const successUrl = requiredString(request.body.successUrl, 'successUrl');
+  const cancelUrl = requiredString(request.body.cancelUrl, 'cancelUrl');
+
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail)) throw httpError('Neplatný kontaktní e-mail.', 400);
+
+  // Refuse duplicate registration for an email that already owns an org.
+  const { data: duplicate, error: duplicateError } = await supabase
+    .from('organizations')
+    .select('id')
+    .eq('contact_email', contactEmail)
+    .neq('subscription_status', 'canceled')
+    .maybeSingle();
+  if (duplicateError) throw duplicateError;
+  if (duplicate) throw httpError('Organizace s tímto e-mailem už existuje.', 409);
+
+  const orgMetadata = {
+    org_registration: 'true',
+    org_name: orgName,
+    sport_type: sportType || '',
+    city: city || '',
+    contact_email: contactEmail,
+    admin_name: `${adminFirstName} ${adminLastName}`,
+  };
+
+  const session = await stripe.checkout.sessions.create({
+    mode: 'subscription',
+    locale: 'cs',
+    success_url: successUrl,
+    cancel_url: cancelUrl,
+    customer_email: contactEmail,
+    line_items: [
+      {
+        quantity: 1,
+        price_data: {
+          currency: 'czk',
+          unit_amount: ORG_MONTHLY_PRICE_CZK * 100,
+          recurring: { interval: 'month' },
+          product_data: {
+            name: 'TeamVYS platforma — měsíční předplatné',
+            description: `Organizace ${orgName} · první měsíc zdarma`,
+          },
+        },
+      },
+    ],
+    subscription_data: {
+      trial_period_days: ORG_TRIAL_DAYS,
+      metadata: orgMetadata,
+    },
+    metadata: orgMetadata,
+  });
+
+  response.json({ id: session.id, url: session.url });
 }));
 
 app.use((error, _request, response, _next) => {
