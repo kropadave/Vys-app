@@ -148,6 +148,30 @@ export const legacyRewardPath = monthlyRewardPath.map((reward) => ({
   unlocked: participantProfile.xp >= reward.xp,
 }));
 
+export type ArenaStage = {
+  id: string;
+  level: number;
+  title: string;
+  /** Cumulative XP needed to unlock the arena. */
+  requiredXp: number;
+};
+
+// Cesta arén — druhá postupová cesta vedle náramků. 10 arén, prahy jsou
+// navržené tak, aby poslední aréna zhruba odpovídala černému náramku.
+// Obrázky arén 6–10 se doplní později (zatím se cyklí stávající podklady).
+export const arenaPath: ArenaStage[] = [
+  { id: 'arena-1', level: 1, title: 'Dvorek', requiredXp: 0 },
+  { id: 'arena-2', level: 2, title: 'Park', requiredXp: 1500 },
+  { id: 'arena-3', level: 3, title: 'Hřiště', requiredXp: 4000 },
+  { id: 'arena-4', level: 4, title: 'Tělocvična', requiredXp: 7500 },
+  { id: 'arena-5', level: 5, title: 'Skatepark', requiredXp: 12000 },
+  { id: 'arena-6', level: 6, title: 'Střechy', requiredXp: 17500 },
+  { id: 'arena-7', level: 7, title: 'Věž', requiredXp: 24000 },
+  { id: 'arena-8', level: 8, title: 'Noční město', requiredXp: 31500 },
+  { id: 'arena-9', level: 9, title: 'Citadela', requiredXp: 40000 },
+  { id: 'arena-10', level: 10, title: 'Vrchol', requiredXp: 49500 },
+];
+
 export const skillTreeLevels: SkillTreeLevel[] = [
   {
     id: 'level-1',

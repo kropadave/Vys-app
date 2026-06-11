@@ -22,7 +22,7 @@ import { QrScanner } from '@/components/qr-scanner';
 import { useParticipantProfile } from '@/hooks/use-participant-profile';
 import { parseQrPayload } from '@/hooks/use-qr-events';
 import { Brand, BrandGradient } from '@/lib/brand';
-import { skillTreeLevels, type ParticipantProfile, type SkillTreeLevel } from '@/lib/participant-content';
+import { arenaPath, skillTreeLevels, type ArenaStage, type ParticipantProfile, type SkillTreeLevel } from '@/lib/participant-content';
 import { Palette, Radius, Shadow, Spacing } from '@/lib/theme';
 import { useBreakpoint } from '@/lib/use-breakpoint';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -30,12 +30,20 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type SkillTrick = SkillTreeLevel['tricks'][number];
 
+type PathMode = 'bracelets' | 'arenas';
+
+// TODO: obrázky arén 6–10 dodá David později — zatím se cyklí stávající podklady.
+function arenaImageFor(level: number) {
+  return ARENA_IMAGES[(level - 1) % ARENA_IMAGES.length];
+}
+
 export default function SkillTreeScreen() {
   const { width, isMobile } = useBreakpoint();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const { profile, profileReady, loading } = useParticipantProfile();
   const [expanded, setExpanded] = useState(false);
+  const [pathMode, setPathMode] = useState<PathMode>('bracelets');
   const levels = useMemo(() => skillTreeLevels.slice(), []);
   const levelRequiredXp = useMemo(() => buildLevelRequiredXp(levels), [levels]);
   const currentIndex = useMemo(() => findCurrentLevelIndex(levels, profile, levelRequiredXp), [levels, profile, levelRequiredXp]);
@@ -51,6 +59,23 @@ export default function SkillTreeScreen() {
   const progress = nextLevel ? progressBetween(currentRequiredXp, nextRequiredXp, profile) : 1;
   const missingXp = nextLevel ? Math.max(nextRequiredXp - profile.xp, 0) : 0;
   const braceletSize = isMobile ? 240 : 320;
+
+  // Cesta arén — druhá postupová cesta.
+  const currentArenaIndex = useMemo(() => {
+    let index = 0;
+    arenaPath.forEach((arena, i) => {
+      if (profile.xp >= arena.requiredXp) index = i;
+    });
+    return index;
+  }, [profile.xp]);
+  const currentArena = arenaPath[currentArenaIndex];
+  const nextArena = arenaPath[currentArenaIndex + 1];
+  const futureArenas = arenaPath.slice(currentArenaIndex + 1);
+  const collapsedFutureArenas = futureArenas.slice(0, 2);
+  const arenaProgress = nextArena
+    ? Math.min(Math.max((profile.xp - currentArena.requiredXp) / Math.max(nextArena.requiredXp - currentArena.requiredXp, 1), 0), 1)
+    : 1;
+  const arenaMissingXp = nextArena ? Math.max(nextArena.requiredXp - profile.xp, 0) : 0;
 
   useEffect(() => {
     navigation.setOptions({ tabBarStyle: expanded ? { display: 'none' } : getTabBarStyle(width, isMobile) });
@@ -77,42 +102,94 @@ export default function SkillTreeScreen() {
           <View style={[styles.pathStage, isMobile && styles.pathStageMobile]}>
             <View style={styles.stageHeader}>
               <Text style={styles.stageKicker}>Skill tree</Text>
-              <Text style={styles.stageTitle}>Cesta náramků</Text>
-            </View>
-
-            <View style={styles.futurePath}>
-              {collapsedFutureLevels.slice().reverse().map((level, index) => (
-                <TrailNode key={level.id} profile={profile} level={level} requiredXp={levelRequiredXp.get(level.id) ?? 0} compact={index === 0 && collapsedFutureLevels.length > 1} />
-              ))}
-            </View>
-
-            <View style={styles.connectorColumn}>
-              <View style={styles.connectorDot} />
-              <View style={[styles.connectorLine, isMobile && styles.connectorLineMobile]} />
-              <View style={styles.connectorDot} />
-            </View>
-
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setExpanded(true)}
-              style={({ pressed }) => [styles.currentBraceletButton, pressed && styles.currentBraceletPressed]}>
-              <Float amplitude={5} duration={2400}>
-                <BraceletModel color={currentLevel.stage.color} dark={currentLevel.stage.id === 'black'} size={braceletSize} />
-              </Float>
-              <PulseGlow scaleTo={1.025}>
-                <View style={styles.currentBraceletLabel}>
-                  <Text style={styles.currentBraceletKicker}>Aktuální náramek</Text>
-                  <Text style={styles.currentBraceletTitle}>{currentLevel.stage.title}</Text>
-                  <Text style={styles.currentBraceletSub}>{currentLevel.title} · level {profile.level}</Text>
-                </View>
-              </PulseGlow>
-              <View style={styles.expandBadge}>
-                <Text style={styles.expandBadgeText}>Cesta</Text>
+              <Text style={styles.stageTitle}>{pathMode === 'arenas' ? 'Cesta arén' : 'Cesta náramků'}</Text>
+              <View style={styles.pathToggle}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: pathMode === 'bracelets' }}
+                  onPress={() => setPathMode('bracelets')}
+                  style={[styles.pathToggleBtn, pathMode === 'bracelets' && styles.pathToggleBtnActive]}>
+                  <Text style={[styles.pathToggleText, pathMode === 'bracelets' && styles.pathToggleTextActive]}>Náramky</Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: pathMode === 'arenas' }}
+                  onPress={() => setPathMode('arenas')}
+                  style={[styles.pathToggleBtn, pathMode === 'arenas' && styles.pathToggleBtnActive]}>
+                  <Text style={[styles.pathToggleText, pathMode === 'arenas' && styles.pathToggleTextActive]}>Arény</Text>
+                </Pressable>
               </View>
-            </Pressable>
+            </View>
+
+            {pathMode === 'arenas' ? (
+              <>
+                <View style={styles.futurePath}>
+                  {collapsedFutureArenas.slice().reverse().map((arena, index) => (
+                    <ArenaTrailNode key={arena.id} arena={arena} profileXp={profile.xp} compact={index === 0 && collapsedFutureArenas.length > 1} />
+                  ))}
+                </View>
+
+                <View style={styles.connectorColumn}>
+                  <View style={styles.connectorDot} />
+                  <View style={[styles.connectorLine, isMobile && styles.connectorLineMobile]} />
+                  <View style={styles.connectorDot} />
+                </View>
+
+                <View style={styles.currentBraceletButton}>
+                  <Float amplitude={5} duration={2400}>
+                    <Image source={arenaImageFor(currentArena.level)} style={{ width: braceletSize, height: braceletSize }} contentFit="contain" />
+                  </Float>
+                  <PulseGlow scaleTo={1.025}>
+                    <View style={styles.currentBraceletLabel}>
+                      <Text style={styles.currentBraceletKicker}>Aktuální aréna</Text>
+                      <Text style={styles.currentBraceletTitle}>{currentArena.title}</Text>
+                      <Text style={styles.currentBraceletSub}>Aréna {currentArena.level} z {arenaPath.length}</Text>
+                    </View>
+                  </PulseGlow>
+                </View>
+              </>
+            ) : (
+              <>
+                <View style={styles.futurePath}>
+                  {collapsedFutureLevels.slice().reverse().map((level, index) => (
+                    <TrailNode key={level.id} profile={profile} level={level} requiredXp={levelRequiredXp.get(level.id) ?? 0} compact={index === 0 && collapsedFutureLevels.length > 1} />
+                  ))}
+                </View>
+
+                <View style={styles.connectorColumn}>
+                  <View style={styles.connectorDot} />
+                  <View style={[styles.connectorLine, isMobile && styles.connectorLineMobile]} />
+                  <View style={styles.connectorDot} />
+                </View>
+
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => setExpanded(true)}
+                  style={({ pressed }) => [styles.currentBraceletButton, pressed && styles.currentBraceletPressed]}>
+                  <Float amplitude={5} duration={2400}>
+                    <BraceletModel color={currentLevel.stage.color} dark={currentLevel.stage.id === 'black'} size={braceletSize} />
+                  </Float>
+                  <PulseGlow scaleTo={1.025}>
+                    <View style={styles.currentBraceletLabel}>
+                      <Text style={styles.currentBraceletKicker}>Aktuální náramek</Text>
+                      <Text style={styles.currentBraceletTitle}>{currentLevel.stage.title}</Text>
+                      <Text style={styles.currentBraceletSub}>{currentLevel.title} · level {profile.level}</Text>
+                    </View>
+                  </PulseGlow>
+                  <View style={styles.expandBadge}>
+                    <Text style={styles.expandBadgeText}>Cesta</Text>
+                  </View>
+                </Pressable>
+              </>
+            )}
           </View>
         </FadeInUp>
 
+        {pathMode === 'arenas' ? (
+          <FadeInUp delay={140}>
+            <ArenaListPanel profileXp={profile.xp} nextArena={nextArena} arenaProgress={arenaProgress} arenaMissingXp={arenaMissingXp} />
+          </FadeInUp>
+        ) : (
         <FadeInUp delay={140}>
           <View style={styles.tricksPanel}>
             <View style={styles.panelHeader}>
@@ -141,8 +218,9 @@ export default function SkillTreeScreen() {
             </View>
           </View>
         </FadeInUp>
+        )}
 
-        {completedLevels.length > 0 ? (
+        {pathMode === 'bracelets' && completedLevels.length > 0 ? (
           <FadeInUp delay={180}>
             <CompletedBraceletsPanel profile={profile} levels={completedLevels} isMobile={isMobile} braceletSize={braceletSize} />
           </FadeInUp>
@@ -245,6 +323,69 @@ function TrailNode({ profile, level, requiredXp, completed, compact }: { profile
       <View style={styles.trailNodeCopy}>
         <Text style={styles.trailNodeTitle}>{level.stage.title}</Text>
         <Text style={styles.trailNodeSub}>{unlocked ? `${completedTricks}/${level.tricks.length} triků` : `${requiredXp} XP`}</Text>
+      </View>
+    </View>
+  );
+}
+
+function ArenaTrailNode({ arena, profileXp, compact }: { arena: ArenaStage; profileXp: number; compact?: boolean }) {
+  const unlocked = profileXp >= arena.requiredXp;
+  return (
+    <View style={[styles.trailNode, compact && styles.trailNodeCompact]}>
+      <Image source={arenaImageFor(arena.level)} style={{ width: 56, height: 56 }} contentFit="contain" />
+      <View style={styles.trailNodeCopy}>
+        <Text style={styles.trailNodeTitle}>{arena.title}</Text>
+        <Text style={styles.trailNodeSub}>{unlocked ? 'Odemčeno' : `${arena.requiredXp} XP`}</Text>
+      </View>
+    </View>
+  );
+}
+
+function ArenaListPanel({ profileXp, nextArena, arenaProgress, arenaMissingXp }: { profileXp: number; nextArena?: ArenaStage; arenaProgress: number; arenaMissingXp: number }) {
+  const unlockedCount = arenaPath.filter((arena) => profileXp >= arena.requiredXp).length;
+
+  return (
+    <View style={styles.tricksPanel}>
+      <View style={styles.panelHeader}>
+        <View>
+          <Text style={styles.panelKicker}>Moje arény</Text>
+          <Text style={styles.panelTitle}>Cesta arén</Text>
+        </View>
+        <View style={styles.trickCountBadge}>
+          <Text style={styles.trickCountText}>{unlockedCount}/{arenaPath.length}</Text>
+        </View>
+      </View>
+
+      <View style={styles.arenaList}>
+        {arenaPath.map((arena) => {
+          const unlocked = profileXp >= arena.requiredXp;
+          const isNext = nextArena?.id === arena.id;
+          return (
+            <View key={arena.id} style={[styles.arenaRow, unlocked && styles.arenaRowUnlocked, isNext && styles.arenaRowNext]}>
+              <Image source={arenaImageFor(arena.level)} style={{ width: 48, height: 48, opacity: unlocked ? 1 : 0.45 }} contentFit="contain" />
+              <View style={styles.arenaRowCopy}>
+                <Text style={styles.arenaRowTitle}>{arena.level}. {arena.title}</Text>
+                <Text style={styles.arenaRowSub}>{arena.requiredXp} XP</Text>
+              </View>
+              {unlocked ? (
+                <View style={[styles.trickStatusBadge, { backgroundColor: soften(Brand.cyan, 0.13), borderColor: soften(Brand.cyan, 0.32) }]}>
+                  <Text style={[styles.trickStatusText, { color: darken(Brand.cyan, 70) }]}>Odemčeno</Text>
+                </View>
+              ) : (
+                <MaterialCommunityIcons name="lock-outline" size={18} color={Palette.textMuted} />
+              )}
+            </View>
+          );
+        })}
+      </View>
+
+      <View style={styles.progressPanel}>
+        <View style={styles.progressTextRow}>
+          <Text style={styles.progressLabel}>{nextArena ? `Další: ${nextArena.title}` : 'Všechny arény odemčené'}</Text>
+          <Text style={styles.progressMeta}>{profileXp} / {nextArena ? nextArena.requiredXp : profileXp} XP</Text>
+        </View>
+        <AnimatedProgressBar progress={arenaProgress} fillColor={Brand.purple} trackColor="rgba(26,19,38,0.10)" height={12} />
+        <Text style={styles.progressCopy}>{nextArena ? `${arenaMissingXp} XP do další arény` : 'Dosáhl jsi vrcholu.'}</Text>
       </View>
     </View>
   );
@@ -626,6 +767,11 @@ const styles = StyleSheet.create({
   stageHeader: { alignItems: 'center', gap: 1, marginBottom: 6 },
   stageKicker: { color: Brand.purple, fontSize: 12, lineHeight: 16, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0 },
   stageTitle: { color: Palette.text, fontSize: 24, lineHeight: 29, fontWeight: '900' },
+  pathToggle: { flexDirection: 'row', gap: 4, marginTop: 8, borderRadius: Radius.pill, backgroundColor: 'rgba(255,255,255,0.72)', borderWidth: 1, borderColor: Palette.border, padding: 4, ...Shadow.soft },
+  pathToggleBtn: { borderRadius: Radius.pill, paddingHorizontal: 18, paddingVertical: 8 },
+  pathToggleBtnActive: { backgroundColor: Brand.purple },
+  pathToggleText: { color: Palette.textMuted, fontSize: 13, lineHeight: 17, fontWeight: '900' },
+  pathToggleTextActive: { color: '#FFFFFF' },
   futurePath: { width: '100%', alignItems: 'center', gap: 6, zIndex: 2 },
   futurePathExpanded: { alignItems: 'stretch', gap: 10 },
   connectorColumn: { alignItems: 'center', marginVertical: 2 },
@@ -724,6 +870,14 @@ const styles = StyleSheet.create({
   progressLabel: { color: Palette.text, fontSize: 13, lineHeight: 18, fontWeight: '900' },
   progressMeta: { color: Palette.textMuted, fontSize: 13, lineHeight: 18, fontWeight: '900' },
   progressCopy: { color: Palette.textMuted, fontSize: 12, lineHeight: 17, fontWeight: '800' },
+
+  arenaList: { gap: Spacing.sm },
+  arenaRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, borderRadius: Radius.lg, backgroundColor: Brand.paper, borderWidth: 1, borderColor: Palette.border, paddingHorizontal: Spacing.md, paddingVertical: 8 },
+  arenaRowUnlocked: { backgroundColor: 'rgba(46,231,214,0.08)', borderColor: 'rgba(46,231,214,0.28)' },
+  arenaRowNext: { borderColor: 'rgba(139,29,255,0.40)', borderWidth: 1.5 },
+  arenaRowCopy: { flex: 1, minWidth: 0 },
+  arenaRowTitle: { color: Palette.text, fontSize: 15, lineHeight: 20, fontWeight: '900' },
+  arenaRowSub: { color: Palette.textMuted, fontSize: 12, lineHeight: 16, fontWeight: '800' },
 
   completedPanel: { width: '100%', backgroundColor: '#FFFFFF', borderRadius: Radius.xl, borderWidth: 1, borderColor: Palette.border, padding: Spacing.lg, gap: Spacing.md, ...Shadow.card },
   completedPanelCollapsed: { paddingBottom: Spacing.lg },
