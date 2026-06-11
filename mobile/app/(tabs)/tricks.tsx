@@ -20,7 +20,9 @@ import { AnimatedProgressBar, FadeInUp, Float, PulseGlow } from '@/components/an
 import { TeamVysLogo } from '@/components/brand/team-vys-logo';
 import { QrScanner } from '@/components/qr-scanner';
 import { useParticipantProfile } from '@/hooks/use-participant-profile';
+import { useParticipantRewards } from '@/hooks/use-participant-rewards';
 import { parseQrPayload } from '@/hooks/use-qr-events';
+import { COINS_PER_SESSION } from '@/lib/attendance-coins';
 import { Brand, BrandGradient } from '@/lib/brand';
 import { arenaPath, skillTreeLevels, type ArenaStage, type ParticipantProfile, type SkillTreeLevel } from '@/lib/participant-content';
 import { Palette, Radius, Shadow, Spacing } from '@/lib/theme';
@@ -42,6 +44,10 @@ export default function SkillTreeScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const { profile, profileReady, loading } = useParticipantProfile();
+  const { attendanceDone } = useParticipantRewards();
+  // Lifetime klubíčka z docházky — sdílená měna pohánějící cestu arén.
+  // Nikdy neklesá (na rozdíl od zůstatku, který se utrácí za bedny).
+  const lifetimeCoins = attendanceDone * COINS_PER_SESSION;
   const [expanded, setExpanded] = useState(false);
   const [pathMode, setPathMode] = useState<PathMode>('bracelets');
   const levels = useMemo(() => skillTreeLevels.slice(), []);
@@ -60,22 +66,22 @@ export default function SkillTreeScreen() {
   const missingXp = nextLevel ? Math.max(nextRequiredXp - profile.xp, 0) : 0;
   const braceletSize = isMobile ? 240 : 320;
 
-  // Cesta arén — druhá postupová cesta.
+  // Cesta arén — sdílená postupová cesta poháněná klubíčky (lifetime z docházky).
   const currentArenaIndex = useMemo(() => {
     let index = 0;
     arenaPath.forEach((arena, i) => {
-      if (profile.xp >= arena.requiredXp) index = i;
+      if (lifetimeCoins >= arena.requiredCoins) index = i;
     });
     return index;
-  }, [profile.xp]);
+  }, [lifetimeCoins]);
   const currentArena = arenaPath[currentArenaIndex];
   const nextArena = arenaPath[currentArenaIndex + 1];
   const futureArenas = arenaPath.slice(currentArenaIndex + 1);
   const collapsedFutureArenas = futureArenas.slice(0, 2);
   const arenaProgress = nextArena
-    ? Math.min(Math.max((profile.xp - currentArena.requiredXp) / Math.max(nextArena.requiredXp - currentArena.requiredXp, 1), 0), 1)
+    ? Math.min(Math.max((lifetimeCoins - currentArena.requiredCoins) / Math.max(nextArena.requiredCoins - currentArena.requiredCoins, 1), 0), 1)
     : 1;
-  const arenaMissingXp = nextArena ? Math.max(nextArena.requiredXp - profile.xp, 0) : 0;
+  const arenaMissingCoins = nextArena ? Math.max(nextArena.requiredCoins - lifetimeCoins, 0) : 0;
 
   useEffect(() => {
     navigation.setOptions({ tabBarStyle: expanded ? { display: 'none' } : getTabBarStyle(width, isMobile) });
@@ -125,7 +131,7 @@ export default function SkillTreeScreen() {
               <>
                 <View style={styles.futurePath}>
                   {collapsedFutureArenas.slice().reverse().map((arena, index) => (
-                    <ArenaTrailNode key={arena.id} arena={arena} profileXp={profile.xp} compact={index === 0 && collapsedFutureArenas.length > 1} />
+                    <ArenaTrailNode key={arena.id} arena={arena} lifetimeCoins={lifetimeCoins} compact={index === 0 && collapsedFutureArenas.length > 1} />
                   ))}
                 </View>
 
@@ -187,7 +193,7 @@ export default function SkillTreeScreen() {
 
         {pathMode === 'arenas' ? (
           <FadeInUp delay={140}>
-            <ArenaListPanel profileXp={profile.xp} nextArena={nextArena} arenaProgress={arenaProgress} arenaMissingXp={arenaMissingXp} />
+            <ArenaListPanel lifetimeCoins={lifetimeCoins} nextArena={nextArena} arenaProgress={arenaProgress} arenaMissingCoins={arenaMissingCoins} />
           </FadeInUp>
         ) : (
         <FadeInUp delay={140}>
@@ -328,21 +334,21 @@ function TrailNode({ profile, level, requiredXp, completed, compact }: { profile
   );
 }
 
-function ArenaTrailNode({ arena, profileXp, compact }: { arena: ArenaStage; profileXp: number; compact?: boolean }) {
-  const unlocked = profileXp >= arena.requiredXp;
+function ArenaTrailNode({ arena, lifetimeCoins, compact }: { arena: ArenaStage; lifetimeCoins: number; compact?: boolean }) {
+  const unlocked = lifetimeCoins >= arena.requiredCoins;
   return (
     <View style={[styles.trailNode, compact && styles.trailNodeCompact]}>
       <Image source={arenaImageFor(arena.level)} style={{ width: 56, height: 56 }} contentFit="contain" />
       <View style={styles.trailNodeCopy}>
         <Text style={styles.trailNodeTitle}>{arena.title}</Text>
-        <Text style={styles.trailNodeSub}>{unlocked ? 'Odemčeno' : `${arena.requiredXp} XP`}</Text>
+        <Text style={styles.trailNodeSub}>{unlocked ? 'Odemčeno' : `${arena.requiredCoins} klubíček`}</Text>
       </View>
     </View>
   );
 }
 
-function ArenaListPanel({ profileXp, nextArena, arenaProgress, arenaMissingXp }: { profileXp: number; nextArena?: ArenaStage; arenaProgress: number; arenaMissingXp: number }) {
-  const unlockedCount = arenaPath.filter((arena) => profileXp >= arena.requiredXp).length;
+function ArenaListPanel({ lifetimeCoins, nextArena, arenaProgress, arenaMissingCoins }: { lifetimeCoins: number; nextArena?: ArenaStage; arenaProgress: number; arenaMissingCoins: number }) {
+  const unlockedCount = arenaPath.filter((arena) => lifetimeCoins >= arena.requiredCoins).length;
 
   return (
     <View style={styles.tricksPanel}>
@@ -358,14 +364,14 @@ function ArenaListPanel({ profileXp, nextArena, arenaProgress, arenaMissingXp }:
 
       <View style={styles.arenaList}>
         {arenaPath.map((arena) => {
-          const unlocked = profileXp >= arena.requiredXp;
+          const unlocked = lifetimeCoins >= arena.requiredCoins;
           const isNext = nextArena?.id === arena.id;
           return (
             <View key={arena.id} style={[styles.arenaRow, unlocked && styles.arenaRowUnlocked, isNext && styles.arenaRowNext]}>
               <Image source={arenaImageFor(arena.level)} style={{ width: 48, height: 48, opacity: unlocked ? 1 : 0.45 }} contentFit="contain" />
               <View style={styles.arenaRowCopy}>
                 <Text style={styles.arenaRowTitle}>{arena.level}. {arena.title}</Text>
-                <Text style={styles.arenaRowSub}>{arena.requiredXp} XP</Text>
+                <Text style={styles.arenaRowSub}>{arena.requiredCoins} klubíček</Text>
               </View>
               {unlocked ? (
                 <View style={[styles.trickStatusBadge, { backgroundColor: soften(Brand.cyan, 0.13), borderColor: soften(Brand.cyan, 0.32) }]}>
@@ -382,10 +388,10 @@ function ArenaListPanel({ profileXp, nextArena, arenaProgress, arenaMissingXp }:
       <View style={styles.progressPanel}>
         <View style={styles.progressTextRow}>
           <Text style={styles.progressLabel}>{nextArena ? `Další: ${nextArena.title}` : 'Všechny arény odemčené'}</Text>
-          <Text style={styles.progressMeta}>{profileXp} / {nextArena ? nextArena.requiredXp : profileXp} XP</Text>
+          <Text style={styles.progressMeta}>{lifetimeCoins} / {nextArena ? nextArena.requiredCoins : lifetimeCoins} klubíček</Text>
         </View>
         <AnimatedProgressBar progress={arenaProgress} fillColor={Brand.purple} trackColor="rgba(26,19,38,0.10)" height={12} />
-        <Text style={styles.progressCopy}>{nextArena ? `${arenaMissingXp} XP do další arény` : 'Dosáhl jsi vrcholu.'}</Text>
+        <Text style={styles.progressCopy}>{nextArena ? `${arenaMissingCoins} klubíček do další arény` : 'Dosáhl jsi vrcholu.'}</Text>
       </View>
     </View>
   );

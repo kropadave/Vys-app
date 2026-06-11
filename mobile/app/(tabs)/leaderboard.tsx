@@ -2,16 +2,19 @@ import { FontAwesome5 } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import type { ComponentProps } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { FadeInUp, PulseGlow, ScaleIn } from '@/components/animated/motion';
 import { useAuth } from '@/hooks/use-auth';
-import { useParticipantLeaderboard, type ParticipantLeaderboardEntry } from '@/hooks/use-leaderboard';
+import { useParticipantCoinsLeaderboard, useParticipantLeaderboard, type ParticipantLeaderboardEntry } from '@/hooks/use-leaderboard';
 import { useParticipantProfile } from '@/hooks/use-participant-profile';
 import { ALL_MASCOTS } from '@/lib/attendance-coins';
 import { Brand } from '@/lib/brand';
 import { Palette, Radius, Shadow, Spacing } from '@/lib/theme';
 import { useBreakpoint } from '@/lib/use-breakpoint';
+
+type LeagueMode = 'xp' | 'coins';
 
 const PODIUM_COLORS = [Brand.orange, Brand.cyan, Brand.pink];
 
@@ -62,14 +65,20 @@ export default function LeaderboardScreen() {
   const { isMobile } = useBreakpoint();
   const { session } = useAuth();
   const { profile } = useParticipantProfile();
-  const { entries: liveLeaderboard, loading } = useParticipantLeaderboard(session?.userId);
+  const [mode, setMode] = useState<LeagueMode>('xp');
+  const { entries: xpLeaderboard, loading: xpLoading } = useParticipantLeaderboard(session?.userId);
+  const { entries: coinsLeaderboard, loading: coinsLoading } = useParticipantCoinsLeaderboard(session?.userId);
+
+  const liveLeaderboard = mode === 'coins' ? coinsLeaderboard : xpLeaderboard;
+  const loading = mode === 'coins' ? coinsLoading : xpLoading;
   const podium = liveLeaderboard.slice(0, 3);
   const rest = liveLeaderboard.slice(3);
   const me = liveLeaderboard.find((item) => item.isMe) ?? liveLeaderboard.find((item) => item.name === profile.name);
+  const myValue = mode === 'coins' ? (me?.coins ?? 0) : (me?.xp ?? profile.xp);
 
   return (
     <ScrollView style={styles.page} contentContainerStyle={[styles.container, isMobile && styles.containerMobile]}>
-        <LeaderboardHero rank={me?.rank ?? 0} xp={profile.xp} />
+        <LeaderboardHero rank={me?.rank ?? 0} value={myValue} mode={mode} onChangeMode={setMode} />
 
       {loading ? (
         <ActivityIndicator color={Brand.purple} style={{ marginVertical: Spacing.xl }} />
@@ -78,7 +87,7 @@ export default function LeaderboardScreen() {
           <View style={styles.podiumGrid}>
             {podium.map((item, index) => (
               <ScaleIn key={item.rank} delay={index * 90} style={styles.podiumWrap}>
-                <PodiumCard item={item} myName={profile.name} />
+                <PodiumCard item={item} myName={profile.name} mode={mode} />
               </ScaleIn>
             ))}
           </View>
@@ -86,7 +95,7 @@ export default function LeaderboardScreen() {
           <View style={styles.list}>
             {rest.map((item, index) => (
               <FadeInUp key={item.rank} delay={index * 70}>
-                <LeaderboardRow item={item} />
+                <LeaderboardRow item={item} mode={mode} />
               </FadeInUp>
             ))}
           </View>
@@ -96,25 +105,47 @@ export default function LeaderboardScreen() {
   );
 }
 
-function LeaderboardHero({ rank, xp }: { rank: number; xp: number }) {
+function valueFor(item: ParticipantLeaderboardEntry, mode: LeagueMode): number {
+  return mode === 'coins' ? (item.coins ?? 0) : item.xp;
+}
+
+function LeaderboardHero({ rank, value, mode, onChangeMode }: { rank: number; value: number; mode: LeagueMode; onChangeMode: (mode: LeagueMode) => void }) {
+  const isCoins = mode === 'coins';
   return (
     <View style={styles.heroCard}>
       <LinearGradient
-        colors={['#171220', '#2B1247', '#5410B7']}
+        colors={isCoins ? ['#171220', '#3A1138', '#B7106F'] : ['#171220', '#2B1247', '#5410B7']}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={StyleSheet.absoluteFill}
       />
-      <View pointerEvents="none" style={styles.heroRail} />
+      <View pointerEvents="none" style={[styles.heroRail, isCoins && { backgroundColor: Brand.pink }]} />
       <View style={styles.heroCopy}>
         <View style={styles.heroKicker}>
-          <FontAwesome5 name="trophy" size={12} color={Brand.orange} />
-          <Text style={styles.heroKickerText}>XP liga</Text>
+          <FontAwesome5 name={isCoins ? 'circle-notch' : 'trophy'} size={12} color={isCoins ? Brand.cyan : Brand.orange} />
+          <Text style={styles.heroKickerText}>{isCoins ? 'Klubíčka liga' : 'XP liga'}</Text>
         </View>
-        <Text style={styles.heroTitle}>Drž top 3</Text>
+        <Text style={styles.heroTitle}>{isCoins ? 'Sbírej klubíčka' : 'Drž top 3'}</Text>
         <View style={styles.heroChips}>
           <HeroChip icon="medal" value={`#${rank}`} />
-          <HeroChip icon="bolt" value={`${xp} XP`} />
+          <HeroChip icon={isCoins ? 'circle-notch' : 'bolt'} value={isCoins ? `${value} klubíček` : `${value} XP`} />
+        </View>
+
+        <View style={styles.leagueToggle}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ selected: mode === 'xp' }}
+            onPress={() => onChangeMode('xp')}
+            style={[styles.leagueToggleBtn, mode === 'xp' && styles.leagueToggleBtnActive]}>
+            <Text style={[styles.leagueToggleText, mode === 'xp' && styles.leagueToggleTextActive]}>XP · triky</Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ selected: mode === 'coins' }}
+            onPress={() => onChangeMode('coins')}
+            style={[styles.leagueToggleBtn, mode === 'coins' && styles.leagueToggleBtnActive]}>
+            <Text style={[styles.leagueToggleText, mode === 'coins' && styles.leagueToggleTextActive]}>Klubíčka · docházka</Text>
+          </Pressable>
         </View>
       </View>
     </View>
@@ -130,7 +161,7 @@ function HeroChip({ icon, value }: { icon: ComponentProps<typeof FontAwesome5>['
   );
 }
 
-function PodiumCard({ item, myName }: { item: ParticipantLeaderboardEntry; myName: string }) {
+function PodiumCard({ item, myName, mode }: { item: ParticipantLeaderboardEntry; myName: string; mode: LeagueMode }) {
   const isMe = item.isMe || item.name === myName;
   const mascot = mascotForLeaderboardItem(item);
   const color = mascot.colorHex || PODIUM_COLORS[item.rank - 1] || Brand.purple;
@@ -140,8 +171,8 @@ function PodiumCard({ item, myName }: { item: ParticipantLeaderboardEntry; myNam
       <MascotAvatar item={item} color={color} size="large" />
       <Text style={[styles.podiumRank, { color }]}>#{item.rank}</Text>
       <Text style={styles.podiumName} numberOfLines={1}>{shortName(item.name, myName)}</Text>
-      <Text style={[styles.podiumXp, { color }]}>{item.xp}</Text>
-      <Text style={styles.podiumXpLabel}>XP</Text>
+      <Text style={[styles.podiumXp, { color }]}>{valueFor(item, mode)}</Text>
+      <Text style={styles.podiumXpLabel}>{mode === 'coins' ? 'Klubíček' : 'XP'}</Text>
       {isMe ? <Text style={styles.meBadge}>Ty</Text> : null}
     </View>
   );
@@ -149,7 +180,7 @@ function PodiumCard({ item, myName }: { item: ParticipantLeaderboardEntry; myNam
   return isMe ? <PulseGlow scaleTo={1.025}>{card}</PulseGlow> : card;
 }
 
-function LeaderboardRow({ item }: { item: ParticipantLeaderboardEntry }) {
+function LeaderboardRow({ item, mode }: { item: ParticipantLeaderboardEntry; mode: LeagueMode }) {
   const mascot = mascotForLeaderboardItem(item);
   const color = mascot.colorHex;
   return (
@@ -157,8 +188,8 @@ function LeaderboardRow({ item }: { item: ParticipantLeaderboardEntry }) {
       <MascotAvatar item={item} color={color} size="small" />
       <Text style={styles.name}>{item.name}</Text>
       <View style={styles.xpWrap}>
-        <Text style={styles.xp}>{item.xp}</Text>
-        <Text style={styles.xpLabel}>XP</Text>
+        <Text style={styles.xp}>{valueFor(item, mode)}</Text>
+        <Text style={styles.xpLabel}>{mode === 'coins' ? 'Klubíček' : 'XP'}</Text>
       </View>
     </View>
   );
@@ -211,6 +242,11 @@ const styles = StyleSheet.create({
   heroChips: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
   heroChip: { flexDirection: 'row', alignItems: 'center', gap: 7, borderRadius: Radius.pill, backgroundColor: 'rgba(255,255,255,0.12)', paddingHorizontal: 12, paddingVertical: 8 },
   heroChipText: { color: '#FFFFFF', fontSize: 12, fontWeight: '900' },
+  leagueToggle: { flexDirection: 'row', gap: 6, marginTop: Spacing.sm, borderRadius: Radius.pill, backgroundColor: 'rgba(255,255,255,0.10)', padding: 4, alignSelf: 'flex-start' },
+  leagueToggleBtn: { borderRadius: Radius.pill, paddingHorizontal: 14, paddingVertical: 8 },
+  leagueToggleBtnActive: { backgroundColor: '#FFFFFF' },
+  leagueToggleText: { color: 'rgba(255,255,255,0.72)', fontSize: 12, fontWeight: '900' },
+  leagueToggleTextActive: { color: Palette.text },
   podiumGrid: { flexDirection: 'row', gap: Spacing.sm, alignItems: 'flex-end' },
   podiumWrap: { flex: 1, minWidth: 0 },
   podiumCard: {

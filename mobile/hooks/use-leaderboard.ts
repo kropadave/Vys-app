@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 
+import { COINS_PER_SESSION } from '@/lib/attendance-coins';
 import { hasSupabaseConfig, supabase } from '@/lib/supabase';
 
 // Mascot IDs cycling from legendary → common as rank increases
@@ -25,6 +26,8 @@ export type ParticipantLeaderboardEntry = {
   rank: number;
   name: string;
   xp: number;
+  /** Lifetime klubíčka (z docházky) — sdílená měna napříč organizacemi. */
+  coins?: number;
   mascotId: string;
   isMe?: boolean;
 };
@@ -60,7 +63,7 @@ type ParticipantRow = {
   xp: number | null;
 };
 
-function nameFromRow(row: ParticipantRow): string {
+function nameFromRow(row: { first_name: string | null; last_name: string | null }): string {
   return `${row.first_name ?? ''} ${row.last_name ?? ''}`.trim() || 'Účastník';
 }
 
@@ -118,6 +121,88 @@ export function useParticipantLeaderboard(myUserId?: string) {
             rank: (count ?? ranked.length) + 1,
             name: nameFromRow(myRow),
             xp: Number(myRow.xp ?? 0),
+            mascotId: 'beige-sit',
+            isMe: true,
+          });
+        }
+      }
+
+      setEntries(ranked);
+      setLoading(false);
+    })();
+
+    return () => { cancelled = true; };
+  }, [myUserId]);
+
+  return { entries, loading };
+}
+
+// ── Participant klubíčka leaderboard (sdílený napříč organizacemi) ───────────
+
+type CoinsRow = {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+  attendance_done: number | null;
+};
+
+function lifetimeCoinsFromRow(row: CoinsRow): number {
+  return Number(row.attendance_done ?? 0) * COINS_PER_SESSION;
+}
+
+// Žebříček podle klubíček = celková docházka × COINS_PER_SESSION. Sdílený mezi
+// všemi organizacemi a nezávislý na XP (to je vázané na TeamVYS náramky/triky).
+export function useParticipantCoinsLeaderboard(myUserId?: string) {
+  const [entries, setEntries] = useState<ParticipantLeaderboardEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!hasSupabaseConfig || !supabase) {
+      setLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from('participants')
+        .select('id,first_name,last_name,attendance_done')
+        .order('attendance_done', { ascending: false })
+        .limit(20);
+
+      if (cancelled || error || !data) {
+        setLoading(false);
+        return;
+      }
+
+      const rows = (data as CoinsRow[]).filter((row) => !row.id.startsWith('demo-') && !row.id.startsWith('web-'));
+      const ranked = rows.map((row, index) => ({
+        rank: index + 1,
+        name: nameFromRow(row),
+        xp: 0,
+        coins: lifetimeCoinsFromRow(row),
+        mascotId: MASCOT_IDS[Math.min(index, MASCOT_IDS.length - 1)],
+        isMe: myUserId ? row.id === myUserId : false,
+      }));
+
+      // If current user not in top 20, append them at the end.
+      if (myUserId && !ranked.some((e) => e.isMe)) {
+        const { data: myData } = await supabase
+          .from('participants')
+          .select('id,first_name,last_name,attendance_done')
+          .eq('id', myUserId)
+          .maybeSingle();
+        if (myData) {
+          const myRow = myData as CoinsRow;
+          const { count } = await supabase
+            .from('participants')
+            .select('id', { count: 'exact', head: true })
+            .gt('attendance_done', Number(myRow.attendance_done ?? 0));
+          ranked.push({
+            rank: (count ?? ranked.length) + 1,
+            name: nameFromRow(myRow),
+            xp: 0,
+            coins: lifetimeCoinsFromRow(myRow),
             mascotId: 'beige-sit',
             isMe: true,
           });
