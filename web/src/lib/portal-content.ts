@@ -24,10 +24,24 @@ export type ParentParticipant = {
   activePurchases: Array<{ type: ActivityType; title: string; status: string }>;
 };
 
+export type ParentOrganization = {
+  id: string;
+  name: string;
+  orgType: string;
+  productCount: number;
+};
+
+export type ParentOrganizations = {
+  joined: ParentOrganization[];
+  available: Array<{ id: string; name: string; orgType: string }>;
+};
+
 export type ParentProduct = {
   id: string;
   type: ActivityType;
   title: string;
+  orgId?: string;
+  orgName?: string;
   city: string;
   place: string;
   venue: string;

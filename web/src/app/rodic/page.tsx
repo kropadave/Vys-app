@@ -85,18 +85,44 @@ export default async function ParentDashboardPage() {
 type SupabaseClient = Awaited<ReturnType<typeof createServerSupabaseClient>>;
 
 async function loadParentPortalData(supabase: SupabaseClient, parentId: string): Promise<ParentPortalData> {
-  const [{ data: participantRows }, { data: productRows }, { data: purchaseRows }, { data: reviewRows }, { data: interestRows }] = await Promise.all([
+  const [{ data: participantRows }, { data: productRows }, { data: purchaseRows }, { data: reviewRows }, { data: interestRows }, { data: memberRows }, { data: publicOrgRows }] = await Promise.all([
     supabase.from('participants').select('*').eq('parent_profile_id', parentId).order('created_at', { ascending: true }),
     supabase.from('products').select('*').eq('is_published', true).order('created_at', { ascending: true }),
     supabase.from('parent_purchases').select('*').eq('parent_profile_id', parentId).order('created_at', { ascending: false }),
     supabase.from('coach_reviews').select('*').eq('parent_id', parentId).order('created_at', { ascending: false }),
     supabase.from('workshop_interests').select('id,parent_profile_id,participant_id,participant_name,product_id'),
+    supabase.from('organization_members').select('org_id, organizations(id,name,org_type)').eq('profile_id', parentId),
+    supabase.rpc('teamvys_public_organizations'),
   ]);
 
   const participants = (participantRows || []).map(mapParticipantRow);
   const interestCounts = workshopInterestCounts(interestRows || []);
   const participantIds = participants.map((participant) => participant.id);
   const participantNames = new Set(participants.map((participant) => `${participant.firstName} ${participant.lastName}`));
+
+  // Organizations the parent belongs to (products are already RLS-scoped to these).
+  const orgNameById = new Map<string, string>();
+  for (const row of (memberRows as DbRow[] | null) || []) {
+    const org = (row.organizations || {}) as DbRow;
+    const id = String(org.id || row.org_id || '');
+    if (id) orgNameById.set(id, String(org.name || 'Organizace'));
+  }
+  const productCountByOrg = new Map<string, number>();
+  for (const row of (productRows as DbRow[] | null) || []) {
+    const orgId = String(row.org_id || '');
+    if (orgId) productCountByOrg.set(orgId, (productCountByOrg.get(orgId) || 0) + 1);
+  }
+  const joinedOrganizations = Array.from(orgNameById.entries())
+    .map(([id, name]) => {
+      const member = ((memberRows as DbRow[] | null) || []).find((row) => String((row.organizations as DbRow | undefined)?.id || row.org_id) === id);
+      const orgType = String((member?.organizations as DbRow | undefined)?.org_type || 'external');
+      return { id, name, orgType, productCount: productCountByOrg.get(id) || 0 };
+    })
+    .sort((a, b) => (a.orgType === 'vys' ? -1 : b.orgType === 'vys' ? 1 : a.name.localeCompare(b.name)));
+  const joinedIds = new Set(joinedOrganizations.map((org) => org.id));
+  const availableOrganizations = ((publicOrgRows as DbRow[] | null) || [])
+    .filter((org) => !joinedIds.has(String(org.id)))
+    .map((org) => ({ id: String(org.id), name: String(org.name || 'Organizace'), orgType: String(org.org_type || 'external') }));
 
   // Collect unique coach IDs referenced by published products
   const allCoachIds = [...new Set((productRows || []).flatMap((row) => stringArray(row.coach_ids, [])))];
@@ -131,7 +157,8 @@ async function loadParentPortalData(supabase: SupabaseClient, parentId: string):
 
   return {
     participants,
-    products: (productRows || []).map((row) => mapProductRow(row, interestCounts)),
+    organizations: { joined: joinedOrganizations, available: availableOrganizations },
+    products: (productRows || []).map((row) => mapProductRow(row, interestCounts, orgNameById)),
     payments: dedupePayments([
       ...(purchaseRows || []).map(mapPurchaseRow),
       ...(paymentRows || []).map(mapPaymentRow),
@@ -222,16 +249,19 @@ function mapParticipantRow(row: DbRow): ParentParticipant {
   };
 }
 
-function mapProductRow(row: DbRow, interestCounts: Map<string, number> = new Map()): ParentProduct {
+function mapProductRow(row: DbRow, interestCounts: Map<string, number> = new Map(), orgNameById: Map<string, string> = new Map()): ParentProduct {
   const fallback = parentProducts.find((product) => product.id === row.id);
   const type = activityTypeFromDb(row.type);
   const title = text(row.title, fallback?.title || 'TeamVYS produkt');
   const price = numberValue(row.price, fallback?.price || 0);
+  const orgId = text(row.org_id);
 
   return {
     id: text(row.id),
     type,
     title,
+    orgId: orgId || undefined,
+    orgName: orgId ? orgNameById.get(orgId) : undefined,
     city: text(row.city, fallback?.city || ''),
     place: text(row.place, fallback?.place || ''),
     venue: text(row.venue, fallback?.venue || text(row.place)),

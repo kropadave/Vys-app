@@ -6,6 +6,7 @@ import {
     ArrowRight,
     BadgePercent,
     Bell,
+    Building2,
     Camera,
     Check,
     CheckCircle2,
@@ -36,7 +37,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState } from 
 
 import { EmbeddedPaymentForm } from '@/components/checkout/embedded-payment-form';
 import { useAdminCreatedProducts } from '@/lib/admin-created-products';
-import { confirmEmbeddedPaymentIntent, createEmbeddedPaymentIntent, createManualParticipantProfile, linkParticipantByClaimCode, registerWorkshopInterest, saveCourseDocuments } from '@/lib/api-client';
+import { confirmEmbeddedPaymentIntent, createEmbeddedPaymentIntent, createManualParticipantProfile, joinParentOrganization, leaveParentOrganization, linkParticipantByClaimCode, registerWorkshopInterest, saveCourseDocuments } from '@/lib/api-client';
 import {
     applyRewardDiscount,
     findRewardDiscountByCode,
@@ -63,6 +64,7 @@ import {
     type ActivityType,
     type DocumentStatus,
     type ParentDocument,
+    type ParentOrganizations,
     type ParentParticipant,
     type ParentPayment,
     type ParentProduct,
@@ -72,7 +74,7 @@ import {
 import { createBrowserSupabaseClient, hasSupabaseBrowserConfig } from '@/lib/supabase/browser';
 import { useFeatureFlags } from '@/lib/use-feature-flags';
 
-type SectionKey = 'overview' | 'participants' | 'payments' | 'documents' | 'profile';
+type SectionKey = 'overview' | 'participants' | 'payments' | 'organizations' | 'documents' | 'profile';
 type ProductGroup = {
   id: string;
   type: ActivityType;
@@ -146,6 +148,7 @@ type ParentPortalDashboardProps = {
 
 export type ParentPortalData = {
   participants: ParentParticipant[];
+  organizations: ParentOrganizations;
   products: ParentProduct[];
   payments: ParentPayment[];
   documents: ParentDocument[];
@@ -158,6 +161,7 @@ export type ParentPortalData = {
 
 export const fallbackParentPortalData: ParentPortalData = {
   participants: linkedParticipants,
+  organizations: { joined: [], available: [] },
   products: parentProducts,
   payments: parentPayments,
   documents: parentDocuments,
@@ -186,6 +190,7 @@ const sections: Array<{ key: SectionKey; label: string; icon: React.ReactNode; d
   { key: 'overview', label: 'Přehled', icon: <LayoutDashboard size={18} />, description: 'stav rodiny' },
   { key: 'participants', label: 'Účastníci', icon: <Users size={18} />, description: 'děti a docházka' },
   { key: 'payments', label: 'Platby', icon: <WalletCards size={18} />, description: 'kroužky, tábory, workshopy' },
+  { key: 'organizations', label: 'Organizace', icon: <Building2 size={18} />, description: 'tvé kluby a jejich nabídka' },
   { key: 'profile', label: 'Profil', icon: <UserPlus size={18} />, description: 'rodič a hodnocení' },
 ];
 
@@ -447,6 +452,9 @@ export function ParentPortalDashboard({ displayName, displayEmail, parentProfile
           />
         ) : null}
         {activeSection === 'profile' ? <ProfileSection displayName={displayName} displayEmail={profileEmail} parentProfileId={parentProfileId} participantName={activeParticipantName} onEmailChange={setProfileEmail} /> : null}
+        {activeSection === 'organizations' ? (
+          <OrganizationsSection organizations={portalData.organizations} parentProfileId={parentProfileId} onChanged={() => router.refresh()} />
+        ) : null}
       </main>
 
       {purchaseFlow ? (
@@ -1760,6 +1768,129 @@ function RewardDiscountPicker({
       ) : null}
     </div>
   );
+}
+
+function OrganizationsSection({ organizations, parentProfileId, onChanged }: { organizations: ParentOrganizations; parentProfileId?: string; onChanged: () => void }) {
+  const [selectedOrgId, setSelectedOrgId] = useState(organizations.available[0]?.id ?? '');
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
+  const joined = organizations.joined;
+  const available = organizations.available;
+
+  async function handleJoin() {
+    if (!selectedOrgId) return;
+    setBusyId('join');
+    setMessage(null);
+    try {
+      const result = await joinParentOrganization(selectedOrgId, parentProfileId);
+      setMessage(`Přidali jsme tě do organizace ${result.name}. Načítáme její nabídku…`);
+      onChanged();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Organizaci se nepodařilo přidat.');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function handleLeave(orgId: string, name: string) {
+    setBusyId(orgId);
+    setMessage(null);
+    try {
+      await leaveParentOrganization(orgId, parentProfileId);
+      setMessage(`Opustil jsi organizaci ${name}.`);
+      onChanged();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Organizaci se nepodařilo opustit.');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return (
+    <div className="space-y-5">
+      <Panel className="p-5">
+        <SectionTitle icon={<Building2 size={18} />} title="Moje organizace" subtitle="kluby, jejichž kroužky, tábory a workshopy vidíš" />
+      </Panel>
+
+      {message ? <p className="rounded-lg border border-neutral-200 bg-white px-4 py-3 text-sm text-neutral-600">{message}</p> : null}
+
+      <div className="grid items-start gap-4 xl:grid-cols-2">
+        {joined.map((org) => (
+          <div key={org.id} className="rounded-xl border border-neutral-200 bg-white p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <span className="flex h-11 w-11 items-center justify-center rounded-[14px] bg-brand-purple-light text-brand-purple">
+                  <Building2 size={20} />
+                </span>
+                <div>
+                  <p className="text-[15px] font-semibold text-neutral-900">{org.name}</p>
+                  <p className="mt-0.5 text-[12px] text-neutral-400">
+                    {org.orgType === 'vys' ? 'TeamVYS' : 'Sportovní organizace'} · {org.productCount} {productCountLabel(org.productCount)}
+                  </p>
+                </div>
+              </div>
+              {org.orgType === 'vys' || joined.length <= 1 ? (
+                <span className="rounded-full bg-neutral-100 px-2.5 py-1 text-[11px] font-medium text-neutral-400">hlavní</span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => handleLeave(org.id, org.name)}
+                  disabled={busyId === org.id}
+                  className="rounded-lg border border-neutral-200 px-3 py-1.5 text-[12px] font-medium text-neutral-500 transition hover:border-red-200 hover:text-red-500 disabled:opacity-50"
+                >
+                  {busyId === org.id ? 'Odebírám…' : 'Opustit'}
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {available.length > 0 ? (
+        <Panel className="p-5">
+          <div className="flex flex-col gap-3">
+            <SectionTitle icon={<Plus size={18} />} title="Přidat organizaci" subtitle="vyber klub a uvidíš jeho nabídku v Platbách" />
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <div className="relative flex-1">
+                <select
+                  value={selectedOrgId}
+                  onChange={(event) => setSelectedOrgId(event.target.value)}
+                  className="w-full appearance-none rounded-lg border border-neutral-200 bg-white px-3 py-2.5 pr-9 text-sm text-neutral-900 focus:border-brand-purple focus:outline-none"
+                >
+                  {available.map((org) => (
+                    <option key={org.id} value={org.id}>
+                      {org.name}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown size={16} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400" />
+              </div>
+              <button
+                type="button"
+                onClick={handleJoin}
+                disabled={!selectedOrgId || busyId === 'join'}
+                className={`inline-flex items-center justify-center gap-2 rounded-lg px-5 py-2.5 text-sm font-medium text-white transition disabled:opacity-50 ${BRAND_GRADIENT}`}
+              >
+                <Plus size={16} />
+                {busyId === 'join' ? 'Přidávám…' : 'Přidat'}
+              </button>
+            </div>
+          </div>
+        </Panel>
+      ) : (
+        <p className="rounded-lg border border-neutral-200 bg-white px-4 py-3 text-sm text-neutral-400">
+          Jsi členem všech dostupných organizací.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function productCountLabel(count: number): string {
+  if (count === 1) return 'aktivita';
+  if (count >= 2 && count <= 4) return 'aktivity';
+  return 'aktivit';
 }
 
 function Panel({ children, className = '' }: { children: React.ReactNode; className?: string }) {

@@ -983,6 +983,117 @@ app.post('/api/workshop-interests', asyncRoute(async (request, response) => {
   response.status(201).json({ interest: data, interestCount, canPurchase: gate.canPurchase, threshold: WORKSHOP_INTEREST_THRESHOLD });
 }));
 
+// ─── Parent organization membership ─────────────────────────────────────────
+// A parent can belong to several organizations. They see only the products of
+// the organizations they have joined (enforced by RLS via organization_members).
+const JOINABLE_ORG_STATUSES = ['exempt', 'active', 'trialing'];
+
+// List the parent's joined organizations (with product counts) + organizations
+// that are still available to join.
+app.get('/api/parent/organizations', asyncRoute(async (request, response) => {
+  requireServices();
+  const actor = await requireParentOrAdmin(request);
+  const parentProfileId = parentProfileIdForActor(actor, request.query.parentProfileId);
+
+  const { data: memberRows, error: memberError } = await supabase
+    .from('organization_members')
+    .select('org_id, organizations(id,name,org_type,subscription_status)')
+    .eq('profile_id', parentProfileId);
+  if (memberError) throw memberError;
+
+  const joinedIds = (memberRows || []).map((row) => row.org_id);
+
+  // Per-org product counts (published products only).
+  const productCounts = new Map();
+  if (joinedIds.length > 0) {
+    const { data: productRows, error: productError } = await supabase
+      .from('products')
+      .select('org_id')
+      .eq('is_published', true)
+      .in('org_id', joinedIds);
+    if (productError) throw productError;
+    for (const row of productRows || []) {
+      productCounts.set(row.org_id, (productCounts.get(row.org_id) || 0) + 1);
+    }
+  }
+
+  const joined = (memberRows || [])
+    .map((row) => {
+      const org = row.organizations || {};
+      return {
+        id: org.id || row.org_id,
+        name: org.name || 'Organizace',
+        orgType: org.org_type || 'external',
+        productCount: productCounts.get(row.org_id) || 0,
+      };
+    })
+    // VYS first, then alphabetical.
+    .sort((a, b) => (a.orgType === 'vys' ? -1 : b.orgType === 'vys' ? 1 : a.name.localeCompare(b.name)));
+
+  // Available = publicly joinable orgs the parent is not already in.
+  const { data: publicOrgs, error: publicError } = await supabase.rpc('teamvys_public_organizations');
+  if (publicError) throw publicError;
+  const joinedSet = new Set(joinedIds);
+  const available = (publicOrgs || [])
+    .filter((org) => !joinedSet.has(org.id))
+    .map((org) => ({ id: org.id, name: org.name, orgType: org.org_type }));
+
+  response.json({ joined, available });
+}));
+
+// Join an organization — adds a parent membership row so its products appear.
+app.post('/api/parent/organizations', asyncRoute(async (request, response) => {
+  requireServices();
+  const actor = await requireParentOrAdmin(request);
+  const parentProfileId = parentProfileIdForActor(actor, request.body.parentProfileId);
+  const orgId = requiredString(request.body.orgId, 'orgId');
+
+  const { data: org, error: orgError } = await supabase
+    .from('organizations')
+    .select('id,name,subscription_status')
+    .eq('id', orgId)
+    .maybeSingle();
+  if (orgError) throw orgError;
+  if (!org) throw httpError('Organizace nebyla nalezena.', 404);
+  if (!JOINABLE_ORG_STATUSES.includes(org.subscription_status)) {
+    throw httpError('Tahle organizace momentálně nepřijímá nové členy.', 409);
+  }
+
+  const { error: insertError } = await supabase
+    .from('organization_members')
+    .upsert({ org_id: orgId, profile_id: parentProfileId, role: 'parent' }, { onConflict: 'org_id,profile_id' });
+  if (insertError) throw insertError;
+
+  response.status(201).json({ ok: true, orgId, name: org.name });
+}));
+
+// Leave an organization — removes the parent membership (cannot leave the last one).
+app.delete('/api/parent/organizations/:orgId', asyncRoute(async (request, response) => {
+  requireServices();
+  const actor = await requireParentOrAdmin(request);
+  const parentProfileId = parentProfileIdForActor(actor, request.query.parentProfileId);
+  const orgId = requiredString(request.params.orgId, 'orgId');
+
+  const { data: memberRows, error: memberError } = await supabase
+    .from('organization_members')
+    .select('org_id')
+    .eq('profile_id', parentProfileId);
+  if (memberError) throw memberError;
+
+  const memberIds = (memberRows || []).map((row) => row.org_id);
+  if (!memberIds.includes(orgId)) throw httpError('Tahle organizace není mezi tvými.', 404);
+  if (memberIds.length <= 1) throw httpError('Musíš zůstat alespoň v jedné organizaci.', 409);
+
+  const { error: deleteError } = await supabase
+    .from('organization_members')
+    .delete()
+    .eq('profile_id', parentProfileId)
+    .eq('org_id', orgId);
+  if (deleteError) throw deleteError;
+
+  response.json({ ok: true, orgId });
+}));
+
 app.get('/api/public/coaches', asyncRoute(async (_request, response) => {
   requireServices();
 

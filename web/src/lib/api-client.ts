@@ -285,8 +285,32 @@ export async function confirmCheckoutSession(sessionId: string): Promise<Confirm
   }, { auth: true });
 }
 
-export async function saveCoachAttendance(payload: SaveCoachAttendancePayload): Promise<SaveCoachAttendanceResponse> {
-  return requestJson('/api/coach/attendance', {
+export type ParentOrganizationsResponse = {
+  joined: Array<{ id: string; name: string; orgType: string; productCount: number }>;
+  available: Array<{ id: string; name: string; orgType: string }>;
+};
+
+export async function listParentOrganizations(parentProfileId?: string): Promise<ParentOrganizationsResponse> {
+  const query = parentProfileId ? `?parentProfileId=${encodeURIComponent(parentProfileId)}` : '';
+  return requestJson(`/api/parent/organizations${query}`, { method: 'GET', cache: 'no-store' }, { auth: true });
+}
+
+export async function joinParentOrganization(orgId: string, parentProfileId?: string): Promise<{ ok: boolean; orgId: string; name: string }> {
+  return requestJson('/api/parent/organizations', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ orgId, parentProfileId }),
+  }, { auth: true });
+}
+
+export async function leaveParentOrganization(orgId: string, parentProfileId?: string): Promise<{ ok: boolean; orgId: string }> {
+  const query = parentProfileId ? `?parentProfileId=${encodeURIComponent(parentProfileId)}` : '';
+  return requestJson(`/api/parent/organizations/${encodeURIComponent(orgId)}${query}`, {
+    method: 'DELETE',
+  }, { auth: true });
+}
+
+export async function saveCoachAttendance(payload: SaveCoachAttendancePayload): Promise<SaveCoachAttendanceResponse> {  return requestJson('/api/coach/attendance', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
