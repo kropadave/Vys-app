@@ -1,6 +1,6 @@
 'use client';
 
-import { Building2, Loader2, Mail, MapPin, User } from 'lucide-react';
+import { Building2, CheckCircle2, FileBadge, Loader2, Mail, MapPin, User } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 import { FormEvent, useState } from 'react';
 
@@ -20,8 +20,31 @@ export function OrgRegistrationForm() {
   const [contactEmail, setContactEmail] = useState('');
   const [adminFirstName, setAdminFirstName] = useState('');
   const [adminLastName, setAdminLastName] = useState('');
+  const [ico, setIco] = useState('');
+  const [aresName, setAresName] = useState<string | null>(null);
+  const [aresChecking, setAresChecking] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  async function lookupAres(value: string) {
+    const normalized = value.replace(/\s+/g, '');
+    setAresName(null);
+    if (!/^\d{8}$/.test(normalized)) return;
+    setAresChecking(true);
+    try {
+      const response = await fetch(`https://ares.gov.cz/ekonomicke-subjekty-v-be/rest/ekonomicke-subjekty/${normalized}`, { headers: { accept: 'application/json' } });
+      if (response.ok) {
+        const subject = await response.json();
+        setAresName(subject?.obchodniJmeno || null);
+      } else if (response.status === 404) {
+        setError('Organizace s tímto IČO nebyla nalezena v registru ARES.');
+      }
+    } catch {
+      // ARES nedostupný — ověří se při odeslání na serveru.
+    } finally {
+      setAresChecking(false);
+    }
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -35,6 +58,7 @@ export function OrgRegistrationForm() {
         contactEmail: contactEmail.trim(),
         adminFirstName: adminFirstName.trim(),
         adminLastName: adminLastName.trim(),
+        ico: ico.replace(/\s+/g, ''),
         sportType: sportType || undefined,
         city: city.trim() || undefined,
         successUrl: `${base}?stav=uspech`,
@@ -78,6 +102,27 @@ export function OrgRegistrationForm() {
             placeholder="Např. Parkour klub Brno"
             className={inputClass}
           />
+        </Field>
+
+        <Field label="IČO" icon={<FileBadge size={16} />} className="sm:col-span-2">
+          <input
+            required
+            inputMode="numeric"
+            pattern="\d{8}"
+            maxLength={8}
+            value={ico}
+            onChange={(event) => { setIco(event.target.value.replace(/[^\d]/g, '')); setAresName(null); }}
+            onBlur={(event) => lookupAres(event.target.value)}
+            placeholder="12345678"
+            className={inputClass}
+          />
+          {aresChecking ? (
+            <span className="inline-flex items-center gap-1.5 text-xs font-bold text-brand-ink/60"><Loader2 size={13} className="animate-spin" /> Ověřuji v registru ARES…</span>
+          ) : aresName ? (
+            <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-600"><CheckCircle2 size={13} /> Nalezeno v ARES: {aresName}</span>
+          ) : (
+            <span className="text-xs text-brand-ink/50">Existenci organizace ověřujeme v registru ARES.</span>
+          )}
         </Field>
 
         <Field label="Sport">

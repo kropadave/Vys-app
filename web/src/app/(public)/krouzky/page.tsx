@@ -3,6 +3,7 @@ import { ScanLine, ShieldCheck, Trophy } from 'lucide-react';
 import { Reveal } from '@/components/animated/reveal';
 import { PageHero } from '@/components/page-hero';
 import { PublicCourseCatalog } from '@/components/public-admin-products';
+import { SubpageCta } from '@/components/subpage-cta';
 
 export const metadata = {
   title: 'Kroužky',
@@ -15,7 +16,7 @@ export default function CoursesPage() {
       <PageHero
         eyebrow="Pravidelné kroužky"
         title="Najdi parkour kroužek u tebe ve městě"
-        body="Trénujeme v 6 městech, na ověřených sportovištích, s certifikovanými trenéry. Permanentka 10 nebo 15 vstupů s NFC docházkou bez papírování."
+        body="6 měst. Certifikovaní trenéři. Permanentka s NFC docházkou — bez papírování."
       />
 
       <section className="section-shell relative grid gap-3 py-12 md:grid-cols-3">
@@ -25,6 +26,17 @@ export default function CoursesPage() {
       </section>
 
       <PublicCourseCatalog />
+
+      <SubpageCta
+        eyebrow="Přidej se"
+        title="Místa v kroužcích mizí rychle."
+        highlight="Rezervuj včas."
+        body="Vyber město, kup permanentku online a dítě může dorazit už na další trénink."
+        ctaHref="/sign-in"
+        ctaLabel="Přihlásit dítě"
+        secondaryHref="/kontakty"
+        secondaryLabel="Mám dotaz"
+      />
     </>
   );
 }

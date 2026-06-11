@@ -16,8 +16,8 @@ export function GamificationSection() {
   return (
     <section className="relative overflow-hidden bg-brand-night py-20 md:py-28">
       <div aria-hidden className="pointer-events-none absolute inset-0">
-        <div className="absolute left-[20%] top-[-25%] h-[55vh] w-[55vh] rounded-full bg-[radial-gradient(circle,rgba(232,68,10,0.18)_0%,transparent_70%)]" />
-        <div className="absolute bottom-[-20%] right-[5%] h-[45vh] w-[45vh] rounded-full bg-[radial-gradient(circle,rgba(255,178,26,0.1)_0%,transparent_70%)]" />
+        <div className="absolute left-[20%] top-[-25%] h-[55vh] w-[55vh] rounded-full bg-[radial-gradient(circle,rgba(139,29,255,0.20)_0%,transparent_70%)]" />
+        <div className="absolute bottom-[-20%] right-[5%] h-[45vh] w-[45vh] rounded-full bg-[radial-gradient(circle,rgba(241,43,179,0.12)_0%,transparent_70%)]" />
       </div>
 
       {/* Asymmetric: copy right, cards left & overlapping */}
@@ -30,9 +30,9 @@ export function GamificationSection() {
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, margin: '-50px' }}
               transition={{ duration: 0.6, delay: index * 0.1, ease }}
-              className={`rounded-[22px] border border-white/[0.08] bg-white/[0.05] p-6 backdrop-blur-md transition-colors duration-300 hover:border-brand-orange/40 ${index % 2 === 1 ? 'sm:translate-y-6' : ''}`}
+              className={`rounded-[22px] border border-white/[0.08] bg-white/[0.05] p-6 backdrop-blur-md transition-colors duration-300 hover:border-brand-pink/40 ${index % 2 === 1 ? 'sm:translate-y-6' : ''}`}
             >
-              <span className="grid h-11 w-11 place-items-center rounded-[15px] bg-white/[0.08] text-brand-orange">
+              <span className="grid h-11 w-11 place-items-center rounded-[15px] bg-white/[0.08] text-brand-pink">
                 <item.icon size={20} />
               </span>
               <h3 className="mt-4 text-base font-black text-white">{item.title}</h3>

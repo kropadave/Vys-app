@@ -16,7 +16,7 @@ export default function CampsPage() {
       <PageHero
         eyebrow="Příměstské tábory"
         title="Týden pohybu, her a parkour výzev"
-        body="Letní tábory stavíme tak, aby si děti užily bezpečný trénink, nové kamarády a jasný režim dne. Rodič po přihlášení vyřeší platbu, dokumenty i údaje pro trenéra na jednom místě."
+        body="Bezpečný trénink, noví kamarádi, jasný režim dne. Platba i dokumenty na jednom místě."
       />
 
       {/* Included + schedule */}
@@ -26,7 +26,7 @@ export default function CampsPage() {
         <Reveal>
           <div className="group relative overflow-hidden rounded-[32px] bg-white shadow-brand transition-shadow duration-500 hover:shadow-brand-float">
             {/* gradient border */}
-            <div className="pointer-events-none absolute inset-0 rounded-[32px] border border-transparent [background:linear-gradient(white,white)_padding-box,linear-gradient(135deg,rgba(139,29,255,0.28),rgba(241,43,179,0.18),rgba(255,178,26,0.22))_border-box]" />
+            <div className="pointer-events-none absolute inset-0 rounded-[32px] border border-transparent [background:linear-gradient(white,white)_padding-box,linear-gradient(135deg,rgba(139,29,255,0.28),rgba(241,43,179,0.18),rgba(124,45,219,0.22))_border-box]" />
 
             {/* header */}
             <div className="relative border-b border-brand-purple/10 bg-gradient-to-br from-brand-paper via-white to-white px-6 py-5 md:px-8">
@@ -40,9 +40,9 @@ export default function CampsPage() {
 
             <div className="relative grid gap-3 p-4 sm:grid-cols-2 md:p-5">
               {/* 1 */}
-              <div className="flex items-start gap-4 rounded-[24px] border border-brand-orange/15 bg-brand-orange/[0.045] p-4 transition-transform duration-300 hover:-translate-y-0.5 md:p-5">
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-brand-orange/25 bg-gradient-to-br from-brand-orange/20 to-brand-orange/5 shadow-[0_10px_24px_rgba(255,178,26,0.12)]">
-                  <Utensils size={20} className="text-brand-orange" />
+              <div className="flex items-start gap-4 rounded-[24px] border border-brand-purple/15 bg-brand-purple/[0.045] p-4 transition-transform duration-300 hover:-translate-y-0.5 md:p-5">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-brand-purple/25 bg-gradient-to-br from-brand-purple/20 to-brand-purple/5 shadow-[0_10px_24px_rgba(139,29,255,0.12)]">
+                  <Utensils size={20} className="text-brand-purple" />
                 </div>
                 <div>
                   <p className="text-sm font-black text-brand-ink">Jídlo a pitný režim</p>
@@ -81,7 +81,7 @@ export default function CampsPage() {
               </div>
             </div>
 
-            <div className="relative border-t border-brand-purple/10 bg-gradient-to-r from-brand-purple/[0.06] via-brand-pink/[0.045] to-brand-orange/[0.07] px-6 py-5 md:px-8">
+            <div className="relative border-t border-brand-purple/10 bg-gradient-to-r from-brand-purple/[0.06] via-brand-pink/[0.045] to-brand-cyan/[0.07] px-6 py-5 md:px-8">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <p className="text-sm font-black text-brand-ink">Bez ranního papírování</p>
@@ -117,24 +117,24 @@ export default function CampsPage() {
               <div className="relative px-6 py-3 md:px-8">
                 {/* slot 0 */}
                 <div className="relative flex items-start gap-4 py-3">
-                  <div className="absolute left-[9px] top-[22px] h-full w-0.5 bg-gradient-to-b from-brand-purple/50 to-brand-pink/10" />
-                  <div className="relative mt-1.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand-purple to-brand-pink shadow-[0_2px_8px_rgba(139,29,255,0.35)]">
+                  <div className="absolute left-[9px] top-[22px] h-full w-0.5 bg-gradient-to-b from-brand-pink/50 to-brand-purple/10" />
+                  <div className="relative mt-1.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand-pink to-brand-purple shadow-[0_2px_8px_rgba(241,43,179,0.40)]">
                     <div className="h-2 w-2 rounded-full bg-white/90" />
                   </div>
-                  <div className="flex-1 rounded-2xl bg-brand-purple/5 px-3 py-2 transition-transform duration-200 hover:translate-x-0.5">
-                    <span className="text-[11px] font-black uppercase tracking-wide text-brand-purple">{campSchedule[0]?.time}</span>
+                  <div className="flex-1 rounded-2xl bg-brand-pink/5 px-3 py-2 transition-transform duration-200 hover:translate-x-0.5">
+                    <span className="text-[11px] font-black uppercase tracking-wide text-brand-pink">{campSchedule[0]?.time}</span>
                     <p className="mt-0.5 text-sm font-black text-brand-ink">{campSchedule[0]?.title}</p>
                     <p className="mt-0.5 text-xs leading-5 text-brand-ink-soft">{campSchedule[0]?.text}</p>
                   </div>
                 </div>
                 {/* slot 1 */}
                 <div className="relative flex items-start gap-4 py-3">
-                  <div className="absolute left-[9px] top-[22px] h-full w-0.5 bg-gradient-to-b from-brand-orange/50 to-brand-pink/10" />
-                  <div className="relative mt-1.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand-orange to-brand-pink shadow-[0_2px_8px_rgba(255,178,26,0.40)]">
+                  <div className="absolute left-[9px] top-[22px] h-full w-0.5 bg-gradient-to-b from-brand-pink/50 to-brand-purple/10" />
+                  <div className="relative mt-1.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand-pink to-brand-purple shadow-[0_2px_8px_rgba(241,43,179,0.40)]">
                     <div className="h-2 w-2 rounded-full bg-white/90" />
                   </div>
-                  <div className="flex-1 rounded-2xl bg-brand-orange/5 px-3 py-2 transition-transform duration-200 hover:translate-x-0.5">
-                    <span className="text-[11px] font-black uppercase tracking-wide text-brand-orange">{campSchedule[1]?.time}</span>
+                  <div className="flex-1 rounded-2xl bg-brand-pink/5 px-3 py-2 transition-transform duration-200 hover:translate-x-0.5">
+                    <span className="text-[11px] font-black uppercase tracking-wide text-brand-pink">{campSchedule[1]?.time}</span>
                     <p className="mt-0.5 text-sm font-black text-brand-ink">{campSchedule[1]?.title}</p>
                     <p className="mt-0.5 text-xs leading-5 text-brand-ink-soft">{campSchedule[1]?.text}</p>
                   </div>
@@ -167,7 +167,7 @@ export default function CampsPage() {
 
             {/* App features */}
             <div className="group relative overflow-hidden rounded-[32px] bg-white shadow-brand-soft transition-shadow duration-500 hover:shadow-brand">
-              <div className="pointer-events-none absolute inset-0 rounded-[32px] border border-transparent [background:linear-gradient(white,white)_padding-box,linear-gradient(135deg,rgba(139,29,255,0.22),rgba(255,178,26,0.18))_border-box]" />
+              <div className="pointer-events-none absolute inset-0 rounded-[32px] border border-transparent [background:linear-gradient(white,white)_padding-box,linear-gradient(135deg,rgba(139,29,255,0.22),rgba(241,43,179,0.18))_border-box]" />
               <div className="relative divide-y divide-brand-purple/10">
                 <div className="flex items-start gap-4 px-6 py-4 transition-colors duration-200 hover:bg-brand-purple/[0.025] md:px-8">
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-brand-purple/20 bg-gradient-to-br from-brand-purple/15 to-brand-pink/10">
@@ -179,7 +179,7 @@ export default function CampsPage() {
                   </div>
                 </div>
                 <div className="flex items-start gap-4 px-6 py-4 transition-colors duration-200 hover:bg-brand-pink/[0.025] md:px-8">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-brand-pink/20 bg-gradient-to-br from-brand-pink/15 to-brand-orange/10">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-brand-pink/20 bg-gradient-to-br from-brand-pink/15 to-brand-purple/10">
                     <Smartphone size={18} className="text-brand-pink" />
                   </div>
                   <div>

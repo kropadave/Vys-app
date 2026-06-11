@@ -85,8 +85,8 @@ function ProgramMotif({ motif }: { motif: 'crate' | 'tree' | 'growth' }) {
   if (motif === 'tree') {
     return (
       <div aria-hidden className="pointer-events-none absolute inset-0 flex items-center justify-center">
-        <div className="absolute h-40 w-40 rounded-full bg-brand-orange/14 blur-2xl" />
-        <TreePine size={198} strokeWidth={1.8} className="text-brand-orange/45" />
+        <div className="absolute h-40 w-40 rounded-full bg-brand-purple/14 blur-2xl" />
+        <TreePine size={198} strokeWidth={1.8} className="text-brand-purple/45" />
       </div>
     );
   }

@@ -9,8 +9,8 @@ const icons = [ShieldCheck, Trophy, Users, Smartphone];
 
 const accentColors = [
   'from-[#8B1DFF] to-[#F12BB3]',
-  'from-[#F12BB3] to-[#FFB21A]',
-  'from-[#FFB21A] to-[#8B1DFF]',
+  'from-[#F12BB3] to-[#8B1DFF]',
+  'from-[#7C2DDB] to-[#E879F9]',
   'from-[#8B1DFF] to-[#F12BB3]',
 ];
 

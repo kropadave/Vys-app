@@ -1833,6 +1833,34 @@ app.delete('/api/admin/products/:id', asyncRoute(async (request, response) => {
 const ORG_MONTHLY_PRICE_CZK = 790;
 const ORG_TRIAL_DAYS = 30;
 
+// Organization existence verification — the IČO must exist in the Czech
+// business registry (ARES). Returns the official registered name.
+async function verifyIcoInAres(ico) {
+  const normalized = String(ico || '').replace(/\s+/g, '');
+  if (!/^\d{8}$/.test(normalized)) throw httpError('IČO musí mít 8 číslic.', 400);
+
+  let aresResponse;
+  try {
+    aresResponse = await fetch(`https://ares.gov.cz/ekonomicke-subjekty-v-be/rest/ekonomicke-subjekty/${normalized}`, {
+      headers: { accept: 'application/json' },
+      signal: AbortSignal.timeout(8000),
+    });
+  } catch (aresError) {
+    console.warn(`ARES lookup failed for ${normalized}: ${aresError.message}`);
+    // ARES outage must not block registration entirely — mark as unverified.
+    return { ico: normalized, aresName: null };
+  }
+
+  if (aresResponse.status === 404) throw httpError('Organizace s tímto IČO nebyla nalezena v registru ARES.', 400);
+  if (!aresResponse.ok) {
+    console.warn(`ARES lookup returned ${aresResponse.status} for ${normalized}`);
+    return { ico: normalized, aresName: null };
+  }
+
+  const subject = await aresResponse.json();
+  return { ico: normalized, aresName: subject?.obchodniJmeno || null };
+}
+
 function mapStripeSubscriptionStatus(stripeStatus) {
   switch (stripeStatus) {
     case 'trialing': return 'trialing';
@@ -1870,6 +1898,8 @@ async function provisionOrganizationFromCheckout(session) {
   const orgName = requiredString(metadata.org_name, 'org_name');
   const contactEmail = requiredString(metadata.contact_email, 'contact_email').toLowerCase();
   const adminName = requiredString(metadata.admin_name, 'admin_name');
+  const ico = optionalString(metadata.ico);
+  const aresName = optionalString(metadata.ares_name);
 
   // Approval gate: new orgs are NOT live after checkout. The super admin must
   // approve them in /admin/organizace; only then does the 30-day trial start.
@@ -1881,6 +1911,8 @@ async function provisionOrganizationFromCheckout(session) {
       sport_type: optionalString(metadata.sport_type),
       city: optionalString(metadata.city),
       contact_email: contactEmail,
+      ico,
+      ares_name: aresName,
       stripe_customer_id: customerId,
       subscription_status: 'pending_approval',
       trial_ends_at: null,
@@ -2203,6 +2235,9 @@ app.post('/api/orgs/register', asyncRoute(async (request, response) => {
 
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail)) throw httpError('Neplatný kontaktní e-mail.', 400);
 
+  // Existence verification: the IČO must be a real subject in ARES.
+  const { ico, aresName } = await verifyIcoInAres(requiredString(request.body.ico, 'ico'));
+
   // Refuse duplicate registration for an email that already owns an org.
   const { data: duplicate, error: duplicateError } = await supabase
     .from('organizations')
@@ -2213,6 +2248,16 @@ app.post('/api/orgs/register', asyncRoute(async (request, response) => {
   if (duplicateError) throw duplicateError;
   if (duplicate) throw httpError('Organizace s tímto e-mailem už existuje.', 409);
 
+  // Refuse duplicate registration for an IČO that already owns an org.
+  const { data: icoDuplicate, error: icoDuplicateError } = await supabase
+    .from('organizations')
+    .select('id')
+    .eq('ico', ico)
+    .neq('subscription_status', 'canceled')
+    .maybeSingle();
+  if (icoDuplicateError) throw icoDuplicateError;
+  if (icoDuplicate) throw httpError('Organizace s tímto IČO už existuje.', 409);
+
   const orgMetadata = {
     org_registration: 'true',
     org_name: orgName,
@@ -2220,6 +2265,8 @@ app.post('/api/orgs/register', asyncRoute(async (request, response) => {
     city: city || '',
     contact_email: contactEmail,
     admin_name: `${adminFirstName} ${adminLastName}`,
+    ico,
+    ares_name: aresName || '',
   };
 
   const session = await stripe.checkout.sessions.create({
@@ -2280,6 +2327,17 @@ app.post('/api/orgs/:orgId/approve', asyncRoute(async (request, response) => {
     actionLink = linkData?.properties?.action_link || null;
   } catch (linkError) {
     console.warn(`Org approval: recovery link generation failed for ${org.contact_email}: ${linkError.message}`);
+  }
+
+  // Guaranteed delivery: also trigger Supabase's own recovery email — this
+  // goes through Supabase SMTP and works even when the server has no SMTP_*
+  // configuration (in which case sendOrgOnboardingEmail is silently skipped).
+  try {
+    await supabase.auth.resetPasswordForEmail(org.contact_email, {
+      redirectTo: `${WEB_APP_URL}/sign-in?mode=reset-password`,
+    });
+  } catch (recoveryError) {
+    console.warn(`Org approval: Supabase recovery email failed for ${org.contact_email}: ${recoveryError.message}`);
   }
 
   const { data: adminProfile } = await supabase

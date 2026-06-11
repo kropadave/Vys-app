@@ -209,6 +209,7 @@ export type RegisterOrganizationPayload = {
   contactEmail: string;
   adminFirstName: string;
   adminLastName: string;
+  ico: string;
   sportType?: string;
   city?: string;
   successUrl: string;

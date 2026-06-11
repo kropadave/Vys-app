@@ -28,7 +28,7 @@ const audiences = [
   },
   {
     title: 'Trenér',
-    accent: 'from-brand-pink to-brand-orange',
+    accent: 'from-brand-pink to-brand-purple',
     bullets: [
       'Docházka přes NFC i ručně, kontrola lokality',
       'QR potvrzení splněných triků',
@@ -56,8 +56,7 @@ export default function AplikacePage() {
                 Aplikace pro účastníky a trenéry <span className="gradient-text">rovnou v telefonu</span>.
               </h1>
               <p className="max-w-2xl text-base font-bold text-brand-ink-soft md:text-lg">
-                TeamVYS aplikace je jen pro účastníky a trenéry v terénu. Děti v ní sledují progres, trenéři řeší docházku,
-                QR triky a přehled práce. Rodiče a administrace zůstávají ve webovém portálu.
+                Děti sledují progres, trenéři řeší docházku a QR triky. Rodiče a administrace zůstávají ve webovém portálu.
               </p>
 
               <Link
@@ -69,8 +68,7 @@ export default function AplikacePage() {
               </Link>
 
               <p className="max-w-2xl text-xs font-bold text-brand-ink-soft">
-                Instalovatelná část běží jako samostatná Expo PWA, takže ikona na ploše otevírá jen účastnickou a trenérskou appku.
-                Webové profily pro rodiče a adminy se používají dál přes běžný web TeamVYS.
+                Běží jako samostatná PWA — ikona na ploše otevře rovnou appku.
               </p>
 
               <div className="flex flex-wrap gap-2 pt-2">

@@ -20,7 +20,7 @@ export function Hero() {
       <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
         <div className="absolute -left-[20%] top-[-10%] h-[70vh] w-[70vh] rounded-full bg-[radial-gradient(circle,rgba(139,29,255,0.28)_0%,transparent_70%)]" />
         <div className="absolute -right-[15%] top-[10%] h-[50vh] w-[50vh] rounded-full bg-[radial-gradient(circle,rgba(241,43,179,0.18)_0%,transparent_70%)]" />
-        <div className="absolute bottom-0 left-[30%] h-[40vh] w-[60vh] rounded-full bg-[radial-gradient(circle,rgba(255,178,26,0.1)_0%,transparent_70%)]" />
+        <div className="absolute bottom-0 left-[30%] h-[40vh] w-[60vh] rounded-full bg-[radial-gradient(circle,rgba(241,43,179,0.10)_0%,transparent_70%)]" />
       </div>
 
       {/* Subtle grid */}
@@ -57,7 +57,7 @@ export function Hero() {
           </Link>
           <Link
             href="/tabory"
-            className="group inline-flex h-11 items-center justify-center gap-2 rounded-full border border-transparent bg-[linear-gradient(rgba(255,255,255,0.06),rgba(255,255,255,0.06))_padding-box,linear-gradient(135deg,#8B1DFF,#F12BB3,#FFB21A)_border-box] px-7 text-sm font-bold text-white shadow-[0_0_0_1px_rgba(255,255,255,0.06)] transition-all duration-200 hover:-translate-y-0.5 hover:bg-[linear-gradient(rgba(255,255,255,0.09),rgba(255,255,255,0.09))_padding-box,linear-gradient(135deg,#8B1DFF,#F12BB3,#FFB21A)_border-box]"
+            className="group inline-flex h-11 items-center justify-center gap-2 rounded-full border border-transparent bg-[linear-gradient(rgba(255,255,255,0.06),rgba(255,255,255,0.06))_padding-box,linear-gradient(135deg,#8B1DFF,#F12BB3)_border-box] px-7 text-sm font-bold text-white shadow-[0_0_0_1px_rgba(255,255,255,0.06)] transition-all duration-200 hover:-translate-y-0.5 hover:bg-[linear-gradient(rgba(255,255,255,0.09),rgba(255,255,255,0.09))_padding-box,linear-gradient(135deg,#8B1DFF,#F12BB3)_border-box]"
           >
             Vybrat tábor
             <ArrowRight size={15} className="transition-transform duration-200 group-hover:translate-x-0.5" />

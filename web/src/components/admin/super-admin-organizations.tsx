@@ -13,6 +13,8 @@ type OverviewOrganization = {
   sportType: string | null;
   city: string | null;
   contactEmail: string | null;
+  ico: string | null;
+  aresName: string | null;
   subscriptionStatus: string;
   trialEndsAt: string | null;
   nextPaymentAt: string | null;
@@ -218,6 +220,12 @@ export function SuperAdminOrganizations() {
                       <td className="px-4 py-3">
                         <p className="font-black text-brand-ink">{org.name}</p>
                         <p className="text-xs text-brand-ink-soft">{org.contactEmail ?? '—'}</p>
+                        {org.ico ? (
+                          <p className="text-xs text-brand-ink-soft">
+                            IČO {org.ico}
+                            {org.aresName ? <span className="font-bold text-emerald-600"> · ARES: {org.aresName}</span> : <span className="font-bold text-amber-600"> · ARES neověřeno</span>}
+                          </p>
+                        ) : null}
                       </td>
                       <td className="px-4 py-3 text-xs font-bold text-brand-ink-soft">
                         {[org.sportType, org.city].filter(Boolean).join(' · ') || '—'}

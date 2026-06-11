@@ -3,6 +3,7 @@ import { QrCode, Sparkles, Target } from 'lucide-react';
 import { Reveal } from '@/components/animated/reveal';
 import { PageHero } from '@/components/page-hero';
 import { WorkshopBrowser } from '@/components/public-admin-products';
+import { SubpageCta } from '@/components/subpage-cta';
 
 export const metadata = {
   title: 'Workshopy',
@@ -21,7 +22,7 @@ export default function WorkshopsPage() {
       <PageHero
         eyebrow="Workshopy a open jamy"
         title="Jednorázové akce pro rychlý progres"
-        body="Když dítě chce potrénovat konkrétní přeskok, flow nebo tricking kombinaci, workshop je ideální. Kratší, intenzivní a s jasným výsledkem."
+        body="Kratší, intenzivní a s jasným výsledkem. Konkrétní přeskok, flow nebo tricking kombinace."
       />
 
       <section className="section-shell grid gap-3 py-10 md:grid-cols-3">
@@ -42,7 +43,7 @@ export default function WorkshopsPage() {
       <section className="section-shell py-10">
         <Reveal>
           <div className="max-w-[760px]">
-            <p className="text-xs font-black uppercase text-brand-orange">Nejbližší akce</p>
+            <p className="text-xs font-black uppercase text-brand-pink">Nejbližší akce</p>
             <h2 className="mt-2 text-2xl font-black text-brand-ink md:text-4xl">Workshopy s digitálním ticketem</h2>
           </div>
         </Reveal>
@@ -51,6 +52,17 @@ export default function WorkshopsPage() {
           <WorkshopBrowser />
         </div>
       </section>
+
+      <SubpageCta
+        eyebrow="Jednorázové akce"
+        title="Jeden workshop, viditelný posun."
+        highlight="Vyzkoušej to."
+        body="Platí se online, ticket máš hned v telefonu. Kapacita bývá omezená."
+        ctaHref="/sign-in"
+        ctaLabel="Koupit workshop"
+        secondaryHref="/krouzky"
+        secondaryLabel="Spíš pravidelný kroužek"
+      />
     </>
   );
 }

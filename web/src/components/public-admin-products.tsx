@@ -275,7 +275,7 @@ export function AdminCreatedWorkshopCards({ startDelay = 0 }: { startDelay?: num
   if (workshops.length === 0) {
     return (
       <div className="col-span-full rounded-brand border border-brand-purple/12 bg-white p-8 shadow-brand-soft">
-        <p className="text-xs font-black uppercase text-brand-orange">Brzy</p>
+        <p className="text-xs font-black uppercase text-brand-pink">Brzy</p>
         <h3 className="mt-2 text-xl font-black text-brand-ink">Žádné aktuální workshopy</h3>
         <p className="mt-2 text-sm font-bold leading-6 text-brand-ink-soft">Nové workshopy přidáváme průběžně. Sleduj nás na sociálních sítích nebo se přihlas do portálu a dostaneš upozornění, jakmile vypíšeme termín.</p>
       </div>
@@ -405,13 +405,13 @@ function CatalogState({ loading, error, empty, emptyTitle, emptyText }: { loadin
   }
 
   if (error) {
-    return <div className="mt-6 rounded-brand border border-brand-orange/25 bg-white p-5 text-sm font-black text-brand-ink-soft shadow-brand-soft">Nabídku se nepodařilo načíst: {error}</div>;
+    return <div className="mt-6 rounded-brand border border-brand-pink/25 bg-white p-5 text-sm font-black text-brand-ink-soft shadow-brand-soft">Nabídku se nepodařilo načíst: {error}</div>;
   }
 
   if (empty) {
     return (
       <div className="mt-6 rounded-brand border border-brand-purple/12 bg-white p-6 shadow-brand-soft">
-        <p className="text-xs font-black uppercase text-brand-orange">Brzy</p>
+        <p className="text-xs font-black uppercase text-brand-pink">Brzy</p>
         <h3 className="mt-2 text-xl font-black text-brand-ink">{emptyTitle}</h3>
         <p className="mt-2 text-sm font-bold leading-6 text-brand-ink-soft">{emptyText}</p>
       </div>
@@ -563,7 +563,7 @@ function CampPublicCard({ product, coaches = [] }: { product: ParentProduct; coa
         )}
         <div aria-hidden className={`absolute inset-0 bg-gradient-to-t ${hasImage ? 'from-black/70 via-black/20 to-transparent' : 'from-black/30 via-transparent to-transparent'}`} />
         <span className="absolute left-4 top-4 inline-flex items-center gap-1.5 rounded-[16px] bg-white/95 px-3 py-1.5 text-xs font-black uppercase text-brand-ink shadow-sm backdrop-blur-sm">
-          <CalendarDays size={13} className="text-brand-orange" />
+          <CalendarDays size={13} className="text-brand-pink" />
           {product.primaryMeta}
         </span>
         <div className="absolute bottom-4 left-4 pr-4">
@@ -697,7 +697,7 @@ function CoursePublicCard({ product, delay }: { product: ParentProduct; delay: n
             <div className="min-w-0">
               <h3 className="text-xl font-black leading-tight text-brand-ink">{product.venue}</h3>
               <p className="mt-1 inline-flex items-center gap-2 text-sm font-bold text-brand-ink-soft">
-                <MapPin size={16} className="text-brand-orange" />
+                <MapPin size={16} className="text-brand-pink" />
                 {product.city}
               </p>
             </div>

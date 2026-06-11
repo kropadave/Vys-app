@@ -50,7 +50,7 @@ export function AudienceSection() {
               transition={{ duration: 0.6, delay: index * 0.09, ease }}
               className={`rounded-[22px] border border-brand-night/[0.07] bg-brand-paper p-6 shadow-[0_18px_44px_rgba(26,26,46,0.07)] transition-transform duration-300 hover:-translate-y-1.5 ${index % 2 === 1 ? 'lg:translate-y-8' : ''}`}
             >
-              <span className="grid h-12 w-12 place-items-center rounded-[16px] bg-gradient-ember text-white shadow-[0_10px_24px_rgba(232,68,10,0.3)]">
+              <span className="grid h-12 w-12 place-items-center rounded-[16px] bg-gradient-ember text-white shadow-[0_10px_24px_rgba(139,29,255,0.3)]">
                 <audience.icon size={22} />
               </span>
               <h3 className="mt-5 text-lg font-black text-brand-night">{audience.title}</h3>

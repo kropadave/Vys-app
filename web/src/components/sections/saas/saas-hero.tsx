@@ -22,9 +22,9 @@ export function SaasHero() {
     <section ref={ref} className="relative overflow-hidden bg-brand-night">
       {/* Ambient ember glows */}
       <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute -left-[18%] top-[-12%] h-[68vh] w-[68vh] rounded-full bg-[radial-gradient(circle,rgba(232,68,10,0.26)_0%,transparent_70%)]" />
-        <div className="absolute -right-[12%] bottom-[-20%] h-[60vh] w-[60vh] rounded-full bg-[radial-gradient(circle,rgba(255,178,26,0.13)_0%,transparent_70%)]" />
-        <div className="absolute left-[42%] top-[30%] h-[40vh] w-[55vh] rounded-full bg-[radial-gradient(circle,rgba(232,68,10,0.10)_0%,transparent_70%)]" />
+        <div className="absolute -left-[18%] top-[-12%] h-[68vh] w-[68vh] rounded-full bg-[radial-gradient(circle,rgba(139,29,255,0.28)_0%,transparent_70%)]" />
+        <div className="absolute -right-[12%] bottom-[-20%] h-[60vh] w-[60vh] rounded-full bg-[radial-gradient(circle,rgba(241,43,179,0.15)_0%,transparent_70%)]" />
+        <div className="absolute left-[42%] top-[30%] h-[40vh] w-[55vh] rounded-full bg-[radial-gradient(circle,rgba(139,29,255,0.12)_0%,transparent_70%)]" />
       </div>
 
       {/* Subtle grid */}
@@ -81,7 +81,7 @@ export function SaasHero() {
           >
             <Link
               href="/registrace-organizace"
-              className="group inline-flex h-12 items-center justify-center gap-2 rounded-full bg-gradient-ember px-7 text-sm font-black text-white shadow-[0_14px_36px_rgba(232,68,10,0.4)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_20px_44px_rgba(232,68,10,0.5)]"
+              className="group inline-flex h-12 items-center justify-center gap-2 rounded-full bg-gradient-ember px-7 text-sm font-black text-white shadow-[0_14px_36px_rgba(139,29,255,0.4)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_20px_44px_rgba(139,29,255,0.5)]"
             >
               Vyzkoušet 30 dní zdarma
               <ArrowRight size={16} className="transition-transform duration-200 group-hover:translate-x-0.5" />
@@ -145,7 +145,7 @@ export function SaasHero() {
             className="absolute right-0 top-44 w-[280px] rounded-[22px] border border-white/10 bg-white/[0.07] p-5 shadow-[0_30px_70px_rgba(0,0,0,0.45)] backdrop-blur-xl"
           >
             <div className="flex items-center gap-3">
-              <span className="grid h-10 w-10 place-items-center rounded-[14px] bg-white/[0.08] text-brand-orange"><TrendingUp size={18} /></span>
+              <span className="grid h-10 w-10 place-items-center rounded-[14px] bg-white/[0.08] text-brand-pink"><TrendingUp size={18} /></span>
               <div>
                 <p className="text-sm font-black text-white">XP účastníka</p>
                 <p className="text-xs font-bold text-white/55">Level 4 · maskot Ras</p>

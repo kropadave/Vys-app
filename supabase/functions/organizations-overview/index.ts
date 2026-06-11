@@ -24,6 +24,8 @@ type OrgRow = {
   sport_type: string | null;
   city: string | null;
   contact_email: string | null;
+  ico: string | null;
+  ares_name: string | null;
   subscription_status: string;
   trial_ends_at: string | null;
   subscription_ends_at: string | null;
@@ -72,7 +74,7 @@ async function loadOverview() {
   const [orgsResponse, membersResponse] = await Promise.all([
     fetch(
       supabaseRestUrl(
-        'organizations?select=id,name,org_type,sport_type,city,contact_email,subscription_status,trial_ends_at,subscription_ends_at,created_at&order=created_at.asc',
+        'organizations?select=id,name,org_type,sport_type,city,contact_email,ico,ares_name,subscription_status,trial_ends_at,subscription_ends_at,created_at&order=created_at.asc',
       ),
       { headers: supabaseRestHeaders() },
     ),
@@ -101,6 +103,8 @@ async function loadOverview() {
     sportType: org.sport_type,
     city: org.city,
     contactEmail: org.contact_email,
+    ico: org.ico,
+    aresName: org.ares_name,
     subscriptionStatus: org.subscription_status,
     trialEndsAt: org.trial_ends_at,
     // "next payment date": end of trial while trialing, else current period end

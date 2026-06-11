@@ -10,7 +10,7 @@ export function SaasCta() {
   return (
     <section className="relative overflow-hidden bg-brand-night py-24 md:py-32">
       <div aria-hidden className="pointer-events-none absolute inset-0">
-        <div className="absolute left-1/2 top-1/2 h-[80vh] w-[80vh] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(circle,rgba(232,68,10,0.18)_0%,transparent_65%)]" />
+        <div className="absolute left-1/2 top-1/2 h-[80vh] w-[80vh] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(circle,rgba(139,29,255,0.20)_0%,transparent_65%)]" />
       </div>
       <div aria-hidden className="absolute inset-0 [background-image:linear-gradient(rgba(255,255,255,0.04)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.04)_1px,transparent_1px)] [background-size:64px_64px] [mask-image:radial-gradient(ellipse_70%_60%_at_50%_50%,black,transparent)]" />
 
@@ -43,7 +43,7 @@ export function SaasCta() {
         >
           <Link
             href="/registrace-organizace"
-            className="group inline-flex h-[52px] items-center justify-center gap-2 rounded-full bg-gradient-ember px-8 text-sm font-black text-white shadow-[0_16px_44px_rgba(232,68,10,0.45)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_22px_52px_rgba(232,68,10,0.55)]"
+            className="group inline-flex h-[52px] items-center justify-center gap-2 rounded-full bg-gradient-ember px-8 text-sm font-black text-white shadow-[0_16px_44px_rgba(139,29,255,0.45)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_22px_52px_rgba(139,29,255,0.55)]"
           >
             Vyzkoušet 30 dní zdarma
             <ArrowRight size={16} className="transition-transform duration-200 group-hover:translate-x-0.5" />

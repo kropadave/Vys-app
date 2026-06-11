@@ -48,8 +48,8 @@ export function PlatformSection() {
   return (
     <section id="platforma" className="relative overflow-hidden bg-brand-night py-20 md:py-28">
       <div aria-hidden className="pointer-events-none absolute inset-0">
-        <div className="absolute right-[-15%] top-[-20%] h-[60vh] w-[60vh] rounded-full bg-[radial-gradient(circle,rgba(232,68,10,0.16)_0%,transparent_70%)]" />
-        <div className="absolute bottom-[-25%] left-[-10%] h-[50vh] w-[50vh] rounded-full bg-[radial-gradient(circle,rgba(255,178,26,0.08)_0%,transparent_70%)]" />
+        <div className="absolute right-[-15%] top-[-20%] h-[60vh] w-[60vh] rounded-full bg-[radial-gradient(circle,rgba(139,29,255,0.18)_0%,transparent_70%)]" />
+        <div className="absolute bottom-[-25%] left-[-10%] h-[50vh] w-[50vh] rounded-full bg-[radial-gradient(circle,rgba(241,43,179,0.10)_0%,transparent_70%)]" />
       </div>
 
       <div className="section-shell relative">
@@ -87,7 +87,7 @@ export function PlatformSection() {
               transition={{ duration: 0.6, delay: (index % 3) * 0.1, ease }}
               className={`group rounded-[24px] border border-white/[0.08] bg-white/[0.05] p-7 backdrop-blur-md transition-colors duration-300 hover:border-brand-ember/40 hover:bg-white/[0.08] ${feature.size === 'lg' ? 'lg:col-span-2' : ''}`}
             >
-              <span className="grid h-12 w-12 place-items-center rounded-[16px] bg-gradient-ember text-white shadow-[0_10px_26px_rgba(232,68,10,0.35)] transition-transform duration-300 group-hover:scale-110">
+              <span className="grid h-12 w-12 place-items-center rounded-[16px] bg-gradient-ember text-white shadow-[0_10px_26px_rgba(139,29,255,0.35)] transition-transform duration-300 group-hover:scale-110">
                 <feature.icon size={22} />
               </span>
               <h3 className="mt-5 text-xl font-black text-white">{feature.title}</h3>

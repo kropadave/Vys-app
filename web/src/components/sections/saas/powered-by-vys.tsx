@@ -12,8 +12,8 @@ export function PoweredByVys() {
       <div className="section-shell">
         <div className="relative overflow-hidden rounded-[32px] bg-brand-night px-7 py-14 md:px-14 md:py-20">
           <div aria-hidden className="pointer-events-none absolute inset-0">
-            <div className="absolute -right-[10%] top-[-30%] h-[55vh] w-[55vh] rounded-full bg-[radial-gradient(circle,rgba(232,68,10,0.22)_0%,transparent_70%)]" />
-            <div className="absolute -left-[8%] bottom-[-35%] h-[45vh] w-[45vh] rounded-full bg-[radial-gradient(circle,rgba(255,178,26,0.1)_0%,transparent_70%)]" />
+            <div className="absolute -right-[10%] top-[-30%] h-[55vh] w-[55vh] rounded-full bg-[radial-gradient(circle,rgba(139,29,255,0.24)_0%,transparent_70%)]" />
+            <div className="absolute -left-[8%] bottom-[-35%] h-[45vh] w-[45vh] rounded-full bg-[radial-gradient(circle,rgba(241,43,179,0.12)_0%,transparent_70%)]" />
           </div>
           <div aria-hidden className="pointer-events-none absolute -bottom-8 right-4 select-none text-[16vw] font-black leading-none tracking-tighter text-white/[0.03] md:text-[10vw]">
             TEAMVYS
