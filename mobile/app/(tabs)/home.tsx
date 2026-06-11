@@ -148,6 +148,7 @@ const mascotBeigeSit = require('@/assets/images/maskoti/maskot-beige-sit.png');
 function LiveHeroPodium({ profile, progress }: { profile: ParticipantProfile; progress: number }) {
   const percent = Math.round(progress * 100);
   const { bracelet } = profile;
+  const { flags } = useFeatureFlags();
   const [pickerOpen, setPickerOpen] = useState(false);
   return (
     <FadeInUp>
@@ -180,20 +181,22 @@ function LiveHeroPodium({ profile, progress }: { profile: ParticipantProfile; pr
             style={{ alignSelf: 'stretch' }}
           />
           <Text style={styles.podiumXpHint}>
-            {profile.xp} / {profile.nextBraceletXp} XP · {percent} % do dalšího náramku
+            {flags.participant_wristbands ? `${profile.xp} / ${profile.nextBraceletXp} XP · ${percent} % do dalšího náramku` : `${profile.xp} / ${profile.nextBraceletXp} XP · ${percent} % do dalšího levelu`}
           </Text>
           <View style={styles.podiumTiles}>
             <View style={styles.levelTile}>
               <Text style={styles.tileLabel}>Level</Text>
               <Text style={styles.levelValue}>{profile.level}</Text>
             </View>
-            <View style={[styles.braceletTile, { backgroundColor: bracelet.color + '28', borderColor: bracelet.color + '60' }]}>
-              <View style={[styles.braceletDot, { backgroundColor: bracelet.color }]} />
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={[styles.braceletText, { color: Brand.ink }]}>{bracelet.title}</Text>
-                <Text style={[styles.braceletSub, { color: bracelet.color }]}>aktuální náramek</Text>
+            {flags.participant_wristbands ? (
+              <View style={[styles.braceletTile, { backgroundColor: bracelet.color + '28', borderColor: bracelet.color + '60' }]}>
+                <View style={[styles.braceletDot, { backgroundColor: bracelet.color }]} />
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={[styles.braceletText, { color: Brand.ink }]}>{bracelet.title}</Text>
+                  <Text style={[styles.braceletSub, { color: bracelet.color }]}>aktuální náramek</Text>
+                </View>
               </View>
-            </View>
+            ) : null}
           </View>
         </View>
         <MascotPickerModal
@@ -257,6 +260,7 @@ function ParticipantHeroCard({ profile, progress }: { profile: ParticipantProfil
   const [pickerOpen, setPickerOpen] = useState(false);
   const percent = Math.round(progress * 100);
   const bracelet = profile.bracelet;
+  const { flags } = useFeatureFlags();
   const selectedMascot = demoOwnedMascots.find((mascot) => mascot.id === selectedMascotId) ?? defaultMascot;
   const mascotAccent = selectedMascot.colorHex;
   return (
@@ -289,19 +293,21 @@ function ParticipantHeroCard({ profile, progress }: { profile: ParticipantProfil
             height={8}
             style={{ alignSelf: 'stretch' }}
           />
-          <Text style={styles.podiumXpHint}>{profile.xp} / {profile.nextBraceletXp} XP · {percent} % do dalšího náramku</Text>
+          <Text style={styles.podiumXpHint}>{flags.participant_wristbands ? `${profile.xp} / ${profile.nextBraceletXp} XP · ${percent} % do dalšího náramku` : `${profile.xp} / ${profile.nextBraceletXp} XP · ${percent} % do dalšího levelu`}</Text>
           <View style={styles.podiumTiles}>
             <View style={styles.levelTile}>
               <Text style={styles.tileLabel}>Level</Text>
               <Text style={styles.levelValue}>{profile.level}</Text>
             </View>
-            <View style={[styles.braceletTile, { backgroundColor: bracelet.color + '28', borderColor: bracelet.color + '60' }]}>
-              <View style={[styles.braceletDot, { backgroundColor: bracelet.color }]} />
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={[styles.braceletText, { color: Brand.ink }]}>{bracelet.title}</Text>
-                <Text style={[styles.braceletSub, { color: bracelet.color }]}>aktuální náramek</Text>
+            {flags.participant_wristbands ? (
+              <View style={[styles.braceletTile, { backgroundColor: bracelet.color + '28', borderColor: bracelet.color + '60' }]}>
+                <View style={[styles.braceletDot, { backgroundColor: bracelet.color }]} />
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={[styles.braceletText, { color: Brand.ink }]}>{bracelet.title}</Text>
+                  <Text style={[styles.braceletSub, { color: bracelet.color }]}>aktuální náramek</Text>
+                </View>
               </View>
-            </View>
+            ) : null}
           </View>
         </View>
         <MascotPickerModal
@@ -392,19 +398,22 @@ function MascotPickerModal({ visible, selectedMascotId, ownedMascots, onClose, o
 }
 
 function ProfileStrip({ profile, compact = false }: { profile: ParticipantProfile; compact?: boolean }) {
+  const { flags } = useFeatureFlags();
   return (
     <View style={[styles.profileStrip, compact && styles.profileStripCompact]}>
       <View style={[styles.levelTile, compact && styles.levelTileCompact]}>
         <Text style={styles.tileLabel}>Level</Text>
         <Text style={[styles.levelValue, compact && styles.levelValueCompact]}>{profile.level}</Text>
       </View>
-      <View style={[styles.braceletTile, compact && styles.braceletTileCompact]}>
-        <View style={[styles.braceletDot, { backgroundColor: profile.bracelet.color }]} />
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <Text style={[styles.braceletText, compact && styles.braceletTextCompact]}>{profile.bracelet.title}</Text>
-          <Text style={styles.braceletSub}>aktuální náramek</Text>
+      {flags.participant_wristbands ? (
+        <View style={[styles.braceletTile, compact && styles.braceletTileCompact]}>
+          <View style={[styles.braceletDot, { backgroundColor: profile.bracelet.color }]} />
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={[styles.braceletText, compact && styles.braceletTextCompact]}>{profile.bracelet.title}</Text>
+            <Text style={styles.braceletSub}>aktuální náramek</Text>
+          </View>
         </View>
-      </View>
+      ) : null}
     </View>
   );
 }

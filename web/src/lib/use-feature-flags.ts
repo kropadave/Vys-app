@@ -5,10 +5,12 @@ import { useEffect, useState } from 'react';
 import { createBrowserSupabaseClient, hasSupabaseBrowserConfig } from '@/lib/supabase/browser';
 import { type FeatureFlags, parseFeatureFlags, VYS_FEATURE_FLAGS } from '@shared/feature-flags';
 
-export type { FeatureFlagKey, FeatureFlags, OrgType } from '@shared/feature-flags';
 export { EXTERNAL_FEATURE_FLAGS, VYS_FEATURE_FLAGS, VYS_ORG_ID } from '@shared/feature-flags';
+export type { FeatureFlagKey, FeatureFlags, OrgType } from '@shared/feature-flags';
 
-type FlagsState = { flags: FeatureFlags; orgId: string | null; loaded: boolean };
+type FlagsState = { flags: FeatureFlags; orgId: string | null; subscriptionStatus: string | null; subscriptionLocked: boolean; loaded: boolean };
+
+const LOCKED_SUBSCRIPTION_STATUSES = new Set(['past_due', 'canceled']);
 
 // Module-level cache so every component shares one fetch per page load.
 let cached: FlagsState | null = null;
@@ -22,7 +24,7 @@ function emit(state: FlagsState) {
 
 async function fetchFlags(): Promise<FlagsState> {
   // Public visitors and unconfigured environments see the VYS experience.
-  const fallback: FlagsState = { flags: VYS_FEATURE_FLAGS, orgId: null, loaded: true };
+  const fallback: FlagsState = { flags: VYS_FEATURE_FLAGS, orgId: null, subscriptionStatus: null, subscriptionLocked: false, loaded: true };
   if (!hasSupabaseBrowserConfig()) return fallback;
 
   const supabase = createBrowserSupabaseClient();
@@ -32,15 +34,18 @@ async function fetchFlags(): Promise<FlagsState> {
 
   const { data, error } = await supabase
     .from('app_profiles')
-    .select('org_id, organizations(org_type, feature_flags)')
+    .select('org_id, organizations(org_type, feature_flags, subscription_status)')
     .eq('id', userId)
     .maybeSingle();
   if (error || !data) return fallback;
 
   const org = Array.isArray(data.organizations) ? data.organizations[0] : data.organizations;
+  const subscriptionStatus = (org?.subscription_status as string | null) ?? null;
   return {
     flags: parseFeatureFlags(org?.feature_flags, org?.org_type),
     orgId: (data.org_id as string | null) ?? null,
+    subscriptionStatus,
+    subscriptionLocked: subscriptionStatus !== null && LOCKED_SUBSCRIPTION_STATUSES.has(subscriptionStatus),
     loaded: true,
   };
 }
@@ -66,7 +71,7 @@ export function refreshFeatureFlags(): Promise<FlagsState> {
  */
 export function useFeatureFlags(): FlagsState {
   const [state, setState] = useState<FlagsState>(
-    cached ?? { flags: VYS_FEATURE_FLAGS, orgId: null, loaded: false },
+    cached ?? { flags: VYS_FEATURE_FLAGS, orgId: null, subscriptionStatus: null, subscriptionLocked: false, loaded: false },
   );
 
   useEffect(() => {

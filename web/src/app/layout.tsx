@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 
+import { SubscriptionBanner } from '@/components/subscription-banner';
+
 import './globals.css';
 
 const inter = Inter({
@@ -40,6 +42,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="cs" className={inter.variable}>
       <body>
+        <SubscriptionBanner />
         {children}
       </body>
     </html>

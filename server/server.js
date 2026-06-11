@@ -106,6 +106,72 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
 
 app.use(express.json({ limit: '15mb' }));
 
+// --- Multi-tenant read-only mode --------------------------------------------
+// Organizations with a lapsed subscription (past_due / canceled) are blocked
+// on every write endpoint except billing-related ones, so they can still
+// renew. The VYS org is 'exempt' and never locked. Anonymous requests pass
+// through — anon flows default to the exempt VYS org and each route still
+// enforces its own auth.
+const ORG_LOCKED_STATUSES = new Set(['past_due', 'canceled']);
+const ORG_WRITE_EXEMPT_PATHS = new Set(['/api/orgs/register', '/api/stripe/webhook']);
+const ORG_STATUS_CACHE_TTL_MS = 60 * 1000;
+const orgStatusCache = new Map(); // orgId -> { status, expiresAt }
+
+async function organizationSubscriptionStatus(orgId) {
+  const cachedStatus = orgStatusCache.get(orgId);
+  if (cachedStatus && cachedStatus.expiresAt > Date.now()) return cachedStatus.status;
+
+  const { data, error } = await supabase
+    .from('organizations')
+    .select('subscription_status')
+    .eq('id', orgId)
+    .maybeSingle();
+  if (error) throw error;
+
+  const subscriptionStatus = data?.subscription_status ?? null;
+  orgStatusCache.set(orgId, { status: subscriptionStatus, expiresAt: Date.now() + ORG_STATUS_CACHE_TTL_MS });
+  return subscriptionStatus;
+}
+
+app.use(asyncRoute(async (request, _response, next) => {
+  const isWrite = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method.toUpperCase());
+  if (!isWrite || ORG_WRITE_EXEMPT_PATHS.has(request.path) || !supabase) {
+    next();
+    return;
+  }
+
+  const token = bearerTokenFromRequest(request);
+  if (!token) {
+    next();
+    return;
+  }
+
+  const { data: userResult } = await supabase.auth.getUser(token);
+  const userId = userResult?.user?.id;
+  if (!userId) {
+    next();
+    return;
+  }
+
+  const { data: profile } = await supabase
+    .from('app_profiles')
+    .select('org_id')
+    .eq('id', userId)
+    .maybeSingle();
+  const orgId = profile?.org_id;
+  if (!orgId) {
+    next();
+    return;
+  }
+
+  const subscriptionStatus = await organizationSubscriptionStatus(orgId);
+  if (ORG_LOCKED_STATUSES.has(subscriptionStatus)) {
+    throw httpError('Předplatné vypršelo — obnovte platbu pro plný přístup.', 402);
+  }
+
+  next();
+}));
+
 function requireServices() {
   if (!supabase) throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY on the backend.');
 }
@@ -1946,10 +2012,39 @@ async function sendOrgTrialEndingEmail(subscription) {
   });
 }
 
+// Basic in-memory rate limit for the public registration endpoint: max 5
+// requests per IP per hour (per server instance) — prevents abuse and
+// unnecessary Stripe Checkout session creation.
+const ORG_REGISTER_RATE_LIMIT = 5;
+const ORG_REGISTER_RATE_WINDOW_MS = 60 * 60 * 1000;
+const orgRegisterHitsByIp = new Map(); // ip -> number[] (timestamps)
+
+function assertOrgRegisterRateLimit(request) {
+  const forwarded = String(request.headers['x-forwarded-for'] || '');
+  const ip = (forwarded.split(',')[0] || request.ip || 'unknown').trim() || 'unknown';
+  const now = Date.now();
+
+  const hits = (orgRegisterHitsByIp.get(ip) || []).filter((timestamp) => now - timestamp < ORG_REGISTER_RATE_WINDOW_MS);
+  if (hits.length >= ORG_REGISTER_RATE_LIMIT) {
+    throw httpError('Příliš mnoho pokusů o registraci z této adresy. Zkuste to znovu za hodinu.', 429);
+  }
+
+  hits.push(now);
+  orgRegisterHitsByIp.set(ip, hits);
+
+  // Opportunistic cleanup so the map can't grow without bound.
+  if (orgRegisterHitsByIp.size > 1000) {
+    for (const [key, timestamps] of orgRegisterHitsByIp) {
+      if (!timestamps.some((timestamp) => now - timestamp < ORG_REGISTER_RATE_WINDOW_MS)) orgRegisterHitsByIp.delete(key);
+    }
+  }
+}
+
 // Public endpoint: organization self-registration → Stripe Checkout (web only).
 app.post('/api/orgs/register', asyncRoute(async (request, response) => {
   requireServices();
   requireStripe();
+  assertOrgRegisterRateLimit(request);
 
   const orgName = requiredString(request.body.orgName, 'orgName');
   const contactEmail = requiredString(request.body.contactEmail, 'contactEmail').toLowerCase();

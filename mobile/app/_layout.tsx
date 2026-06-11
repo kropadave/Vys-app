@@ -8,6 +8,7 @@ import 'react-native-reanimated';
 
 import { useAuth } from '@/hooks/use-auth';
 import { useRole, type AppRole } from '@/hooks/use-role';
+import { SubscriptionBanner } from '@/components/subscription-banner';
 import { DEV_BYPASS_ROLE_GUARD } from '@/lib/dev-config';
 import { supabase } from '@/lib/supabase';
 import { Palette } from '@/lib/theme';
@@ -156,6 +157,7 @@ export default function RootLayout() {
         <link rel="manifest" href="/manifest.webmanifest" />
         <link rel="apple-touch-icon" href="/pwa/icon-192.png" />
       </Head>
+      <SubscriptionBanner />
       <Stack screenOptions={{ contentStyle: { backgroundColor: Palette.bg } }}>
         <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="sign-in" options={{ headerShown: false }} />
