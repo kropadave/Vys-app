@@ -10,7 +10,7 @@ export type { FeatureFlagKey, FeatureFlags, OrgType } from '@shared/feature-flag
 
 type FlagsState = { flags: FeatureFlags; orgId: string | null; subscriptionStatus: string | null; subscriptionLocked: boolean; loaded: boolean };
 
-const LOCKED_SUBSCRIPTION_STATUSES = new Set(['past_due', 'canceled']);
+const LOCKED_SUBSCRIPTION_STATUSES = new Set(['pending_approval', 'past_due', 'canceled']);
 
 // Module-level cache so every component shares one fetch per page load.
 let cached: FlagsState | null = null;

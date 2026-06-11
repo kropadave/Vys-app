@@ -11,7 +11,7 @@ const STORAGE_KEY = 'vys.featureFlags';
 
 type FlagsState = { flags: FeatureFlags; orgId: string | null; subscriptionStatus: string | null; subscriptionLocked: boolean; loaded: boolean };
 
-const LOCKED_SUBSCRIPTION_STATUSES = new Set(['past_due', 'canceled']);
+const LOCKED_SUBSCRIPTION_STATUSES = new Set(['pending_approval', 'past_due', 'canceled']);
 
 let cached: FlagsState | null = null;
 let inFlight: Promise<void> | null = null;

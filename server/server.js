@@ -112,7 +112,7 @@ app.use(express.json({ limit: '15mb' }));
 // renew. The VYS org is 'exempt' and never locked. Anonymous requests pass
 // through — anon flows default to the exempt VYS org and each route still
 // enforces its own auth.
-const ORG_LOCKED_STATUSES = new Set(['past_due', 'canceled']);
+const ORG_LOCKED_STATUSES = new Set(['pending_approval', 'past_due', 'canceled']);
 const ORG_WRITE_EXEMPT_PATHS = new Set(['/api/orgs/register', '/api/stripe/webhook']);
 const ORG_STATUS_CACHE_TTL_MS = 60 * 1000;
 const orgStatusCache = new Map(); // orgId -> { status, expiresAt }
@@ -166,7 +166,12 @@ app.use(asyncRoute(async (request, _response, next) => {
 
   const subscriptionStatus = await organizationSubscriptionStatus(orgId);
   if (ORG_LOCKED_STATUSES.has(subscriptionStatus)) {
-    throw httpError('Předplatné vypršelo — obnovte platbu pro plný přístup.', 402);
+    throw httpError(
+      subscriptionStatus === 'pending_approval'
+        ? 'Organizace čeká na schválení správcem platformy.'
+        : 'Předplatné vypršelo — obnovte platbu pro plný přístup.',
+      402,
+    );
   }
 
   next();
@@ -1865,8 +1870,9 @@ async function provisionOrganizationFromCheckout(session) {
   const orgName = requiredString(metadata.org_name, 'org_name');
   const contactEmail = requiredString(metadata.contact_email, 'contact_email').toLowerCase();
   const adminName = requiredString(metadata.admin_name, 'admin_name');
-  const trialEndsAt = new Date(Date.now() + ORG_TRIAL_DAYS * MS_PER_DAY).toISOString();
 
+  // Approval gate: new orgs are NOT live after checkout. The super admin must
+  // approve them in /admin/organizace; only then does the 30-day trial start.
   const { data: org, error: orgError } = await supabase
     .from('organizations')
     .insert({
@@ -1876,8 +1882,8 @@ async function provisionOrganizationFromCheckout(session) {
       city: optionalString(metadata.city),
       contact_email: contactEmail,
       stripe_customer_id: customerId,
-      subscription_status: 'trialing',
-      trial_ends_at: trialEndsAt,
+      subscription_status: 'pending_approval',
+      trial_ends_at: null,
       feature_flags: {
         org_type: 'external',
         participant_wristbands: false,
@@ -1915,16 +1921,10 @@ async function provisionOrganizationFromCheckout(session) {
   });
   if (createError && !/already.*registered|already.*exists/i.test(createError.message || '')) throw createError;
 
-  let actionLink = null;
-  try {
-    const { data: linkData } = await supabase.auth.admin.generateLink({ type: 'recovery', email: contactEmail });
-    actionLink = linkData?.properties?.action_link || null;
-  } catch (linkError) {
-    console.warn(`Org onboarding: recovery link generation failed for ${contactEmail}: ${linkError.message}`);
-  }
-
-  await sendOrgOnboardingEmail(org, adminName, actionLink, trialEndsAt);
-  console.info(`Provisioned organization ${org.id} (${orgName}) for Stripe customer ${customerId}.`);
+  // The welcome email (with password-setup link) is sent on approval; here we
+  // only notify the super admin that a new org is waiting.
+  await safelySendOrgPendingApprovalEmail(org, adminName);
+  console.info(`Provisioned organization ${org.id} (${orgName}) for Stripe customer ${customerId} — pending super admin approval.`);
   return { ...org, adminUserId: created?.user?.id || null };
 }
 
@@ -1932,6 +1932,7 @@ async function handleOrgInvoicePaid(invoice) {
   const customerId = typeof invoice.customer === 'string' ? invoice.customer : invoice.customer?.id;
   const org = await orgByStripeCustomerId(customerId);
   if (!org) return; // not an org-subscription invoice
+  if (org.subscription_status === 'pending_approval') return; // approval gate: Stripe events must not activate a pending org
 
   const periodEnd = invoice.lines?.data?.[0]?.period?.end;
   const { error } = await supabase
@@ -1952,6 +1953,9 @@ async function syncOrgSubscriptionStatus(subscription, isDeleted) {
 
   const mapped = isDeleted ? 'canceled' : mapStripeSubscriptionStatus(subscription.status);
   if (!mapped) return;
+  // Approval gate: Stripe 'trialing'/'active' must not un-pend an org that the
+  // super admin has not approved yet. Cancellations still pass through.
+  if (org.subscription_status === 'pending_approval' && mapped !== 'canceled') return;
 
   const update = { subscription_status: mapped };
   if (subscription.trial_end) update.trial_ends_at = new Date(subscription.trial_end * 1000).toISOString();
@@ -2010,6 +2014,146 @@ async function sendOrgTrialEndingEmail(subscription) {
     subject: `TeamVYS — zkušební období organizace ${org.name} brzy končí`,
     text: `Dobrý den,\n\nzkušební období organizace ${org.name} končí ${trialEnd}. Poté bude automaticky účtováno ${ORG_MONTHLY_PRICE_CZK} Kč měsíčně.\n\nDěkujeme, TeamVYS`,
   });
+}
+
+// --- Super admin approval gate (Phase 8) -----------------------------------
+
+const WEB_APP_URL = process.env.WEB_APP_URL || 'https://vys-web.vercel.app';
+
+async function superAdminEmails() {
+  const { data, error } = await supabase
+    .from('app_profiles')
+    .select('email')
+    .eq('super_admin', true);
+  if (error) throw error;
+
+  const emails = (data || []).map((row) => normalizedEmail(row.email)).filter(Boolean);
+  const fallback = normalizedEmail(process.env.SUPER_ADMIN_EMAIL);
+  if (fallback && !emails.includes(fallback)) emails.push(fallback);
+  return emails;
+}
+
+async function safelySendOrgPendingApprovalEmail(org, adminName) {
+  try {
+    const emailer = paymentEmailer();
+    if (!emailer) {
+      console.info(`Pending-approval email skipped for ${org.id}: SMTP is not configured.`);
+      return;
+    }
+
+    const recipients = await superAdminEmails();
+    if (recipients.length === 0) {
+      console.warn(`Pending-approval email skipped for ${org.id}: no super admin email found.`);
+      return;
+    }
+
+    await emailer.sendMail({
+      from: smtpFrom,
+      to: recipients.join(', '),
+      subject: `Nová organizace čeká na schválení: ${org.name}`,
+      text: [
+        'Dobrý den,',
+        '',
+        `nová organizace dokončila registraci a čeká na schválení.`,
+        '',
+        `Organizace: ${org.name}`,
+        `Správce: ${adminName}`,
+        `Kontaktní e-mail: ${org.contact_email}`,
+        '',
+        `Schvalte nebo zamítněte ji v dashboardu: ${WEB_APP_URL}/admin/organizace`,
+        '',
+        'TeamVYS platforma',
+      ].join('\n'),
+    });
+  } catch (error) {
+    console.error(`Pending-approval email failed for ${org?.id || 'unknown org'}:`, error);
+  }
+}
+
+async function sendOrgRejectionEmail(org) {
+  const emailer = paymentEmailer();
+  if (!emailer || !org.contact_email) {
+    console.info(`Org rejection email skipped for ${org.id}: SMTP not configured or missing contact email.`);
+    return;
+  }
+
+  await emailer.sendMail({
+    from: smtpFrom,
+    to: org.contact_email,
+    subject: `TeamVYS — registrace organizace ${org.name} nebyla schválena`,
+    text: [
+      'Dobrý den,',
+      '',
+      `registrace organizace ${org.name} na platformě TeamVYS bohužel nebyla schválena.`,
+      '',
+      'Případné platby spojené s registrací nebudou účtovány — předplatné bylo zrušeno.',
+      'Pokud si myslíte, že jde o omyl, odpovězte prosím na tento e-mail.',
+      '',
+      'Děkujeme, TeamVYS',
+    ].join('\n'),
+  });
+}
+
+// Align the Stripe trial clock with the approval date so the customer always
+// gets the promised 30 free days, even if approval takes a few days.
+async function alignStripeTrialEnd(org, trialEndsAt) {
+  if (!stripe || !org.stripe_customer_id) return;
+  try {
+    const subscriptions = await stripe.subscriptions.list({ customer: org.stripe_customer_id, status: 'trialing', limit: 1 });
+    const subscription = subscriptions.data[0];
+    if (!subscription) return;
+    await stripe.subscriptions.update(subscription.id, {
+      trial_end: Math.floor(new Date(trialEndsAt).getTime() / 1000),
+      proration_behavior: 'none',
+    });
+  } catch (error) {
+    console.warn(`Stripe trial alignment failed for org ${org.id}: ${error.message}`);
+  }
+}
+
+async function cancelStripeSubscriptionsForOrg(org) {
+  if (!stripe || !org.stripe_customer_id) return;
+  try {
+    const subscriptions = await stripe.subscriptions.list({ customer: org.stripe_customer_id, limit: 10 });
+    for (const subscription of subscriptions.data) {
+      if (['canceled', 'incomplete_expired'].includes(subscription.status)) continue;
+      await stripe.subscriptions.cancel(subscription.id);
+    }
+  } catch (error) {
+    console.warn(`Stripe subscription cancellation failed for org ${org.id}: ${error.message}`);
+  }
+}
+
+async function requireSuperAdminUser(request) {
+  requireServices();
+  const token = bearerTokenFromRequest(request);
+  if (!token) throw httpError('Přihlášení je vyžadováno.', 401);
+
+  const { data: userResult, error } = await supabase.auth.getUser(token);
+  const userId = userResult?.user?.id;
+  if (error || !userId) throw httpError('Přihlášení vypršelo nebo není platné.', 401);
+
+  const { data: profile, error: profileError } = await supabase
+    .from('app_profiles')
+    .select('id,super_admin')
+    .eq('id', userId)
+    .maybeSingle();
+  if (profileError) throw profileError;
+  if (profile?.super_admin !== true) throw httpError('Tahle operace je pouze pro super admina.', 403);
+  return userId;
+}
+
+async function pendingOrganizationById(orgId) {
+  const { data: org, error } = await supabase
+    .from('organizations')
+    .select('id,name,contact_email,subscription_status,stripe_customer_id')
+    .eq('id', orgId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!org) throw httpError('Organizace nebyla nalezena.', 404);
+  if (org.subscription_status === 'exempt') throw httpError('VYS organizaci nelze měnit.', 400);
+  if (org.subscription_status !== 'pending_approval') throw httpError('Organizace nečeká na schválení.', 409);
+  return org;
 }
 
 // Basic in-memory rate limit for the public registration endpoint: max 5
@@ -2104,6 +2248,76 @@ app.post('/api/orgs/register', asyncRoute(async (request, response) => {
   });
 
   response.json({ id: session.id, url: session.url });
+}));
+
+// Super admin only: approve a pending organization — the 30-day trial starts now.
+app.post('/api/orgs/:orgId/approve', asyncRoute(async (request, response) => {
+  await requireSuperAdminUser(request);
+  const orgId = requiredString(request.params.orgId, 'orgId');
+  const org = await pendingOrganizationById(orgId);
+
+  const trialEndsAt = new Date(Date.now() + ORG_TRIAL_DAYS * MS_PER_DAY).toISOString();
+  const { error: updateError } = await supabase
+    .from('organizations')
+    .update({ subscription_status: 'trialing', trial_ends_at: trialEndsAt })
+    .eq('id', orgId)
+    .eq('subscription_status', 'pending_approval');
+  if (updateError) throw updateError;
+  orgStatusCache.delete(orgId);
+
+  await alignStripeTrialEnd(org, trialEndsAt);
+
+  // Welcome email with a password-setup link for the org admin.
+  let actionLink = null;
+  try {
+    const { data: linkData } = await supabase.auth.admin.generateLink({ type: 'recovery', email: org.contact_email });
+    actionLink = linkData?.properties?.action_link || null;
+  } catch (linkError) {
+    console.warn(`Org approval: recovery link generation failed for ${org.contact_email}: ${linkError.message}`);
+  }
+
+  const { data: adminProfile } = await supabase
+    .from('app_profiles')
+    .select('name')
+    .eq('email', org.contact_email)
+    .eq('org_id', orgId)
+    .maybeSingle();
+
+  try {
+    await sendOrgOnboardingEmail(org, adminProfile?.name || 'správce organizace', actionLink, trialEndsAt);
+  } catch (emailError) {
+    console.error(`Org approval welcome email failed for ${org.id}:`, emailError);
+  }
+
+  console.info(`Organization ${org.id} (${org.name}) approved by super admin.`);
+  response.json({ ok: true, orgId, subscriptionStatus: 'trialing', trialEndsAt });
+}));
+
+// Super admin only: reject a pending organization — cancels the Stripe
+// subscription so nothing is ever billed, and informs the org admin.
+app.post('/api/orgs/:orgId/reject', asyncRoute(async (request, response) => {
+  await requireSuperAdminUser(request);
+  const orgId = requiredString(request.params.orgId, 'orgId');
+  const org = await pendingOrganizationById(orgId);
+
+  const { error: updateError } = await supabase
+    .from('organizations')
+    .update({ subscription_status: 'canceled' })
+    .eq('id', orgId)
+    .eq('subscription_status', 'pending_approval');
+  if (updateError) throw updateError;
+  orgStatusCache.delete(orgId);
+
+  await cancelStripeSubscriptionsForOrg(org);
+
+  try {
+    await sendOrgRejectionEmail(org);
+  } catch (emailError) {
+    console.error(`Org rejection email failed for ${org.id}:`, emailError);
+  }
+
+  console.info(`Organization ${org.id} (${org.name}) rejected by super admin.`);
+  response.json({ ok: true, orgId, subscriptionStatus: 'canceled' });
 }));
 
 app.use((error, _request, response, _next) => {

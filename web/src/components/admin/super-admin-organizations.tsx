@@ -36,6 +36,7 @@ type OverviewResponse = {
 
 const STATUS_META: Record<string, { label: string; className: string }> = {
   exempt: { label: 'VYS · bez poplatku', className: 'bg-brand-purple/10 text-brand-purple' },
+  pending_approval: { label: 'Čeká na schválení', className: 'bg-orange-50 text-orange-700' },
   active: { label: 'Aktivní', className: 'bg-emerald-50 text-emerald-700' },
   trialing: { label: 'Zkušební období', className: 'bg-sky-50 text-sky-700' },
   past_due: { label: 'Po splatnosti', className: 'bg-amber-50 text-amber-700' },
@@ -67,6 +68,22 @@ async function callOverviewFunction(body?: Record<string, unknown>): Promise<Res
       ...(body ? { 'Content-Type': 'application/json' } : {}),
     },
     ...(body ? { body: JSON.stringify(body) } : {}),
+  });
+}
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://server-psi-ochre-40.vercel.app';
+
+// Approve/reject run on the Express server (it owns the e-mail infrastructure
+// for the welcome / rejection messages). Guarded server-side by super_admin.
+async function callApprovalEndpoint(orgId: string, action: 'approve' | 'reject'): Promise<Response> {
+  const supabase = createBrowserSupabaseClient();
+  const { data: sessionResult } = await supabase.auth.getSession();
+  const token = sessionResult.session?.access_token;
+  if (!token) throw new Error('Přihlášení vypršelo. Přihlas se prosím znovu.');
+
+  return fetch(`${API_URL}/api/orgs/${encodeURIComponent(orgId)}/${action}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
   });
 }
 
@@ -110,6 +127,21 @@ export function SuperAdminOrganizations() {
       await loadOverview();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Změna stavu organizace selhala.');
+    } finally {
+      setPendingOrgId(null);
+    }
+  }
+
+  async function decidePendingOrg(orgId: string, action: 'approve' | 'reject') {
+    setPendingOrgId(orgId);
+    setError(null);
+    try {
+      const response = await callApprovalEndpoint(orgId, action);
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(payload?.error ?? 'Rozhodnutí o organizaci selhalo.');
+      await loadOverview();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Rozhodnutí o organizaci selhalo.');
     } finally {
       setPendingOrgId(null);
     }
@@ -200,6 +232,17 @@ export function SuperAdminOrganizations() {
                       <td className="px-4 py-3">
                         {isExempt ? (
                           <p className="text-right text-xs font-bold text-brand-ink-soft">—</p>
+                        ) : org.subscriptionStatus === 'pending_approval' ? (
+                          <div className="flex justify-end gap-2">
+                            <button type="button" disabled={pending} onClick={() => void decidePendingOrg(org.id, 'approve')} className="inline-flex items-center gap-1 rounded-[12px] bg-emerald-600 px-3 py-1.5 text-xs font-black text-white transition hover:bg-emerald-700 disabled:opacity-60">
+                              {pending ? <Loader2 size={13} className="animate-spin" /> : <CircleCheck size={13} />}
+                              Schválit
+                            </button>
+                            <button type="button" disabled={pending} onClick={() => void decidePendingOrg(org.id, 'reject')} className="inline-flex items-center gap-1 rounded-[12px] border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-black text-rose-700 transition hover:bg-rose-100 disabled:opacity-60">
+                              {pending ? <Loader2 size={13} className="animate-spin" /> : <CircleX size={13} />}
+                              Zamítnout
+                            </button>
+                          </div>
                         ) : (
                           <div className="flex justify-end gap-2">
                             {org.subscriptionStatus !== 'active' ? (
