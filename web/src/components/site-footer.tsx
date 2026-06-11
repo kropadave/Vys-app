@@ -5,6 +5,7 @@ import { TeamVysLogo } from '@/components/brand/team-vys-logo';
 import { contacts } from '@shared/content';
 
 const navLinks = [
+  { label: 'Pro organizace', href: '/registrace-organizace' as const },
   { label: 'Kroužky', href: '/krouzky' as const },
   { label: 'Tábory', href: '/tabory' as const },
   { label: 'Workshopy', href: '/workshopy' as const },
@@ -28,7 +29,8 @@ export function SiteFooter() {
               </span>
             </div>
             <p className="max-w-[410px] text-sm leading-6 text-white/70">
-              Parkour komunita pro děti, rodiče a trenéry. Kroužky, tábory, workshopy a digitální provoz v jednom systému.
+              Digitální platforma pro dětské sportovní organizace — docházka, platby, gamifikace a mobilní
+              aplikace v jednom. Powered by TeamVYS, parkourovým klubem, který na ní denně jede.
             </p>
             <div className="mt-2 flex flex-wrap gap-2">
               {contacts.cities.slice(0, 4).map((city) => (

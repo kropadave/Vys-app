@@ -14,15 +14,15 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: {
-    default: 'TeamVYS — parkour kroužky pro děti',
+    default: 'TeamVYS — platforma pro dětské sportovní organizace',
     template: '%s · TeamVYS',
   },
   description:
-    'Parkour kroužky v 6 městech, příměstské tábory a workshopy. Skill tree, NFC docházka, profi trenéři. TeamVYS — největší parkourová komunita v ČR.',
+    'Digitální platforma pro dětské sportovní kluby: docházka, skupiny, trenéři, platby, NFC čipy a gamifikace. Mobilní aplikace i webový portál. Powered by TeamVYS.',
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'),
   openGraph: {
-    title: 'TeamVYS — parkour kroužky pro děti',
-    description: 'Parkour kroužky, příměstské tábory, workshopy, skill tree, NFC docházka a profi trenéři.',
+    title: 'TeamVYS — platforma pro dětské sportovní organizace',
+    description: 'Docházka, skupiny, trenéři, platby, NFC čipy a gamifikace pro dětské sportovní organizace. 790 Kč měsíčně, prvních 30 dní zdarma.',
     type: 'website',
     locale: 'cs_CZ',
   },

@@ -22,6 +22,12 @@ const config: Config = {
           paper: '#FFF9F0',
           surface: '#FFFFFF',
           'surface-alt': '#FFF1E0',
+          night: '#1A1A2E',
+          'night-deep': '#11111F',
+          'night-soft': '#23233B',
+          ember: '#E8440A',
+          'ember-deep': '#C23508',
+          'ember-soft': '#FFF0E8',
         },
       },
       fontFamily: {
@@ -32,6 +38,8 @@ const config: Config = {
         'gradient-brand-soft': 'linear-gradient(135deg, rgba(139,29,255,0.12) 0%, rgba(241,43,179,0.10) 48%, rgba(255,178,26,0.16) 100%)',
         'gradient-warm': 'linear-gradient(135deg, #FFB21A 0%, #F12BB3 100%)',
         'gradient-cool': 'linear-gradient(135deg, #8B1DFF 0%, #F12BB3 100%)',
+        'gradient-ember': 'linear-gradient(135deg, #E8440A 0%, #FF7A3D 55%, #FFB21A 100%)',
+        'gradient-night': 'linear-gradient(160deg, #1A1A2E 0%, #23233B 50%, #11111F 100%)',
       },
       borderRadius: {
         brand: '8px',

@@ -10,6 +10,7 @@ import { TeamVysLogo } from '@/components/brand/team-vys-logo';
 import { cn } from '@/lib/utils';
 
 const navItems = [
+  { label: 'Pro organizace', href: '/registrace-organizace' },
   { label: 'Kroužky', href: '/krouzky' },
   { label: 'Tábory', href: '/tabory' },
   { label: 'Workshopy', href: '/workshopy' },
