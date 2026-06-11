@@ -1,9 +1,9 @@
 import { QrCode, Sparkles, Target } from 'lucide-react';
 
-import { Reveal } from '@/components/animated/reveal';
 import { PageHero } from '@/components/page-hero';
 import { WorkshopBrowser } from '@/components/public-admin-products';
 import { SubpageCta } from '@/components/subpage-cta';
+import { FeatureCard, SectionIntro } from '@/components/subpage-feature-card';
 
 export const metadata = {
   title: 'Workshopy',
@@ -11,9 +11,9 @@ export const metadata = {
 };
 
 const workshopSteps = [
-  { title: 'Konkrétní triky', body: 'Každý workshop má jasné téma a triky, které děti trénují krok za krokem.', icon: Target },
-  { title: 'QR ticket', body: 'Po zaplacení se rodiči zobrazí digitální ticket pro rychlou kontrolu na místě.', icon: QrCode },
-  { title: 'Navazuje na skill tree', body: 'Trenér ví, které prvky může dítě dostat do profilu a co má trénovat dál.', icon: Sparkles },
+  { icon: <Target size={20} />, eyebrow: '01', title: 'Konkrétní triky', body: 'Každý workshop má jasné téma a triky krok za krokem.', accent: 'purple' as const },
+  { icon: <QrCode size={20} />, eyebrow: '02', title: 'QR ticket', body: 'Po zaplacení se rodiči zobrazí digitální ticket pro kontrolu na místě.', accent: 'pink' as const },
+  { icon: <Sparkles size={20} />, eyebrow: '03', title: 'Navazuje na skill tree', body: 'Trenér ví, které prvky může dítě dostat do profilu.', accent: 'cyan' as const },
 ];
 
 export default function WorkshopsPage() {
@@ -22,32 +22,18 @@ export default function WorkshopsPage() {
       <PageHero
         eyebrow="Workshopy a open jamy"
         title="Jednorázové akce pro rychlý progres"
-        body="Kratší, intenzivní a s jasným výsledkem. Konkrétní přeskok, flow nebo tricking kombinace."
+        body="Kratší, intenzivní a s jasným výsledkem."
+        word="workshopy"
       />
 
-      <section className="section-shell grid gap-3 py-10 md:grid-cols-3">
-        {workshopSteps.map((step, index) => (
-          <Reveal key={step.title} delay={index * 70}>
-            <div className="h-full rounded-brand border border-brand-purple/12 bg-white p-6 shadow-brand-soft">
-              <span className="inline-flex h-11 w-11 items-center justify-center rounded-brand bg-gradient-brand text-white">
-                <step.icon size={20} />
-              </span>
-              <p className="mt-5 text-xs font-black uppercase text-brand-cyan">0{index + 1}</p>
-              <h2 className="mt-2 text-lg font-black text-brand-ink">{step.title}</h2>
-              <p className="mt-2 text-sm leading-6 text-slate-600">{step.body}</p>
-            </div>
-          </Reveal>
+      <section className="section-shell grid gap-4 py-14 md:grid-cols-3">
+        {workshopSteps.map((s, i) => (
+          <FeatureCard key={s.title} {...s} index={i} />
         ))}
       </section>
 
-      <section className="section-shell py-10">
-        <Reveal>
-          <div className="max-w-[760px]">
-            <p className="text-xs font-black uppercase text-brand-pink">Nejbližší akce</p>
-            <h2 className="mt-2 text-2xl font-black text-brand-ink md:text-4xl">Workshopy s digitálním ticketem</h2>
-          </div>
-        </Reveal>
-
+      <section className="section-shell py-6">
+        <SectionIntro eyebrow="Nejbližší akce" title="Workshopy s digitálním ticketem" accent="pink" />
         <div className="mt-7">
           <WorkshopBrowser />
         </div>

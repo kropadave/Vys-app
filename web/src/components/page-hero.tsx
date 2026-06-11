@@ -10,6 +10,8 @@ type Props = {
   body?: string;
   ctaHref?: string;
   ctaLabel?: string;
+  /** Oversized faint word painted behind the hero, mirroring the homepage. */
+  word?: string;
 };
 
 const ease = [0.22, 1, 0.36, 1] as const;
@@ -19,7 +21,7 @@ const item = {
   visible: (d = 0) => ({ opacity: 1, y: 0, transition: { duration: 0.65, delay: d, ease } }),
 };
 
-export function PageHero({ eyebrow, title, body, ctaHref, ctaLabel }: Props) {
+export function PageHero({ eyebrow, title, body, ctaHref, ctaLabel, word }: Props) {
   return (
     <section className="relative overflow-hidden" style={{ background: '#080412' }}>
       <div aria-hidden className="absolute inset-x-0 bottom-0 z-20 h-[2px] bg-white" />
@@ -35,6 +37,16 @@ export function PageHero({ eyebrow, title, body, ctaHref, ctaLabel }: Props) {
         aria-hidden
         className="absolute inset-0 [background-image:linear-gradient(rgba(139,29,255,0.07)_1px,transparent_1px),linear-gradient(90deg,rgba(139,29,255,0.07)_1px,transparent_1px)] [background-size:60px_60px] [mask-image:radial-gradient(ellipse_80%_60%_at_30%_50%,black,transparent)]"
       />
+
+      {/* Giant background word — Hims-style oversized typography */}
+      {word ? (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 top-1/2 -translate-y-1/2 select-none text-center text-[24vw] font-black leading-none tracking-tighter text-white/[0.03]"
+        >
+          {word}
+        </div>
+      ) : null}
 
       <div className="section-shell relative py-16 md:py-24 lg:py-28">
         <motion.span

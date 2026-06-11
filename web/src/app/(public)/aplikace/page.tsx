@@ -53,10 +53,10 @@ export default function AplikacePage() {
                 <Sparkles size={14} /> TeamVYS aplikace
               </span>
               <h1 className="text-4xl font-black leading-[1.05] text-brand-ink md:text-6xl">
-                Aplikace pro účastníky a trenéry <span className="gradient-text">rovnou v telefonu</span>.
+                Aplikace <span className="gradient-text">v telefonu</span>.
               </h1>
               <p className="max-w-2xl text-base font-bold text-brand-ink-soft md:text-lg">
-                Děti sledují progres, trenéři řeší docházku a QR triky. Rodiče a administrace zůstávají ve webovém portálu.
+                Děti sledují progres, trenéři řeší docházku a QR triky.
               </p>
 
               <Link
@@ -75,7 +75,7 @@ export default function AplikacePage() {
                 {featurePills.map((pill) => (
                   <span
                     key={pill.label}
-                    className="inline-flex items-center gap-2 rounded-brand border border-brand-purple/12 bg-white px-3 py-2 text-xs font-black text-brand-ink shadow-brand-soft"
+                    className="inline-flex items-center gap-2 rounded-full border border-brand-purple/12 bg-white px-3 py-2 text-xs font-black text-brand-ink shadow-brand-soft"
                   >
                     <pill.icon size={14} className="text-brand-purple" />
                     {pill.label}
@@ -92,12 +92,13 @@ export default function AplikacePage() {
                   whileInView={{ opacity: 1, y: 0 }}
                   viewport={{ once: true, margin: '-80px' }}
                   transition={{ duration: 0.5, ease: easeBrand, delay: idx * 0.1 }}
-                  className="relative overflow-hidden rounded-brand-lg border border-brand-purple/12 bg-white p-7 shadow-brand-soft"
+                  className="group relative overflow-hidden rounded-[28px] bg-white p-7 shadow-brand-soft transition-all duration-500 hover:-translate-y-1 hover:shadow-brand-float"
                 >
+                  <div aria-hidden className="pointer-events-none absolute inset-0 rounded-[28px] border border-transparent [background:linear-gradient(white,white)_padding-box,linear-gradient(135deg,rgba(139,29,255,0.30),rgba(241,43,179,0.18))_border-box]" />
                   <div className={`absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r ${role.accent}`} />
-                  <p className="text-xs font-black uppercase tracking-wider text-brand-purple">Pro {role.title.toLowerCase()}a</p>
-                  <h2 className="mt-1 text-3xl font-black text-brand-ink">{role.title}</h2>
-                  <ul className="mt-5 space-y-3">
+                  <p className="relative text-xs font-black uppercase tracking-wider text-brand-purple">Pro {role.title.toLowerCase()}a</p>
+                  <h2 className="relative mt-1 text-3xl font-black text-brand-ink">{role.title}</h2>
+                  <ul className="relative mt-5 space-y-3">
                     {role.bullets.map((bullet) => (
                       <li key={bullet} className="flex items-start gap-3">
                         <span className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-purple-light text-brand-purple">
@@ -111,9 +112,10 @@ export default function AplikacePage() {
               ))}
             </div>
 
-            <div className="rounded-brand-lg border border-brand-purple/12 bg-white p-8 shadow-brand-soft md:p-10">
-              <h2 className="text-3xl font-black text-brand-ink md:text-4xl">Jak to funguje?</h2>
-              <ol className="mt-5 space-y-4 text-sm font-bold text-brand-ink-soft md:text-base">
+            <div className="relative overflow-hidden rounded-[28px] bg-white p-8 shadow-brand-soft md:p-10">
+              <div aria-hidden className="pointer-events-none absolute inset-0 rounded-[28px] border border-transparent [background:linear-gradient(white,white)_padding-box,linear-gradient(135deg,rgba(124,45,219,0.28),rgba(241,43,179,0.18))_border-box]" />
+              <h2 className="relative text-3xl font-black text-brand-ink md:text-4xl">Jak to funguje?</h2>
+              <ol className="relative mt-5 space-y-4 text-sm font-bold text-brand-ink-soft md:text-base">
                 <li className="flex gap-3">
                   <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-brand text-xs font-black text-white">1</span>
                   Otevři aplikaci přes tlačítko výše a přihlas se jako účastník nebo trenér.
@@ -127,7 +129,7 @@ export default function AplikacePage() {
                   Účastník vidí progres a náramky, trenér řeší docházku, QR potvrzení triků a svůj přehled.
                 </li>
               </ol>
-              <div className="mt-6 flex items-start gap-3 rounded-brand bg-brand-purple-light p-4">
+              <div className="relative mt-6 flex items-start gap-3 rounded-[18px] bg-brand-purple-light p-4">
                 <span className="rounded-[14px] bg-white p-2 text-brand-purple"><ShieldCheck size={18} /></span>
                 <p className="text-xs font-bold leading-6 text-brand-ink-soft">
                   Aplikace necachuje API odpovědi. Docházka, QR triky a progres se berou z aktuálního backendu.
