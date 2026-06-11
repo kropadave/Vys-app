@@ -1,6 +1,7 @@
 import { Feather } from '@expo/vector-icons';
-import { useMemo, useRef, useState, type ComponentProps } from 'react';
+import { useEffect, useMemo, useRef, useState, type ComponentProps } from 'react';
 import { ActivityIndicator, Animated, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import Reanimated, { FadeIn, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 
 import { CoachCard, CoachPageHeader } from '@/components/coach/coach-screen';
 import {
@@ -277,6 +278,21 @@ function GameForm({
 function GameCard({ game, onRate, onFavorite }: { game: CoachTrainingGameWithMeta; onRate: (rating: number) => void; onFavorite: () => void }) {
   const typeLabel = coachTrainingGameTypeLabels[game.type];
   const rules = game.rules.split('\n').map((line) => line.trim()).filter(Boolean);
+  const [expanded, setExpanded] = useState(false);
+  const rotation = useSharedValue(0);
+
+  useEffect(() => {
+    rotation.value = withTiming(expanded ? 1 : 0, { duration: 200 });
+  }, [expanded, rotation]);
+
+  const chevronStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${rotation.value * 180}deg` }],
+  }));
+
+  const toggle = () => setExpanded((value) => !value);
+  const ratingLabel = game.ratingCount > 0
+    ? `${game.ratingAverage.toFixed(1)} / 5 · ${game.ratingCount} hodnocení`
+    : 'Zatím bez hodnocení';
 
   return (
     <CoachCard>
@@ -284,15 +300,15 @@ function GameCard({ game, onRate, onFavorite }: { game: CoachTrainingGameWithMet
         <View style={[styles.gameIcon, { backgroundColor: typeTint(game.type) }]}>
           <Feather name={iconForType(game.type)} size={20} color={typeColor(game.type)} />
         </View>
-        <View style={{ flex: 1, minWidth: 0 }}>
+        <Pressable onPress={toggle} style={({ pressed }) => [{ flex: 1, minWidth: 0 }, pressed && { opacity: 0.85 }]}>
           <View style={styles.titleRow}>
             <Text style={styles.gameTitle}>{game.title}</Text>
             <View style={[styles.typeBadge, { backgroundColor: typeTint(game.type), borderColor: typeColor(game.type) + '44' }]}>
               <Text style={[styles.typeBadgeText, { color: typeColor(game.type) }]}>{typeLabel}</Text>
             </View>
           </View>
-          <Text style={styles.muted}>{game.description}</Text>
-        </View>
+          <Text style={styles.muted} numberOfLines={expanded ? undefined : 2}>{game.description}</Text>
+        </Pressable>
         <Pressable style={({ pressed }) => [styles.favoriteButton, game.isFavorite && styles.favoriteButtonActive, pressed && { opacity: 0.82 }]} onPress={onFavorite} accessibilityLabel="Uložit hru do oblíbených">
           <Feather name="heart" size={18} color={game.isFavorite ? '#fff' : CoachColors.pink} />
         </Pressable>
@@ -304,37 +320,51 @@ function GameCard({ game, onRate, onFavorite }: { game: CoachTrainingGameWithMet
         <Meta icon="target" label="Dovednost" value={game.skillGoal} />
       </View>
 
-      <View style={styles.rulesBlock}>
-        <Text style={styles.blockLabel}>Pravidla</Text>
-        {rules.length > 1 ? rules.map((rule, index) => (
-          <View key={`${game.id}-rule-${index}`} style={styles.ruleRow}>
-            <View style={[styles.ruleDot, { backgroundColor: typeColor(game.type) }]} />
-            <Text style={styles.ruleText}>{rule}</Text>
+      <Pressable onPress={toggle} style={({ pressed }) => [styles.expandRow, expanded && styles.expandRowOpen, pressed && { opacity: 0.85 }]}>
+        <Feather name="list" size={15} color={typeColor(game.type)} />
+        <Text style={styles.expandText} numberOfLines={1}>
+          {expanded ? 'Skrýt detail' : `Pravidla a hodnocení · ${ratingLabel}`}
+        </Text>
+        <Reanimated.View style={chevronStyle}>
+          <Feather name="chevron-down" size={18} color={CoachColors.slateMuted} />
+        </Reanimated.View>
+      </Pressable>
+
+      {expanded ? (
+        <Reanimated.View entering={FadeIn.duration(180)}>
+          <View style={styles.rulesBlock}>
+            <Text style={styles.blockLabel}>Pravidla</Text>
+            {rules.length > 1 ? rules.map((rule, index) => (
+              <View key={`${game.id}-rule-${index}`} style={styles.ruleRow}>
+                <View style={[styles.ruleDot, { backgroundColor: typeColor(game.type) }]} />
+                <Text style={styles.ruleText}>{rule}</Text>
+              </View>
+            )) : <Text style={styles.ruleText}>{game.rules}</Text>}
           </View>
-        )) : <Text style={styles.ruleText}>{game.rules}</Text>}
-      </View>
 
-      <View style={styles.ratingPanel}>
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <Text style={styles.blockLabel}>Hodnocení trenérů</Text>
-          <Text style={styles.muted}>{game.ratingCount > 0 ? `${game.ratingAverage.toFixed(1)} / 5 · ${game.ratingCount} hodnocení` : 'Zatím bez hodnocení'}</Text>
-        </View>
-        <View style={styles.starRow}>
-          {starValues.map((rating) => {
-            const active = (game.myRating ?? 0) >= rating;
-            return (
-              <Pressable key={rating} style={({ pressed }) => [styles.starButton, active && styles.starButtonActive, pressed && { opacity: 0.78 }]} onPress={() => onRate(rating)} accessibilityLabel={`Ohodnotit ${rating} z 5`}>
-                <Feather name="star" size={16} color={active ? '#fff' : CoachColors.amber} />
-              </Pressable>
-            );
-          })}
-        </View>
-      </View>
+          <View style={styles.ratingPanel}>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={styles.blockLabel}>Hodnocení trenérů</Text>
+              <Text style={styles.muted}>{ratingLabel}</Text>
+            </View>
+            <View style={styles.starRow}>
+              {starValues.map((rating) => {
+                const active = (game.myRating ?? 0) >= rating;
+                return (
+                  <Pressable key={rating} style={({ pressed }) => [styles.starButton, active && styles.starButtonActive, pressed && { opacity: 0.78 }]} onPress={() => onRate(rating)} accessibilityLabel={`Ohodnotit ${rating} z 5`}>
+                    <Feather name="star" size={16} color={active ? '#fff' : CoachColors.amber} />
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
 
-      <View style={styles.authorRow}>
-        <Feather name="user" size={14} color={CoachColors.slateMuted} />
-        <Text style={styles.authorText}>{game.createdByName} · {game.createdAt}</Text>
-      </View>
+          <View style={styles.authorRow}>
+            <Feather name="user" size={14} color={CoachColors.slateMuted} />
+            <Text style={styles.authorText}>{game.createdByName} · {game.createdAt}</Text>
+          </View>
+        </Reanimated.View>
+      ) : null}
     </CoachCard>
   );
 }
@@ -443,6 +473,9 @@ const styles = StyleSheet.create({
   metaLabel: { color: CoachColors.slateMuted, fontSize: 10, lineHeight: 14, fontWeight: '900', textTransform: 'uppercase' },
   metaValue: { color: CoachColors.slate, fontSize: 13, lineHeight: 18, fontWeight: '800' },
   rulesBlock: { gap: 8, borderTopWidth: 1, borderTopColor: CoachColors.border, paddingTop: Spacing.md },
+  expandRow: { flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: Radius.lg, borderWidth: 1, borderColor: CoachColors.border, backgroundColor: CoachColors.panelAlt, paddingHorizontal: Spacing.md, paddingVertical: 10 },
+  expandRowOpen: { backgroundColor: '#fff' },
+  expandText: { flex: 1, minWidth: 0, color: CoachColors.slate, fontSize: 12.5, lineHeight: 17, fontWeight: '900' },
   blockLabel: { color: CoachColors.slate, fontSize: 12, lineHeight: 16, fontWeight: '900', textTransform: 'uppercase' },
   ruleRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 9 },
   ruleDot: { width: 7, height: 7, borderRadius: 4, marginTop: 7 },

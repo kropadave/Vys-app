@@ -16,12 +16,15 @@ type Region = {
   longitudeDelta: number;
 };
 
+export type CoachMapMarker = { coachId: string; name: string; xp: number; lat: number; lng: number; self?: boolean };
+
 export type SpotsMapViewProps = {
   spots: TrainingSpot[];
   selectedSpotId?: string | null;
   onMarkerPress: (spot: TrainingSpot) => void;
   initialRegion: Region;
   height?: number;
+  coaches?: CoachMapMarker[];
 };
 
 const iframeStyle: React.CSSProperties = {
@@ -32,8 +35,13 @@ const iframeStyle: React.CSSProperties = {
 };
 
 const SpotsMapView = forwardRef<MapView, SpotsMapViewProps>(
-  ({ spots, selectedSpotId, onMarkerPress, initialRegion, height }, ref) => {
+  ({ spots, selectedSpotId, onMarkerPress, initialRegion, height, coaches }, ref) => {
     const iframeRef = useRef<HTMLIFrameElement | null>(null);
+
+    const coachList = useMemo(
+      () => (coaches ?? []).map((c) => ({ name: c.name, xp: c.xp, lat: c.lat, lng: c.lng, self: !!c.self })),
+      [coaches],
+    );
 
     useImperativeHandle(ref, () => ({ animateToRegion: () => undefined }) as unknown as MapView, []);
 
@@ -63,13 +71,27 @@ const SpotsMapView = forwardRef<MapView, SpotsMapViewProps>(
             const spot = spots.find((item) => item.id === data.id);
             if (spot) onMarkerPress(spot);
           }
+          if (data && data.type === 'ready') {
+            iframeRef.current?.contentWindow?.postMessage(
+              JSON.stringify({ type: 'coaches', list: coachList }),
+              '*',
+            );
+          }
         } catch {
           // ignore malformed messages
         }
       };
       window.addEventListener('message', handler);
       return () => window.removeEventListener('message', handler);
-    }, [spots, onMarkerPress]);
+    }, [spots, onMarkerPress, coachList]);
+
+    // Push coach markers whenever the live list changes (no map rebuild).
+    useEffect(() => {
+      iframeRef.current?.contentWindow?.postMessage(
+        JSON.stringify({ type: 'coaches', list: coachList }),
+        '*',
+      );
+    }, [coachList]);
 
     // Fly to the selected spot whenever it changes.
     useEffect(() => {

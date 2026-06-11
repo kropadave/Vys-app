@@ -65,6 +65,20 @@ export function buildSpotsMapHtml(
       box-sizing: border-box;
     }
     .spot-pin.selected { width: 26px; height: 26px; border-width: 3px; }
+    .coach-pin {
+      width: 26px; height: 26px; border-radius: 50%;
+      border: 2px solid #fff; background: #15B8A6;
+      box-shadow: 0 1px 5px rgba(0,0,0,0.4);
+      box-sizing: border-box; display: flex; align-items: center; justify-content: center;
+      color: #fff; font-size: 14px; font-weight: 700;
+    }
+    .coach-pin.self {
+      background: #9B2CFF; width: 30px; height: 30px; border-width: 3px;
+      box-shadow: 0 0 0 4px rgba(155,44,255,0.25), 0 1px 5px rgba(0,0,0,0.4);
+    }
+    .coach-popup b { font-size: 13px; }
+    .coach-popup span { color: #15B8A6; font-weight: 700; }
+    .coach-popup.self span { color: #9B2CFF; }
     .leaflet-control-attribution { font-size: 9px; }
   </style>
 </head>
@@ -169,8 +183,39 @@ export function buildSpotsMapHtml(
         try {
           var data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
           if (data && data.type === 'select' && data.id) window.selectSpot(data.id);
+          if (data && data.type === 'coaches') window.updateCoaches(data.list || []);
         } catch (e) { /* ignore malformed messages */ }
       });
+
+      // ── Live coach markers (teal). Replaced wholesale on each update so the
+      // base spot map is never rebuilt. Only name + XP are ever shown. ──────
+      var coachLayer = L.layerGroup().addTo(map);
+      function escapeHtml(value) {
+        return String(value == null ? '' : value)
+          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      }
+      window.updateCoaches = function (list) {
+        coachLayer.clearLayers();
+        (list || []).forEach(function (coach) {
+          if (typeof coach.lat !== 'number' || typeof coach.lng !== 'number') return;
+          var isSelf = !!coach.self;
+          var size = isSelf ? 30 : 26;
+          var icon = L.divIcon({
+            className: '',
+            html: '<div class="coach-pin' + (isSelf ? ' self' : '') + '">' +
+              escapeHtml(isSelf ? 'JÁ' : (coach.name || '?').charAt(0).toUpperCase()) + '</div>',
+            iconSize: [size, size],
+            iconAnchor: [size / 2, size / 2],
+          });
+          var m = L.marker([coach.lat, coach.lng], { icon: icon, title: coach.name, zIndexOffset: isSelf ? 3000 : 2000 });
+          m.bindPopup(
+            '<div class="coach-popup' + (isSelf ? ' self' : '') + '"><b>' +
+            escapeHtml(coach.name) + (isSelf ? ' (ty)' : '') +
+            '</b><br/><span>' + escapeHtml(coach.xp) + ' XP</span></div>'
+          );
+          m.addTo(coachLayer);
+        });
+      };
 
       if (selectedId) {
         // Defer so tiles/markers exist before flying.

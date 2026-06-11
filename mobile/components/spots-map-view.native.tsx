@@ -17,17 +17,25 @@ type Region = {
   longitudeDelta: number;
 };
 
+export type CoachMapMarker = { coachId: string; name: string; xp: number; lat: number; lng: number; self?: boolean };
+
 export type SpotsMapViewProps = {
   spots: TrainingSpot[];
   selectedSpotId?: string | null;
   onMarkerPress: (spot: TrainingSpot) => void;
   initialRegion: Region;
   height?: number;
+  coaches?: CoachMapMarker[];
 };
 
 const SpotsMapView = forwardRef<MapView, SpotsMapViewProps>(
-  ({ spots, selectedSpotId, onMarkerPress, initialRegion, height }, ref) => {
+  ({ spots, selectedSpotId, onMarkerPress, initialRegion, height, coaches }, ref) => {
     const webRef = useRef<WebView>(null);
+
+    const coachList = useMemo(
+      () => (coaches ?? []).map((c) => ({ name: c.name, xp: c.xp, lat: c.lat, lng: c.lng, self: !!c.self })),
+      [coaches],
+    );
 
     // Rebuild the HTML only when the spot set changes — selection is handled
     // via injected JS so the map doesn't fully reload on every tap.
@@ -49,12 +57,24 @@ const SpotsMapView = forwardRef<MapView, SpotsMapViewProps>(
       webRef.current?.injectJavaScript(`window.selectSpot && window.selectSpot(${JSON.stringify(selectedSpotId)}); true;`);
     }, [selectedSpotId]);
 
+    // Push coach markers whenever the live list changes (no map rebuild).
+    React.useEffect(() => {
+      webRef.current?.injectJavaScript(
+        `window.updateCoaches && window.updateCoaches(${JSON.stringify(coachList)}); true;`,
+      );
+    }, [coachList]);
+
     const handleMessage = (event: WebViewMessageEvent) => {
       try {
         const data = JSON.parse(event.nativeEvent.data) as { type?: string; id?: string };
         if (data.type === 'marker' && data.id) {
           const spot = spots.find((item) => item.id === data.id);
           if (spot) onMarkerPress(spot);
+        }
+        if (data.type === 'ready') {
+          webRef.current?.injectJavaScript(
+            `window.updateCoaches && window.updateCoaches(${JSON.stringify(coachList)}); true;`,
+          );
         }
       } catch {
         // ignore malformed messages

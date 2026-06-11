@@ -1,11 +1,8 @@
 import { FontAwesome5 } from '@expo/vector-icons';
-import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
-    Animated,
-    Modal,
     Pressable,
     ScrollView,
     StyleSheet,
@@ -13,6 +10,12 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
+import Animated, {
+    FadeIn,
+    useAnimatedStyle,
+    useSharedValue,
+    withTiming,
+} from 'react-native-reanimated';
 
 import { FadeInUp } from '@/components/animated/motion';
 import { Brand, BrandGradient } from '@/lib/brand';
@@ -49,10 +52,6 @@ export default function TutorialsScreen() {
       return levelOk && disciplineOk;
     });
   }, [levelFilter, disciplineFilter]);
-
-  const selectedTrick = expandedId
-    ? (trickTutorials.find((t) => t.trick_name === expandedId) ?? null)
-    : null;
 
   const toggleExpand = (name: string) => {
     setExpandedId((prev) => (prev === name ? null : name));
@@ -141,7 +140,6 @@ export default function TutorialsScreen() {
         ))}
         <View style={styles.bottomPad} />
       </ScrollView>
-      <TrickDetailModal trick={selectedTrick} onClose={() => setExpandedId(null)} />
     </View>
   );
 }
@@ -151,9 +149,17 @@ function TrickCard({ trick, expanded, onToggle }: { trick: TrickTutorial; expand
   const levelTitle = LEVEL_TITLES[trick.level];
   const disciplineColor = trick.discipline.includes('Tricking') ? Brand.pink : Brand.cyanDeep;
 
+  const rotation = useSharedValue(expanded ? 1 : 0);
+  useEffect(() => {
+    rotation.value = withTiming(expanded ? 1 : 0, { duration: 200 });
+  }, [expanded, rotation]);
+  const chevronStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${rotation.value * 180}deg` }],
+  }));
+
   return (
     <TouchableOpacity
-      activeOpacity={0.88}
+      activeOpacity={0.9}
       onPress={onToggle}
       accessibilityRole="button"
       accessibilityLabel={`${trick.trick_name} – detail`}
@@ -182,146 +188,88 @@ function TrickCard({ trick, expanded, onToggle }: { trick: TrickTutorial; expand
             </View>
           </View>
 
-          {/* Expand chevron */}
+          {/* Expand toggle row */}
           <View style={styles.cardChevronRow}>
             <Text style={styles.levelLabel}>{levelTitle}</Text>
-            <FontAwesome5
-              name="chevron-right"
-              size={11}
-              color={Palette.textMuted}
-            />
+            <View style={styles.cardChevronRight}>
+              <Text style={[styles.expandHint, expanded && { color: bracelet.color }]}>
+                {expanded ? 'Skrýt' : 'Zobrazit postup'}
+              </Text>
+              <Animated.View style={chevronStyle}>
+                <FontAwesome5 name="chevron-down" size={11} color={expanded ? bracelet.color : Palette.textMuted} />
+              </Animated.View>
+            </View>
           </View>
+
+          {/* Inline expanded body */}
+          {expanded ? (
+            <Animated.View entering={FadeIn.duration(180)} style={styles.cardBody}>
+              <TrickBody trick={trick} />
+            </Animated.View>
+          ) : null}
         </View>
       </View>
     </TouchableOpacity>
   );
 }
 
-// ─── Trick Detail Modal ──────────────────────────────────────────────────────
-function TrickDetailModal({ trick, onClose }: { trick: TrickTutorial | null; onClose: () => void }) {
-  const [displayTrick, setDisplayTrick] = useState<TrickTutorial | null>(null);
-  const slideAnim = useRef(new Animated.Value(500)).current;
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    if (trick) {
-      setDisplayTrick(trick);
-      slideAnim.setValue(500);
-      fadeAnim.setValue(0);
-      Animated.parallel([
-        Animated.timing(fadeAnim, { toValue: 1, duration: 220, useNativeDriver: true }),
-        Animated.spring(slideAnim, { toValue: 0, damping: 22, stiffness: 240, useNativeDriver: true }),
-      ]).start();
-    } else {
-      Animated.parallel([
-        Animated.timing(fadeAnim, { toValue: 0, duration: 180, useNativeDriver: true }),
-        Animated.timing(slideAnim, { toValue: 500, duration: 200, useNativeDriver: true }),
-      ]).start(() => setDisplayTrick(null));
-    }
-  }, [trick]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  if (!displayTrick) return null;
-
-  const bracelet = BRACELET_COLORS[displayTrick.level];
-  const disciplineColor = displayTrick.discipline.includes('Tricking') ? Brand.pink : Brand.cyanDeep;
-
+// ─── Expanded trick content (inline) ─────────────────────────────────────────
+function TrickBody({ trick }: { trick: TrickTutorial }) {
   return (
-    <Modal visible transparent animationType="none" statusBarTranslucent onRequestClose={onClose}>
-      {/* Tap-to-dismiss blurred backdrop */}
-      <Pressable style={StyleSheet.absoluteFill} onPress={onClose}>
-        <Animated.View style={[StyleSheet.absoluteFill, { opacity: fadeAnim }]}>
-          <BlurView intensity={65} tint="dark" style={StyleSheet.absoluteFill} />
-        </Animated.View>
-      </Pressable>
-
-      {/* Bottom sheet panel */}
-      <Animated.View style={[styles.modalPanel, { transform: [{ translateY: slideAnim }] }]}>
-        {/* Handle bar */}
-        <View style={styles.modalHandle} />
-
-        {/* Header */}
-        <View style={styles.modalHeaderRow}>
-          <View style={[styles.cardAccent, styles.modalAccent, { backgroundColor: bracelet.color }]} />
-          <View style={styles.modalTitleBlock}>
-            <Text style={styles.modalTitle}>{displayTrick.trick_name}</Text>
-            <Text style={styles.cardDescription}>{displayTrick.description}</Text>
+    <>
+      {/* Prerequisites */}
+      {trick.prerequisites.length > 0 && (
+        <View style={styles.section}>
+          <View style={styles.sectionLabelRow}>
+            <FontAwesome5 name="layer-group" size={12} color={Brand.cyanDeep} />
+            <Text style={[styles.sectionLabel, { color: Brand.cyanDeep }]}>Předpoklady</Text>
           </View>
-          <View style={styles.modalBadgesCol}>
-            <TouchableOpacity style={styles.modalClose} onPress={onClose}>
-              <FontAwesome5 name="times" size={13} color={Palette.textMuted} />
-            </TouchableOpacity>
-            <View style={[styles.badge, { backgroundColor: bracelet.color + '22', borderColor: bracelet.color + '55' }]}>
-              <View style={[styles.badgeDot, { backgroundColor: bracelet.color }]} />
-              <Text style={[styles.badgeText, { color: bracelet.color }]}>{bracelet.title}</Text>
-            </View>
-            <View style={[styles.badge, { backgroundColor: disciplineColor + '18', borderColor: disciplineColor + '44' }]}>
-              <Text style={[styles.badgeText, { color: disciplineColor }]}>{displayTrick.discipline}</Text>
-            </View>
+          <View style={styles.prereqChips}>
+            {trick.prerequisites.map((prereq) => (
+              <View key={prereq} style={styles.prereqChip}>
+                <Text style={styles.prereqText}>{prereq}</Text>
+              </View>
+            ))}
           </View>
         </View>
+      )}
 
-        <ScrollView
-          style={{ flex: 1 }}
-          contentContainerStyle={styles.modalBody}
-          showsVerticalScrollIndicator={false}
-          bounces
-        >
-          {/* Prerequisites */}
-          {displayTrick.prerequisites.length > 0 && (
-            <View style={styles.section}>
-              <View style={styles.sectionLabelRow}>
-                <FontAwesome5 name="layer-group" size={12} color={Brand.cyanDeep} />
-                <Text style={[styles.sectionLabel, { color: Brand.cyanDeep }]}>Předpoklady</Text>
-              </View>
-              <View style={styles.prereqChips}>
-                {displayTrick.prerequisites.map((prereq) => (
-                  <View key={prereq} style={styles.prereqChip}>
-                    <Text style={styles.prereqText}>{prereq}</Text>
-                  </View>
-                ))}
-              </View>
+      {/* Steps */}
+      <View style={styles.section}>
+        <View style={styles.sectionLabelRow}>
+          <FontAwesome5 name="list-ol" size={12} color={Brand.purple} />
+          <Text style={[styles.sectionLabel, { color: Brand.purple }]}>Postup</Text>
+        </View>
+        {trick.steps.map((step, i) => (
+          <View key={i} style={styles.stepRow}>
+            <View style={[styles.stepNum, { backgroundColor: Brand.purple }]}>
+              <Text style={styles.stepNumText}>{i + 1}</Text>
             </View>
-          )}
-
-          {/* Steps */}
-          <View style={styles.section}>
-            <View style={styles.sectionLabelRow}>
-              <FontAwesome5 name="list-ol" size={12} color={Brand.purple} />
-              <Text style={[styles.sectionLabel, { color: Brand.purple }]}>Postup</Text>
-            </View>
-            {displayTrick.steps.map((step, i) => (
-              <View key={i} style={styles.stepRow}>
-                <View style={[styles.stepNum, { backgroundColor: Brand.purple }]}>
-                  <Text style={styles.stepNumText}>{i + 1}</Text>
-                </View>
-                <Text style={styles.stepText}>{step}</Text>
-              </View>
-            ))}
+            <Text style={styles.stepText}>{step}</Text>
           </View>
+        ))}
+      </View>
 
-          {/* Common mistakes */}
-          <View style={styles.section}>
-            <View style={styles.sectionLabelRow}>
-              <FontAwesome5 name="exclamation-triangle" size={12} color={Brand.orangeDeep} />
-              <Text style={[styles.sectionLabel, { color: Brand.orangeDeep }]}>Časté chyby</Text>
-            </View>
-            {displayTrick.common_mistakes.map((mistake, i) => (
-              <View key={i} style={styles.mistakeRow}>
-                <View style={styles.mistakeDot} />
-                <Text style={styles.mistakeText}>{mistake}</Text>
-              </View>
-            ))}
+      {/* Common mistakes */}
+      <View style={styles.section}>
+        <View style={styles.sectionLabelRow}>
+          <FontAwesome5 name="exclamation-triangle" size={12} color={Brand.orangeDeep} />
+          <Text style={[styles.sectionLabel, { color: Brand.orangeDeep }]}>Časté chyby</Text>
+        </View>
+        {trick.common_mistakes.map((mistake, i) => (
+          <View key={i} style={styles.mistakeRow}>
+            <View style={styles.mistakeDot} />
+            <Text style={styles.mistakeText}>{mistake}</Text>
           </View>
+        ))}
+      </View>
 
-          {/* Safety tip */}
-          <View style={styles.safetyBox}>
-            <FontAwesome5 name="shield-alt" size={13} color={Brand.pink} style={{ marginTop: 1 }} />
-            <Text style={styles.safetyText}>{displayTrick.safety_tip}</Text>
-          </View>
-          <View style={{ height: 40 }} />
-        </ScrollView>
-      </Animated.View>
-    </Modal>
+      {/* Safety tip */}
+      <View style={styles.safetyBox}>
+        <FontAwesome5 name="shield-alt" size={13} color={Brand.pink} style={{ marginTop: 1 }} />
+        <Text style={styles.safetyText}>{trick.safety_tip}</Text>
+      </View>
+    </>
   );
 }
 
@@ -498,6 +446,16 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: 'rgba(139,29,255,0.07)',
   },
+  cardChevronRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  expandHint: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: Palette.textMuted,
+  },
   levelLabel: {
     fontSize: 11,
     color: Palette.textMuted,
@@ -600,69 +558,5 @@ const styles = StyleSheet.create({
     color: Palette.text,
     lineHeight: 18,
     fontStyle: 'italic',
-  },
-
-  // Modal
-  modalPanel: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    maxHeight: '88%',
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    overflow: 'hidden',
-  },
-  modalHandle: {
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: 'rgba(0,0,0,0.15)',
-    alignSelf: 'center',
-    marginTop: 10,
-    marginBottom: 4,
-  },
-  modalHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    paddingHorizontal: 14,
-    paddingTop: 8,
-    paddingBottom: 12,
-    gap: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(139,29,255,0.08)',
-  },
-  modalAccent: {
-    width: 5,
-    borderRadius: 3,
-    alignSelf: 'stretch',
-    minHeight: 52,
-  },
-  modalTitleBlock: {
-    flex: 1,
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: '900',
-    color: Palette.text,
-    letterSpacing: -0.3,
-  },
-  modalBadgesCol: {
-    alignItems: 'flex-end',
-    gap: 5,
-  },
-  modalClose: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: 'rgba(0,0,0,0.06)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 2,
-  },
-  modalBody: {
-    padding: 16,
-    gap: 14,
   },
 });

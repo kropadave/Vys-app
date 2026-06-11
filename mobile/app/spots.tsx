@@ -1,7 +1,7 @@
 import { FontAwesome, FontAwesome5, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     ActivityIndicator,
     FlatList,
@@ -24,6 +24,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import SpotsMapView from '@/components/spots-map-view';
 import { useAuth } from '@/hooks/use-auth';
+import { useCoachLiveLocations } from '@/hooks/use-coach-live-locations';
 import { useRole } from '@/hooks/use-role';
 import { Brand } from '@/lib/brand';
 import { geocodeSpot } from '@/lib/geocode';
@@ -189,6 +190,22 @@ export default function SpotsScreen() {
   const { role } = useRole();
   const isCoach = role === 'coach' || role === 'admin';
   const mapRef = useRef<MapView>(null);
+
+  // Live coach location sharing (coaches/admins only).
+  const { sharing, locations: coachLocations, busy: shareBusy, error: shareError, toggleSharing, coachesAtSpot } =
+    useCoachLiveLocations(isCoach);
+  const coachMarkers = useMemo(
+    () =>
+      coachLocations.map((loc) => ({
+        coachId: loc.coachId,
+        name: loc.coachName,
+        xp: loc.xp,
+        lat: loc.lat,
+        lng: loc.lng,
+        self: loc.coachId === session?.userId,
+      })),
+    [coachLocations, session?.userId],
+  );
 
   const [spots, setSpots] = useState<SpotRow[]>(
     HARDCODED_SPOTS.map((s) => ({ ...s, avg_rating: 0, review_count: 0 })),
@@ -411,6 +428,34 @@ export default function SpotsScreen() {
         )}
       </View>
 
+      {/* ── Location sharing bar (coaches only) ────────────────────────────── */}
+      {isCoach && (
+        <View style={styles.shareBar}>
+          <Pressable
+            onPress={toggleSharing}
+            disabled={shareBusy}
+            style={({ pressed }) => [styles.shareToggle, sharing && styles.shareToggleOn, pressed && { opacity: 0.85 }]}
+          >
+            <MaterialCommunityIcons
+              name={sharing ? 'map-marker-radius' : 'map-marker-off-outline'}
+              size={15}
+              color={sharing ? '#fff' : Palette.textMuted}
+            />
+            <Text style={[styles.shareToggleText, sharing && styles.shareToggleTextOn]}>
+              {shareBusy ? 'Zapínám…' : sharing ? 'Sdílím polohu' : 'Sdílet polohu'}
+            </Text>
+          </Pressable>
+          <Text style={styles.shareHint} numberOfLines={1}>
+            {shareError
+              ? shareError
+              : (() => {
+                  const others = coachMarkers.filter((m) => !m.self).length;
+                  return others > 0 ? `Online trenéři: ${others}` : 'Žádný další trenér zatím nesdílí';
+                })()}
+          </Text>
+        </View>
+      )}
+
       {/* ── Map ───────────────────────────────────────────────────────────── */}
       <SpotsMapView
         ref={mapRef as React.Ref<MapView>}
@@ -418,6 +463,7 @@ export default function SpotsScreen() {
         selectedSpotId={selectedSpot?.id}
         onMarkerPress={(spot) => handleSelectSpot(spot as SpotRow)}
         initialRegion={CZECH_INITIAL_REGION}
+        coaches={isCoach ? coachMarkers : undefined}
       />
 
       {/* ── Bottom panel ──────────────────────────────────────────────────── */}
@@ -532,6 +578,33 @@ export default function SpotsScreen() {
                 </View>
 
                 <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 48 }}>
+                  {/* Coaches currently at this spot (coaches/admins only) */}
+                  {isCoach && (() => {
+                    const here = coachesAtSpot(selectedSpot.lat, selectedSpot.lng);
+                    if (here.length === 0) return null;
+                    return (
+                      <View style={styles.hereCard}>
+                        <View style={styles.hereHeader}>
+                          <MaterialCommunityIcons name="map-marker-account" size={15} color="#15B8A6" />
+                          <Text style={styles.hereTitle}>
+                            Na spotu právě {here.length === 1 ? 'je' : 'jsou'} ({here.length})
+                          </Text>
+                        </View>
+                        {here.map((coach) => (
+                          <View key={coach.coachId} style={styles.hereRow}>
+                            <View style={styles.hereAvatar}>
+                              <Text style={styles.hereAvatarText}>
+                                {(coach.coachName || '?').charAt(0).toUpperCase()}
+                              </Text>
+                            </View>
+                            <Text style={styles.hereName} numberOfLines={1}>{coach.coachName}</Text>
+                            <Text style={styles.hereXp}>{coach.xp} XP</Text>
+                          </View>
+                        ))}
+                      </View>
+                    );
+                  })()}
+
                   {/* Info chips */}
                   <View style={styles.infoRow}>
                     {selectedSpot.spot_type && (
@@ -912,6 +985,42 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: Palette.border,
   },
   coachHintText: { color: Palette.textSubtle, fontSize: 10, fontWeight: '700' },
+
+  // Location sharing bar
+  shareBar: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingHorizontal: 16, paddingVertical: 8,
+    backgroundColor: Palette.bg,
+    borderBottomWidth: 1, borderBottomColor: Palette.border,
+    zIndex: 5,
+  },
+  shareToggle: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: Palette.surface, borderRadius: Radius.pill,
+    paddingHorizontal: 12, paddingVertical: 7,
+    borderWidth: 1, borderColor: Palette.border,
+  },
+  shareToggleOn: { backgroundColor: '#15B8A6', borderColor: '#15B8A6' },
+  shareToggleText: { color: Palette.textMuted, fontSize: 12, fontWeight: '800' },
+  shareToggleTextOn: { color: '#fff' },
+  shareHint: { flex: 1, color: Palette.textSubtle, fontSize: 11, fontWeight: '600' },
+
+  // Coaches currently at a spot
+  hereCard: {
+    backgroundColor: '#15B8A610', borderRadius: Radius.md,
+    borderWidth: 1, borderColor: '#15B8A633',
+    padding: 12, marginBottom: 16, gap: 8,
+  },
+  hereHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  hereTitle: { color: '#0F8A7C', fontSize: 13, fontWeight: '800' },
+  hereRow: { flexDirection: 'row', alignItems: 'center', gap: 9 },
+  hereAvatar: {
+    width: 26, height: 26, borderRadius: 13, backgroundColor: '#15B8A6',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  hereAvatarText: { color: '#fff', fontSize: 12, fontWeight: '800' },
+  hereName: { flex: 1, color: Palette.text, fontSize: 13, fontWeight: '700' },
+  hereXp: { color: '#0F8A7C', fontSize: 12, fontWeight: '800' },
 
   // Spot type grid
   typeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 18 },
