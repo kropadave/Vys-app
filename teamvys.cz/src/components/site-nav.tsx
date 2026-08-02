@@ -59,9 +59,13 @@ export function SiteNav() {
           onMouseLeave={() => setDesktopHover(false)}
           style={{ '--nav-width': `${navWidth}%`, '--nav-scale': `${navScale}` } as React.CSSProperties}
         >
-          <div className="hidden md:flex md:flex-1 md:items-center">
-            <Link href="/" aria-label="Přejít na úvodní stránku" className="inline-flex items-center transition-opacity hover:opacity-80">
-              <TeamVysLogo size={42} priority />
+          <div className="hidden h-9 md:flex md:flex-1 md:items-center md:overflow-hidden">
+            <Link
+              href="/"
+              aria-label="Přejít na úvodní stránku"
+              className="inline-flex items-center opacity-0 transition-opacity duration-500 ease-out group-hover:opacity-100"
+            >
+              <TeamVysLogo size={32} priority />
             </Link>
           </div>
 
@@ -71,7 +75,7 @@ export function SiteNav() {
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`rounded-full font-bold text-black opacity-0 transition-all duration-500 ease-out hover:bg-black/5 group-hover:opacity-100 ${
+                  className={`whitespace-nowrap rounded-full font-bold text-black opacity-0 transition-all duration-500 ease-out hover:bg-black/5 group-hover:opacity-100 ${
                     'px-3 py-2 text-sm group-hover:px-3 group-hover:py-2 group-hover:text-sm'
                   }`}
                 >
