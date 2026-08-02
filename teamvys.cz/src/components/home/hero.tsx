@@ -11,9 +11,9 @@ const words = ['VYS', 'parkour', 'hrou'];
 // Staggered (not synced) offsets per word so the color drift reads as organic/decentralized
 // rather than a single pulsing block, without risking a client/server render mismatch.
 const wordAnimation = [
-  { duration: 8, delay: -1.4 },
-  { duration: 9.5, delay: -4.8 },
-  { duration: 10.5, delay: -7.2 },
+  { duration: 13, delay: -2.5 },
+  { duration: 15.5, delay: -8 },
+  { duration: 17, delay: -12 },
 ];
 
 export function HomeHero() {

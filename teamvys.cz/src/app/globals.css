@@ -100,8 +100,8 @@ a {
 
   .hero-word-glow {
     display: inline-block;
-    background-image: linear-gradient(90deg, #ffffff 0%, #8B1DFF 30%, #F12BB3 55%, #FFB21A 78%, #ffffff 100%);
-    background-size: 320% 100%;
+    background-image: linear-gradient(90deg, #ffffff 0%, #ffffff 40%, #DCC4FF 48%, #F6CDE8 54%, #FFDFA6 60%, #ffffff 68%, #ffffff 100%);
+    background-size: 240% 100%;
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
