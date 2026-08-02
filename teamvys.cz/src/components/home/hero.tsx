@@ -10,12 +10,19 @@ import { displayFont } from '@/lib/home-font';
 
 const ease = [0.22, 1, 0.36, 1] as const;
 
+// Staggered (not synced) offsets so the two headline words' color drift reads as
+// organic rather than perfectly synced, without risking a client/server mismatch.
+const wordAnimation = {
+  parkour: { duration: 14, delay: -3 },
+  teamVys: { duration: 16.5, delay: -9 },
+};
+
 type Chapter = {
   key: string;
   label: string;
   copy: string;
   cta: { label: string; href: string };
-  image?: { src: string; alt: string };
+  media?: { src: string; alt: string; frame: 'phone' | 'photo' };
 };
 
 const chapters: Chapter[] = [
@@ -24,9 +31,10 @@ const chapters: Chapter[] = [
     label: 'Aplikace',
     copy: 'Appka, ve které dítě sbírá XP, rodič vidí platby a docházku a trenér zapisuje body přes NFC nebo QR.',
     cta: { label: 'Zjistit víc o appce', href: '/aplikace' },
-    image: {
+    media: {
       src: '/telefon-mockup.png',
       alt: 'Appka TeamVYS na telefonu se skill tree, XP a digitální permanentkou účastníka',
+      frame: 'phone',
     },
   },
   {
@@ -40,12 +48,22 @@ const chapters: Chapter[] = [
     label: 'Tábory',
     copy: 'Týden pohybu, her a parkour výzev. Bezpečný trénink a jasný režim dne.',
     cta: { label: 'Vybrat tábor', href: '/tabory' },
+    media: {
+      src: '/gallery/tabor-skupina.jpg',
+      alt: 'Skupina dětí na příměstském táboře TeamVYS',
+      frame: 'photo',
+    },
   },
   {
     key: 'krouzky',
     label: 'Kroužky',
     copy: 'Pravidelný trénink v 6 městech. Permanentka s NFC docházkou.',
     cta: { label: 'Vybrat kroužek', href: '/krouzky' },
+    media: {
+      src: '/gallery/parkour-akce.jpg',
+      alt: 'Dítě trénující parkour na kroužku TeamVYS',
+      frame: 'photo',
+    },
   },
 ];
 
@@ -89,17 +107,31 @@ export function HomeHero() {
           initial={{ opacity: 0, y: prefersReducedMotion ? 0 : 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, ease }}
-          className="section-shell relative flex w-full flex-col items-start gap-10 text-left"
+          className="section-shell relative flex w-full flex-col items-start gap-8 text-left"
         >
           <div>
             <h1
-              className={`${displayFont.className} block max-w-[9ch] text-[clamp(3.2rem,12vw,10rem)] font-extrabold uppercase leading-[0.94] tracking-[-0.03em] text-white ${glowClass}`}
+              className={`${displayFont.className} block max-w-[9ch] text-[clamp(2.8rem,10vw,8rem)] font-extrabold uppercase leading-[0.94] tracking-[-0.03em] text-white ${glowClass}`}
+              style={
+                prefersReducedMotion
+                  ? undefined
+                  : { animationDuration: `${wordAnimation.parkour.duration}s`, animationDelay: `${wordAnimation.parkour.delay}s` }
+              }
             >
               parkour
             </h1>
             <motion.p
-              style={prefersReducedMotion ? { opacity: 1 } : { opacity: teamVysOpacity, y: teamVysY }}
-              className="mt-2 text-[clamp(1rem,2.4vw,1.5rem)] font-bold uppercase tracking-[0.2em] text-white/60"
+              style={
+                prefersReducedMotion
+                  ? { opacity: 1 }
+                  : {
+                      opacity: teamVysOpacity,
+                      y: teamVysY,
+                      animationDuration: `${wordAnimation.teamVys.duration}s`,
+                      animationDelay: `${wordAnimation.teamVys.delay}s`,
+                    }
+              }
+              className={`${displayFont.className} block max-w-[9ch] text-[clamp(2.8rem,10vw,8rem)] font-extrabold uppercase leading-[0.94] tracking-[-0.03em] text-white ${glowClass}`}
             >
               Team VYS
             </motion.p>
@@ -112,55 +144,67 @@ export function HomeHero() {
                 style={prefersReducedMotion ? { opacity: index === 0 ? 1 : 0 } : chapterMotion[index]}
                 className="col-start-1 row-start-1 w-full"
               >
-                {chapter.image ? (
-                  <div className="flex flex-col items-start gap-5 lg:flex-row lg:items-center lg:gap-12">
+                {chapter.media ? (
+                  <div className="flex flex-col items-start gap-6 lg:flex-row lg:items-center lg:gap-14">
                     <div className="flex flex-col items-start gap-3">
                       <span
-                        className={`${displayFont.className} gradient-text block text-[clamp(1.4rem,3.2vw,2.2rem)] font-extrabold uppercase tracking-[-0.01em]`}
+                        className={`${displayFont.className} gradient-text block text-[clamp(1.8rem,4vw,3rem)] font-extrabold uppercase tracking-[-0.01em]`}
                       >
                         {chapter.label}
                       </span>
-                      <p className="max-w-[36ch] text-sm leading-6 text-white/60 md:text-base">{chapter.copy}</p>
+                      <p className="max-w-[38ch] text-base leading-7 text-white/75 md:text-lg">{chapter.copy}</p>
                       <Link
                         href={chapter.cta.href}
-                        className="group mt-1 inline-flex h-11 items-center justify-center gap-2 rounded-full bg-brand-purple px-6 text-sm font-black text-white transition-transform hover:-translate-y-0.5"
+                        className="group mt-2 inline-flex h-12 items-center justify-center gap-2 rounded-full bg-brand-purple px-7 text-base font-black text-white transition-transform hover:-translate-y-0.5"
                       >
                         {chapter.cta.label}
-                        <ArrowRight size={16} className="transition-transform duration-200 group-hover:translate-x-0.5" />
+                        <ArrowRight size={18} className="transition-transform duration-200 group-hover:translate-x-0.5" />
                       </Link>
                     </div>
 
-                    <div className="relative w-full max-w-[200px] lg:max-w-[240px]">
-                      <div
-                        aria-hidden
-                        className="pointer-events-none absolute -inset-8 rounded-full bg-[radial-gradient(circle,rgba(139,29,255,0.20),transparent_60%)] blur-2xl"
-                      />
-                      <Image
-                        src={chapter.image.src}
-                        alt={chapter.image.alt}
-                        width={520}
-                        height={720}
-                        priority={index === 0}
-                        className="relative w-full drop-shadow-[0_30px_60px_rgba(0,0,0,0.55)]"
-                      />
-                    </div>
+                    {chapter.media.frame === 'phone' ? (
+                      <div className="relative w-full max-w-[200px] lg:max-w-[240px]">
+                        <div
+                          aria-hidden
+                          className="pointer-events-none absolute -inset-8 rounded-full bg-[radial-gradient(circle,rgba(139,29,255,0.20),transparent_60%)] blur-2xl"
+                        />
+                        <Image
+                          src={chapter.media.src}
+                          alt={chapter.media.alt}
+                          width={520}
+                          height={720}
+                          priority={index === 0}
+                          className="relative w-full drop-shadow-[0_30px_60px_rgba(0,0,0,0.55)]"
+                        />
+                      </div>
+                    ) : (
+                      <div className="relative aspect-[4/5] w-full max-w-[260px] overflow-hidden rounded-[24px] border border-white/10 shadow-[0_24px_60px_rgba(0,0,0,0.5)] lg:max-w-[300px]">
+                        <Image
+                          src={chapter.media.src}
+                          alt={chapter.media.alt}
+                          fill
+                          sizes="(min-width: 1024px) 300px, 260px"
+                          className="object-cover"
+                        />
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="flex w-full max-w-[640px] flex-col items-start gap-5 lg:flex-row lg:items-center lg:justify-between">
-                    <div className="max-w-[36ch]">
+                    <div className="max-w-[38ch]">
                       <span
-                        className={`${displayFont.className} gradient-text block text-[clamp(1.4rem,3.2vw,2.2rem)] font-extrabold uppercase tracking-[-0.01em]`}
+                        className={`${displayFont.className} gradient-text block text-[clamp(1.8rem,4vw,3rem)] font-extrabold uppercase tracking-[-0.01em]`}
                       >
                         {chapter.label}
                       </span>
-                      <p className="mt-2 text-sm leading-6 text-white/60 md:text-base">{chapter.copy}</p>
+                      <p className="mt-2 text-base leading-7 text-white/75 md:text-lg">{chapter.copy}</p>
                     </div>
                     <Link
                       href={chapter.cta.href}
-                      className="group inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-full bg-brand-purple px-6 text-sm font-black text-white transition-transform hover:-translate-y-0.5"
+                      className="group inline-flex h-12 shrink-0 items-center justify-center gap-2 rounded-full bg-brand-purple px-7 text-base font-black text-white transition-transform hover:-translate-y-0.5"
                     >
                       {chapter.cta.label}
-                      <ArrowRight size={16} className="transition-transform duration-200 group-hover:translate-x-0.5" />
+                      <ArrowRight size={18} className="transition-transform duration-200 group-hover:translate-x-0.5" />
                     </Link>
                   </div>
                 )}
