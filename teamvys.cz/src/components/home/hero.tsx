@@ -1,7 +1,9 @@
 'use client';
 
+import { ArrowRight } from 'lucide-react';
 import { motion, useReducedMotion, useScroll, useTransform } from 'framer-motion';
 import Image from 'next/image';
+import Link from 'next/link';
 import { useRef } from 'react';
 
 import { displayFont } from '@/lib/home-font';
@@ -16,30 +18,74 @@ const wordAnimation = {
   hrou: { duration: 17, delay: -12 },
 };
 
+type Chapter = {
+  key: string;
+  label: string;
+  copy?: string;
+  cta: { label: string; href: string };
+  image?: { src: string; alt: string };
+};
+
+const chapters: Chapter[] = [
+  {
+    key: 'aplikace',
+    label: 'Aplikace',
+    copy: 'Appka, ve které dítě sbírá XP, rodič vidí platby a docházku a trenér zapisuje body přes NFC nebo QR.',
+    cta: { label: 'Zjistit víc o appce', href: '/aplikace' },
+    image: {
+      src: '/telefon-mockup.png',
+      alt: 'Appka TeamVYS na telefonu se skill tree, XP a digitální permanentkou účastníka',
+    },
+  },
+  {
+    key: 'workshopy',
+    label: 'Workshopy',
+    cta: { label: 'Vybrat workshop', href: '/workshopy' },
+  },
+  {
+    key: 'tabory',
+    label: 'Tábory',
+    cta: { label: 'Vybrat tábor', href: '/tabory' },
+  },
+  {
+    key: 'krouzky',
+    label: 'Kroužky',
+    cta: { label: 'Vybrat kroužek', href: '/krouzky' },
+  },
+];
+
 export function HomeHero() {
   const prefersReducedMotion = useReducedMotion();
   const containerRef = useRef<HTMLDivElement>(null);
   const { scrollYProgress } = useScroll({ target: containerRef, offset: ['start start', 'end end'] });
 
-  const vysOpacity = useTransform(scrollYProgress, [0, 0.22], [1, 0]);
-  const vysY = useTransform(scrollYProgress, [0, 0.22], [0, -70]);
-  const hrouOpacity = useTransform(scrollYProgress, [0, 0.22], [1, 0]);
-  const hrouY = useTransform(scrollYProgress, [0, 0.22], [0, 70]);
+  const vysOpacity = useTransform(scrollYProgress, [0, 0.08], [1, 0]);
+  const vysY = useTransform(scrollYProgress, [0, 0.08], [0, -30]);
+  const hrouOpacity = useTransform(scrollYProgress, [0, 0.08], [1, 0]);
+  const hrouY = useTransform(scrollYProgress, [0, 0.08], [0, 30]);
 
-  const appWordOpacity = useTransform(scrollYProgress, [0.24, 0.4], [0, 1]);
-  const appWordY = useTransform(scrollYProgress, [0.24, 0.4], [30, 0]);
+  // Each chapter fades in, holds, then fades out — except the last one, which
+  // simply stays visible once revealed so the sequence ends on a settled frame.
+  const ch0Opacity = useTransform(scrollYProgress, [0.08, 0.14, 0.26, 0.32], [0, 1, 1, 0]);
+  const ch0Y = useTransform(scrollYProgress, [0.08, 0.14], [24, 0]);
+  const ch1Opacity = useTransform(scrollYProgress, [0.32, 0.38, 0.5, 0.56], [0, 1, 1, 0]);
+  const ch1Y = useTransform(scrollYProgress, [0.32, 0.38], [24, 0]);
+  const ch2Opacity = useTransform(scrollYProgress, [0.56, 0.62, 0.74, 0.8], [0, 1, 1, 0]);
+  const ch2Y = useTransform(scrollYProgress, [0.56, 0.62], [24, 0]);
+  const ch3Opacity = useTransform(scrollYProgress, [0.8, 0.86], [0, 1]);
+  const ch3Y = useTransform(scrollYProgress, [0.8, 0.86], [24, 0]);
 
-  const introOpacity = useTransform(scrollYProgress, [0.38, 0.56], [0, 1]);
-  const introY = useTransform(scrollYProgress, [0.38, 0.56], [26, 0]);
-
-  const imageOpacity = useTransform(scrollYProgress, [0.54, 0.78], [0, 1]);
-  const imageY = useTransform(scrollYProgress, [0.54, 0.78], [36, 0]);
-  const imageScale = useTransform(scrollYProgress, [0.54, 0.78], [0.94, 1]);
+  const chapterMotion = [
+    { opacity: ch0Opacity, y: ch0Y },
+    { opacity: ch1Opacity, y: ch1Y },
+    { opacity: ch2Opacity, y: ch2Y },
+    { opacity: ch3Opacity, y: ch3Y },
+  ];
 
   const glowClass = prefersReducedMotion ? '' : 'hero-word-glow';
 
   return (
-    <section ref={containerRef} className="relative bg-[#0B0B10] lg:h-[240vh]">
+    <section ref={containerRef} className="relative bg-[#0B0B10] lg:h-[360vh]">
       <div className="relative flex flex-col items-center justify-center overflow-hidden py-20 lg:sticky lg:top-0 lg:h-dvh lg:py-0">
         <div
           aria-hidden
@@ -50,92 +96,97 @@ export function HomeHero() {
           initial={{ opacity: 0, y: prefersReducedMotion ? 0 : 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, ease }}
-          className="section-shell relative flex w-full flex-col items-center gap-10 text-center lg:flex-row lg:items-center lg:justify-between lg:gap-12 lg:text-left"
+          className="section-shell relative flex w-full flex-col items-center gap-8 text-center"
         >
-          <div className="flex flex-col items-center lg:items-start">
-            <div
-              className={`${displayFont.className} relative max-w-[10ch] text-[clamp(3.2rem,14vw,13rem)] font-extrabold uppercase leading-[0.92] tracking-[-0.04em] text-white`}
-            >
-              <motion.span
-                style={
-                  prefersReducedMotion
-                    ? undefined
-                    : {
-                        opacity: vysOpacity,
-                        y: vysY,
-                        animationDuration: `${wordAnimation.vys.duration}s`,
-                        animationDelay: `${wordAnimation.vys.delay}s`,
-                      }
-                }
-                className={`absolute inset-x-0 bottom-full block ${glowClass}`}
-              >
-                VYS
-              </motion.span>
-              <span
-                style={
-                  prefersReducedMotion
-                    ? undefined
-                    : { animationDuration: `${wordAnimation.parkour.duration}s`, animationDelay: `${wordAnimation.parkour.delay}s` }
-                }
-                className={`block ${glowClass}`}
-              >
-                parkour
-              </span>
-              <motion.span
-                style={
-                  prefersReducedMotion
-                    ? undefined
-                    : {
-                        opacity: hrouOpacity,
-                        y: hrouY,
-                        animationDuration: `${wordAnimation.hrou.duration}s`,
-                        animationDelay: `${wordAnimation.hrou.delay}s`,
-                      }
-                }
-                className={`absolute inset-x-0 top-full block ${glowClass}`}
-              >
-                hrou
-              </motion.span>
-            </div>
-
-            <motion.span
-              style={prefersReducedMotion ? { opacity: 1 } : { opacity: appWordOpacity, y: appWordY }}
-              className={`${displayFont.className} gradient-text mt-5 block text-[clamp(1.6rem,4vw,2.6rem)] font-extrabold uppercase tracking-[-0.02em] lg:mt-8`}
-            >
-              Aplikace
-            </motion.span>
-
-            <motion.div
-              style={prefersReducedMotion ? { opacity: 1 } : { opacity: introOpacity, y: introY }}
-              className="mt-5 max-w-[46ch]"
-            >
-              <h2 className={`${displayFont.className} text-[clamp(1.5rem,3vw,2rem)] font-extrabold leading-[1.14] text-white`}>
-                Appka, díky které trénink nekončí na rohožce.
-              </h2>
-              <p className="mt-3 text-sm leading-6 text-white/65 md:text-base md:leading-7">
-                Kroužek, tábor i workshop mají svou appku. Dítě v ní sbírá XP, rodič vidí platby a docházku,
-                trenér zapisuje body přes NFC nebo QR. Bez appky by to bylo jen razítko v sešitě.
-              </p>
-            </motion.div>
-          </div>
-
-          <motion.div
-            style={prefersReducedMotion ? { opacity: 1 } : { opacity: imageOpacity, y: imageY, scale: imageScale }}
-            className="relative mx-auto w-full max-w-[260px] lg:max-w-[320px]"
+          <h1
+            className={`${displayFont.className} max-w-[10ch] text-[clamp(2.6rem,10vw,8rem)] font-extrabold uppercase leading-[0.96] tracking-[-0.03em] text-white`}
           >
-            <div
-              aria-hidden
-              className="pointer-events-none absolute -inset-10 rounded-full bg-[radial-gradient(circle,rgba(139,29,255,0.22),transparent_60%)] blur-2xl"
-            />
-            <Image
-              src="/telefon-mockup.png"
-              alt="Appka TeamVYS na telefonu se skill tree, XP a digitální permanentkou účastníka"
-              width={520}
-              height={720}
-              priority
-              className="relative mx-auto w-full drop-shadow-[0_30px_60px_rgba(0,0,0,0.55)]"
-            />
-          </motion.div>
+            <motion.span
+              style={
+                prefersReducedMotion
+                  ? undefined
+                  : {
+                      opacity: vysOpacity,
+                      y: vysY,
+                      animationDuration: `${wordAnimation.vys.duration}s`,
+                      animationDelay: `${wordAnimation.vys.delay}s`,
+                    }
+              }
+              className={`block ${glowClass}`}
+            >
+              VYS
+            </motion.span>
+            <span
+              style={
+                prefersReducedMotion
+                  ? undefined
+                  : { animationDuration: `${wordAnimation.parkour.duration}s`, animationDelay: `${wordAnimation.parkour.delay}s` }
+              }
+              className={`block ${glowClass}`}
+            >
+              parkour
+            </span>
+            <motion.span
+              style={
+                prefersReducedMotion
+                  ? undefined
+                  : {
+                      opacity: hrouOpacity,
+                      y: hrouY,
+                      animationDuration: `${wordAnimation.hrou.duration}s`,
+                      animationDelay: `${wordAnimation.hrou.delay}s`,
+                    }
+              }
+              className={`block ${glowClass}`}
+            >
+              hrou
+            </motion.span>
+          </h1>
+
+          <div className="grid w-full place-items-center">
+            {chapters.map((chapter, index) => (
+              <motion.div
+                key={chapter.key}
+                style={prefersReducedMotion ? { opacity: index === 0 ? 1 : 0 } : chapterMotion[index]}
+                className="col-start-1 row-start-1 flex flex-col items-center gap-5 lg:flex-row lg:gap-12"
+              >
+                <div className="flex flex-col items-center gap-3 lg:items-start lg:text-left">
+                  <span
+                    className={`${displayFont.className} gradient-text block text-[clamp(1.5rem,3.6vw,2.4rem)] font-extrabold uppercase tracking-[-0.01em]`}
+                  >
+                    {chapter.label}
+                  </span>
+                  {chapter.copy ? (
+                    <p className="max-w-[36ch] text-sm leading-6 text-white/60 md:text-base">{chapter.copy}</p>
+                  ) : null}
+                  <Link
+                    href={chapter.cta.href}
+                    className="group mt-1 inline-flex h-11 items-center justify-center gap-2 rounded-full bg-brand-purple px-6 text-sm font-black text-white transition-transform hover:-translate-y-0.5"
+                  >
+                    {chapter.cta.label}
+                    <ArrowRight size={16} className="transition-transform duration-200 group-hover:translate-x-0.5" />
+                  </Link>
+                </div>
+
+                {chapter.image ? (
+                  <div className="relative mx-auto w-full max-w-[220px] lg:max-w-[260px]">
+                    <div
+                      aria-hidden
+                      className="pointer-events-none absolute -inset-8 rounded-full bg-[radial-gradient(circle,rgba(139,29,255,0.20),transparent_60%)] blur-2xl"
+                    />
+                    <Image
+                      src={chapter.image.src}
+                      alt={chapter.image.alt}
+                      width={520}
+                      height={720}
+                      priority={index === 0}
+                      className="relative mx-auto w-full drop-shadow-[0_30px_60px_rgba(0,0,0,0.55)]"
+                    />
+                  </div>
+                ) : null}
+              </motion.div>
+            ))}
+          </div>
         </motion.div>
       </div>
     </section>
