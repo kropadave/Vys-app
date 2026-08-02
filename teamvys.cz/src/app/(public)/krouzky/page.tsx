@@ -11,33 +11,33 @@ export const metadata = {
 };
 
 const benefits = [
-  { icon: <ScanLine size={20} />, eyebrow: '10 / 15 vstupů', title: 'Permanentka, ne závazek', body: 'Vstupy se odečítají postupně přes NFC čip.', accent: 'purple' as const },
-  { icon: <ShieldCheck size={20} />, eyebrow: 'Bezpečně', title: 'Trénink od základů', body: 'Dopady, koordinace a triky krok za krokem.', accent: 'pink' as const },
-  { icon: <Trophy size={20} />, eyebrow: 'Skill tree', title: 'Pokrok je vidět', body: 'Dítě sbírá XP, odemyká triky a postupuje náramky.', accent: 'cyan' as const },
+  { icon: <ScanLine size={20} />, eyebrow: '10 / 15 vstupů', title: 'Permanentka, ne závazek', body: 'Vstupy se odečítají postupně přes NFC čip. Žádný závazek na celý rok.' },
+  { icon: <ShieldCheck size={20} />, eyebrow: 'Bezpečně', title: 'Trénink od základů', body: 'Dopady, koordinace a triky krok za krokem pod dohledem certifikovaných trenérů.' },
+  { icon: <Trophy size={20} />, eyebrow: 'Skill tree', title: 'Pokrok je vidět', body: 'Dítě sbírá XP, odemyká triky a postupuje barevnými náramky rovnou v appce.' },
 ];
 
 export default function CoursesPage() {
   return (
-    <>
+    <div className="bg-[#0B0B10] text-white">
       <PageHero
         eyebrow="Pravidelné kroužky"
         title="Parkour kroužek u tebe ve městě"
-        body="6 měst. Certifikovaní trenéři. Permanentka s NFC docházkou."
+        body="Šest měst, certifikovaní trenéři a permanentka s NFC docházkou. Postup dítěte vidíš rovnou v aplikaci."
         word="kroužky"
       />
 
-      <section className="section-shell py-16 md:py-20">
+      <section className="section-shell py-16 md:py-24">
         <SectionIntro eyebrow="Proč kroužek" title="Trénink, který má hlavu a patu" />
-        <div className="mt-8 grid gap-4 md:grid-cols-3">
+        <div className="mt-10 grid gap-4 md:grid-cols-3">
           {benefits.map((b, i) => (
             <FeatureCard key={b.title} {...b} index={i} />
           ))}
         </div>
       </section>
 
-      <section className="section-shell pb-16 md:pb-20">
+      <section className="section-shell pb-16 md:pb-24">
         <SectionIntro eyebrow="Nabídka" title="Vyber si město" />
-        <div className="mt-8">
+        <div className="mt-10 rounded-[28px] bg-brand-paper p-4 shadow-[0_30px_80px_rgba(0,0,0,0.45)] md:p-6 lg:p-8">
           <PublicCourseCatalog />
         </div>
       </section>
@@ -52,6 +52,6 @@ export default function CoursesPage() {
         secondaryHref="/kontakty"
         secondaryLabel="Mám dotaz"
       />
-    </>
+    </div>
   );
 }

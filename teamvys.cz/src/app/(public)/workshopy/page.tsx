@@ -11,33 +11,33 @@ export const metadata = {
 };
 
 const workshopSteps = [
-  { icon: <Target size={20} />, eyebrow: '01', title: 'Konkrétní triky', body: 'Každý workshop má jasné téma a triky krok za krokem.', accent: 'purple' as const },
-  { icon: <QrCode size={20} />, eyebrow: '02', title: 'QR ticket', body: 'Po zaplacení se rodiči zobrazí digitální ticket pro kontrolu na místě.', accent: 'pink' as const },
-  { icon: <Sparkles size={20} />, eyebrow: '03', title: 'Navazuje na skill tree', body: 'Trenér ví, které prvky může dítě dostat do profilu.', accent: 'cyan' as const },
+  { icon: <Target size={20} />, eyebrow: '01', title: 'Konkrétní triky', body: 'Každý workshop má jasné téma a triky, které se učíte krok za krokem.' },
+  { icon: <QrCode size={20} />, eyebrow: '02', title: 'QR ticket', body: 'Po zaplacení se rodiči zobrazí digitální ticket pro kontrolu na místě.' },
+  { icon: <Sparkles size={20} />, eyebrow: '03', title: 'Navazuje na skill tree', body: 'Trenér ví, které prvky může dítě dostat do svého profilu v appce.' },
 ];
 
 export default function WorkshopsPage() {
   return (
-    <>
+    <div className="bg-[#0B0B10] text-white">
       <PageHero
         eyebrow="Workshopy a open jamy"
         title="Jednorázové akce pro rychlý progres"
-        body="Kratší, intenzivní a s jasným výsledkem."
+        body="Kratší, intenzivní a s jasným výsledkem. Platíš online, ticket máš hned v telefonu."
         word="workshopy"
       />
 
-      <section className="section-shell py-16 md:py-20">
+      <section className="section-shell py-16 md:py-24">
         <SectionIntro eyebrow="Jak to funguje" title="Jednorázově, ale s výsledkem" />
-        <div className="mt-8 grid gap-4 md:grid-cols-3">
+        <div className="mt-10 grid gap-4 md:grid-cols-3">
           {workshopSteps.map((s, i) => (
             <FeatureCard key={s.title} {...s} index={i} />
           ))}
         </div>
       </section>
 
-      <section className="section-shell pb-16 md:pb-20">
+      <section className="section-shell pb-16 md:pb-24">
         <SectionIntro eyebrow="Nejbližší akce" title="Workshopy s digitálním ticketem" />
-        <div className="mt-8">
+        <div className="mt-10 rounded-[28px] bg-brand-paper p-4 shadow-[0_30px_80px_rgba(0,0,0,0.45)] md:p-6 lg:p-8">
           <WorkshopBrowser />
         </div>
       </section>
@@ -52,6 +52,6 @@ export default function WorkshopsPage() {
         secondaryHref="/krouzky"
         secondaryLabel="Spíš pravidelný kroužek"
       />
-    </>
+    </div>
   );
 }

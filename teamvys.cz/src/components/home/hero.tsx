@@ -50,6 +50,9 @@ export function HomeHero() {
 
   // Slide 0 is the plain "Team VYS" brand word; slides 1-4 are the chapters.
   // Each fades in, holds, then fades out — except the last, which stays once revealed.
+  // The whole headline starts slightly above centre and eases further up as scrolling
+  // begins, so there isn't dead space above PARKOUR before the word-swap kicks in.
+  const contentY = useTransform(scrollYProgress, [0, 0.06], [-28, -92]);
   const s0Opacity = useTransform(scrollYProgress, [0, 0.05, 0.09], [1, 1, 0]);
   const s0Y = useTransform(scrollYProgress, [0, 0.09], [0, -16]);
   const s1Opacity = useTransform(scrollYProgress, [0.05, 0.11, 0.24, 0.3], [0, 1, 1, 0]);
@@ -87,20 +90,21 @@ export function HomeHero() {
         >
           {/* Headline block: this is what actually gets vertically centered in the viewport.
               The paragraph/CTA area below is absolutely positioned so it never affects that. */}
-          <div className="relative">
+          <motion.div className="relative" style={prefersReducedMotion ? undefined : { y: contentY }}>
             <h1
               className={`${displayFont.className} block max-w-[9ch] text-[clamp(3.2rem,12vw,9.5rem)] font-extrabold uppercase leading-[0.94] tracking-[-0.03em] text-white`}
             >
               parkour
             </h1>
 
-            {/* Swappable headline word: "Team VYS" crossfades into each chapter's name, in place */}
+            {/* Swappable headline word: "Team VYS" crossfades into each chapter's name, in place.
+                Rendered as an outlined (stroked) word so it reads as a secondary title. */}
             <div className="relative grid w-full place-items-start">
               {words.map((word, index) => (
                 <motion.span
                   key={word}
                   style={prefersReducedMotion ? { opacity: index === 1 ? 1 : 0 } : slideMotion[index]}
-                  className={`${displayFont.className} col-start-1 row-start-1 block max-w-[9ch] text-[clamp(3.2rem,12vw,9.5rem)] font-extrabold uppercase leading-[0.94] tracking-[-0.03em] text-white`}
+                  className={`${displayFont.className} hero-outline-text col-start-1 row-start-1 block max-w-[9ch] text-[clamp(3.2rem,12vw,9.5rem)] font-extrabold uppercase leading-[0.94] tracking-[-0.03em]`}
                 >
                   {word}
                 </motion.span>
@@ -109,17 +113,17 @@ export function HomeHero() {
 
             {/* Supporting copy + CTA per chapter, synced with the headline word above.
                 Positioned out of flow so it doesn't shift the headline's centering. */}
-            <div className="absolute inset-x-0 top-full mt-8 grid w-full place-items-start">
+            <div className="absolute inset-x-0 top-full mt-12 grid w-full place-items-start md:mt-14">
               {chapters.map((chapter, index) => (
                 <motion.div
                   key={chapter.key}
                   style={prefersReducedMotion ? { opacity: index === 0 ? 1 : 0 } : slideMotion[index + 1]}
-                  className="col-start-1 row-start-1 flex w-full flex-col items-start gap-5 lg:flex-row lg:items-center lg:justify-between"
+                  className="col-start-1 row-start-1 flex w-full max-w-[56ch] flex-col items-start gap-7"
                 >
-                  <p className="max-w-[54ch] text-base leading-7 text-white md:text-lg md:leading-8">{chapter.copy}</p>
+                  <p className="text-base leading-8 text-white/85 md:text-lg md:leading-9">{chapter.copy}</p>
                   <Link
                     href={chapter.cta.href}
-                    className="group inline-flex h-12 shrink-0 items-center justify-center gap-2 rounded-full bg-brand-purple px-7 text-base font-black text-white transition-transform hover:-translate-y-0.5"
+                    className="group inline-flex h-12 items-center justify-center gap-2 rounded-full bg-brand-purple px-7 text-base font-black text-white transition-transform hover:-translate-y-0.5"
                   >
                     {chapter.cta.label}
                     <ArrowRight size={18} className="transition-transform duration-200 group-hover:translate-x-0.5" />
@@ -127,7 +131,7 @@ export function HomeHero() {
                 </motion.div>
               ))}
             </div>
-          </div>
+          </motion.div>
         </motion.div>
       </div>
     </section>

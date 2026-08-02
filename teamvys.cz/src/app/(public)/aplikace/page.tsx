@@ -44,16 +44,20 @@ const steps = [
 
 export default function AplikacePage() {
   return (
-    <>
+    <div className="bg-[#0B0B10] text-white">
       {/* Hero */}
-      <section className="border-b border-black/[0.06] bg-white pt-28 md:pt-32">
-        <div className="section-shell grid items-center gap-12 pb-16 md:pb-20 lg:grid-cols-[1fr_360px]">
+      <section className="relative overflow-hidden pt-36 md:pt-44">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 [background:radial-gradient(circle_at_15%_0%,rgba(139,29,255,0.20),transparent_45%),radial-gradient(circle_at_90%_20%,rgba(178,59,255,0.12),transparent_45%)]"
+        />
+        <div className="section-shell relative grid items-center gap-14 pb-16 md:pb-24 lg:grid-cols-[1fr_360px]">
           <div>
             <motion.p
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5, ease }}
-              className="text-xs font-bold uppercase tracking-[0.2em] text-brand-purple"
+              className="text-xs font-bold uppercase tracking-[0.25em] text-brand-purple-light"
             >
               Aplikace
             </motion.p>
@@ -61,7 +65,7 @@ export default function AplikacePage() {
               initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.06, ease }}
-              className="mt-4 max-w-[14ch] text-4xl font-black leading-[1.05] tracking-tight text-brand-ink md:text-6xl"
+              className="mt-5 max-w-[14ch] text-4xl font-black leading-[1.02] tracking-tight text-white md:text-7xl"
             >
               Celý TeamVYS v telefonu
             </motion.h1>
@@ -69,21 +73,25 @@ export default function AplikacePage() {
               initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.12, ease }}
-              className="mt-5 max-w-[520px] text-base leading-7 text-neutral-500 md:text-lg"
+              className="mt-6 max-w-[520px] text-base leading-8 text-white/60 md:text-lg"
             >
               Účastníci sledují progres, rodiče řeší platby a správu dětí, trenéři odbavují docházku i QR triky.
             </motion.p>
 
-            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+            <div className="mt-9 flex flex-col gap-3 sm:flex-row">
               <StoreButton store="apple" />
               <StoreButton store="google" />
             </div>
-            <p className="mt-4 text-xs font-medium text-neutral-400">
+            <p className="mt-4 text-xs font-medium text-white/40">
               Odkazy ke stažení doplníme po vydání na App Store a Google Play.
             </p>
           </div>
 
           <div className="pointer-events-none relative mx-auto w-full max-w-[300px] lg:max-w-[360px]">
+            <div
+              aria-hidden
+              className="pointer-events-none absolute -inset-10 rounded-full bg-[radial-gradient(circle,rgba(139,29,255,0.25),transparent_60%)] blur-2xl"
+            />
             <Image
               src="/telefon-mockup.png"
               alt="Ukázka aplikace TeamVYS v iPhonu"
@@ -91,18 +99,18 @@ export default function AplikacePage() {
               height={960}
               priority
               sizes="(min-width: 1024px) 360px, 80vw"
-              className="w-full drop-shadow-[0_30px_60px_rgba(0,0,0,0.14)]"
+              className="relative w-full drop-shadow-[0_40px_80px_rgba(0,0,0,0.55)]"
             />
           </div>
         </div>
       </section>
 
       {/* Pro koho */}
-      <section className="section-shell py-16 md:py-20">
-        <p className="text-xs font-bold uppercase tracking-widest text-brand-purple">Pro všechny</p>
-        <h2 className="mt-2 text-2xl font-black tracking-tight text-brand-ink md:text-4xl">Jedna aplikace, tři pohledy</h2>
+      <section className="section-shell py-16 md:py-24">
+        <p className="text-xs font-bold uppercase tracking-widest text-brand-purple-light">Pro všechny</p>
+        <h2 className="mt-3 text-2xl font-black tracking-tight text-white md:text-4xl">Jedna aplikace, tři pohledy</h2>
 
-        <div className="mt-8 grid gap-4 md:grid-cols-3">
+        <div className="mt-10 grid gap-4 md:grid-cols-3">
           {audiences.map((role, index) => (
             <motion.div
               key={role.title}
@@ -110,17 +118,17 @@ export default function AplikacePage() {
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, margin: '-70px' }}
               transition={{ duration: 0.5, delay: index * 0.08, ease }}
-              className="rounded-2xl border border-black/[0.08] bg-white p-6 md:p-7"
+              className="rounded-2xl border border-white/10 bg-white/[0.03] p-6 md:p-7"
             >
-              <p className="text-xs font-bold uppercase tracking-wider text-brand-purple">{role.label}</p>
-              <h3 className="mt-1 text-2xl font-black text-brand-ink">{role.title}</h3>
-              <ul className="mt-5 space-y-3">
+              <p className="text-xs font-bold uppercase tracking-wider text-brand-purple-light">{role.label}</p>
+              <h3 className="mt-1 text-2xl font-black text-white">{role.title}</h3>
+              <ul className="mt-6 space-y-3">
                 {role.bullets.map((bullet) => (
                   <li key={bullet} className="flex items-start gap-3">
-                    <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand-purple/10 text-brand-purple">
+                    <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand-purple/20 text-brand-purple-light">
                       <Check size={13} strokeWidth={3} />
                     </span>
-                    <span className="text-sm leading-6 text-neutral-600">{bullet}</span>
+                    <span className="text-sm leading-6 text-white/65">{bullet}</span>
                   </li>
                 ))}
               </ul>
@@ -131,21 +139,21 @@ export default function AplikacePage() {
 
       {/* Jak to funguje */}
       <section className="section-shell pb-16 md:pb-24">
-        <p className="text-xs font-bold uppercase tracking-widest text-brand-purple">Jak to funguje</p>
-        <h2 className="mt-2 text-2xl font-black tracking-tight text-brand-ink md:text-4xl">Tři kroky a jedeš</h2>
+        <p className="text-xs font-bold uppercase tracking-widest text-brand-purple-light">Jak to funguje</p>
+        <h2 className="mt-3 text-2xl font-black tracking-tight text-white md:text-4xl">Tři kroky a jedeš</h2>
 
-        <ol className="mt-8 grid gap-4 md:grid-cols-3">
+        <ol className="mt-10 grid gap-4 md:grid-cols-3">
           {steps.map((step, index) => (
-            <li key={step} className="rounded-2xl border border-black/[0.08] bg-white p-6">
+            <li key={step} className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
               <span className="flex h-9 w-9 items-center justify-center rounded-full bg-brand-purple text-sm font-black text-white">
                 {index + 1}
               </span>
-              <p className="mt-4 text-sm leading-6 text-neutral-600">{step}</p>
+              <p className="mt-5 text-sm leading-6 text-white/65">{step}</p>
             </li>
           ))}
         </ol>
       </section>
-    </>
+    </div>
   );
 }
 
@@ -154,12 +162,12 @@ function StoreButton({ store }: { store: 'apple' | 'google' }) {
   return (
     <button
       type="button"
-      className="inline-flex w-full items-center justify-center gap-3 rounded-2xl bg-brand-ink px-6 py-3.5 text-left text-white transition-transform hover:-translate-y-0.5 sm:w-auto"
+      className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-white/15 bg-white/[0.05] px-6 py-3.5 text-left text-white transition-transform hover:-translate-y-0.5 sm:w-auto"
       aria-label={isApple ? 'Stáhnout na App Store (již brzy)' : 'Stáhnout na Google Play (již brzy)'}
     >
       {isApple ? <Apple size={24} /> : <Play size={22} className="fill-white" />}
       <span className="leading-tight">
-        <span className="block text-[10px] font-semibold uppercase tracking-wide text-white/60">
+        <span className="block text-[10px] font-semibold uppercase tracking-wide text-white/50">
           {isApple ? 'Stáhnout na' : 'K dispozici na'}
         </span>
         <span className="block text-base font-black">{isApple ? 'App Store' : 'Google Play'}</span>

@@ -20,17 +20,18 @@ const includes = [
 
 export default function CampsPage() {
   return (
-    <>
+    <div className="bg-[#0B0B10] text-white">
       <PageHero
         eyebrow="Příměstské tábory"
         title="Týden pohybu, her a parkour výzev"
-        body="Bezpečný trénink, noví kamarádi a jasný režim dne. Platba i dokumenty vyřešíte online předem."
+        body="Bezpečný trénink, noví kamarádi a jasný režim dne. Platbu i dokumenty vyřešíte online předem."
+        word="tábory"
       />
 
       {/* Co je v ceně */}
-      <section className="section-shell py-16 md:py-20">
+      <section className="section-shell py-16 md:py-24">
         <SectionIntro eyebrow="Co je v ceně" title="Vše bez skrytých příplatků" />
-        <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {includes.map((item, i) => (
             <FeatureCard key={item.title} icon={item.icon} title={item.title} body={item.body} index={i} />
           ))}
@@ -38,43 +39,41 @@ export default function CampsPage() {
       </section>
 
       {/* Typický den */}
-      <section className="section-shell pb-16 md:pb-20">
+      <section className="section-shell pb-16 md:pb-24">
         <SectionIntro eyebrow="Harmonogram" title="Typický den na táboře" />
-        <ol className="mt-8 grid gap-3">
+        <ol className="mt-10 grid gap-3">
           {campSchedule.map((slot) => (
             <li
               key={slot.time}
-              className="flex flex-col gap-1 rounded-2xl border border-black/[0.08] bg-white p-5 sm:flex-row sm:items-center sm:gap-6"
+              className="flex flex-col gap-1 rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:flex-row sm:items-center sm:gap-6"
             >
-              <span className="inline-flex w-max items-center gap-2 text-sm font-bold text-brand-purple sm:w-[160px]">
+              <span className="inline-flex w-max items-center gap-2 text-sm font-bold text-brand-purple-light sm:w-[170px]">
                 <CalendarClock size={16} />
                 {slot.time}
               </span>
               <div>
-                <p className="text-base font-black text-brand-ink">{slot.title}</p>
-                <p className="mt-0.5 text-sm leading-6 text-neutral-500">{slot.text}</p>
+                <p className="text-base font-black text-white">{slot.title}</p>
+                <p className="mt-0.5 text-sm leading-6 text-white/55">{slot.text}</p>
               </div>
             </li>
           ))}
         </ol>
 
-        <div className="mt-6 flex flex-col gap-3 rounded-2xl border border-black/[0.08] bg-brand-purple/[0.04] p-5 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-purple/10 text-brand-purple">
-              <ClipboardCheck size={18} />
-            </span>
-            <div>
-              <p className="text-sm font-black text-brand-ink">Bez ranního papírování</p>
-              <p className="mt-0.5 text-sm leading-6 text-neutral-500">Přihláška, souhlasy i anamnéza jsou připravené v systému pro trenéra.</p>
-            </div>
+        <div className="mt-4 flex items-center gap-3 rounded-2xl border border-white/10 bg-brand-purple/[0.08] p-5">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-purple/20 text-brand-purple-light">
+            <ClipboardCheck size={18} />
+          </span>
+          <div>
+            <p className="text-sm font-black text-white">Bez ranního papírování</p>
+            <p className="mt-0.5 text-sm leading-6 text-white/55">Přihláška, souhlasy i anamnéza jsou připravené v systému pro trenéra.</p>
           </div>
         </div>
       </section>
 
       {/* Katalog turnusů */}
-      <section className="section-shell pb-16 md:pb-20">
+      <section className="section-shell pb-16 md:pb-24">
         <SectionIntro eyebrow="Nabídka" title="Vyber si turnus" />
-        <div className="mt-8">
+        <div className="mt-10 rounded-[28px] bg-brand-paper p-4 shadow-[0_30px_80px_rgba(0,0,0,0.45)] md:p-6 lg:p-8">
           <PublicCampCatalog />
         </div>
       </section>
@@ -89,6 +88,6 @@ export default function CampsPage() {
         secondaryHref="/kontakty"
         secondaryLabel="Mám dotaz"
       />
-    </>
+    </div>
   );
 }
