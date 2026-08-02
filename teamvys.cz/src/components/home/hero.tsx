@@ -69,7 +69,6 @@ export function HomeHero() {
     { opacity: s4Opacity, y: s4Y },
   ];
 
-  const outlineClass = 'hero-outline-text';
   const words = ['Team VYS', ...chapters.map((c) => c.label)];
 
   return (
@@ -90,7 +89,7 @@ export function HomeHero() {
               The paragraph/CTA area below is absolutely positioned so it never affects that. */}
           <div className="relative">
             <h1
-              className={`${displayFont.className} block max-w-[9ch] text-[clamp(3.2rem,12vw,9.5rem)] font-extrabold uppercase leading-[0.94] tracking-[-0.03em] ${outlineClass}`}
+              className={`${displayFont.className} block max-w-[9ch] text-[clamp(3.2rem,12vw,9.5rem)] font-extrabold uppercase leading-[0.94] tracking-[-0.03em] text-white`}
             >
               parkour
             </h1>
@@ -101,7 +100,7 @@ export function HomeHero() {
                 <motion.span
                   key={word}
                   style={prefersReducedMotion ? { opacity: index === 1 ? 1 : 0 } : slideMotion[index]}
-                  className={`${displayFont.className} col-start-1 row-start-1 block max-w-[9ch] text-[clamp(3.2rem,12vw,9.5rem)] font-extrabold uppercase leading-[0.94] tracking-[-0.03em] ${outlineClass}`}
+                  className={`${displayFont.className} col-start-1 row-start-1 block max-w-[9ch] text-[clamp(3.2rem,12vw,9.5rem)] font-extrabold uppercase leading-[0.94] tracking-[-0.03em] text-white`}
                 >
                   {word}
                 </motion.span>
