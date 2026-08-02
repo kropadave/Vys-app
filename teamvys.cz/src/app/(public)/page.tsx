@@ -1,4 +1,3 @@
-import { AppDifferentiator } from '@/components/home/differentiator';
 import { HomeHero } from '@/components/home/hero';
 
 export const metadata = {
@@ -8,10 +7,5 @@ export const metadata = {
 };
 
 export default function HomePage() {
-  return (
-    <>
-      <HomeHero />
-      <AppDifferentiator />
-    </>
-  );
+  return <HomeHero />;
 }

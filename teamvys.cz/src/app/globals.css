@@ -115,6 +115,13 @@ a {
     50% { background-position: 100% 50%; }
   }
 
+  .hero-outline-text {
+    color: transparent;
+    -webkit-text-stroke: 2.5px rgba(255, 255, 255, 0.95);
+    text-stroke: 2.5px rgba(255, 255, 255, 0.95);
+    paint-order: stroke fill;
+  }
+
   .marquee-mask {
     -webkit-mask-image: linear-gradient(to right, transparent, black 10%, black 90%, transparent);
     mask-image: linear-gradient(to right, transparent, black 10%, black 90%, transparent);

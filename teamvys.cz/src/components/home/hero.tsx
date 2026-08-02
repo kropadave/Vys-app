@@ -9,16 +9,6 @@ import { displayFont } from '@/lib/home-font';
 
 const ease = [0.22, 1, 0.36, 1] as const;
 
-// Staggered (not synced) offsets so each headline word's color drift reads as
-// organic rather than perfectly synced, without risking a client/server mismatch.
-const wordTimings = [
-  { duration: 13, delay: -2 },
-  { duration: 15, delay: -6 },
-  { duration: 17, delay: -10 },
-  { duration: 14, delay: -4 },
-  { duration: 16, delay: -8 },
-];
-
 type Chapter = {
   key: string;
   label: string;
@@ -79,7 +69,7 @@ export function HomeHero() {
     { opacity: s4Opacity, y: s4Y },
   ];
 
-  const glowClass = prefersReducedMotion ? '' : 'hero-word-glow';
+  const outlineClass = 'hero-outline-text';
   const words = ['Team VYS', ...chapters.map((c) => c.label)];
 
   return (
@@ -94,58 +84,50 @@ export function HomeHero() {
           initial={{ opacity: 0, y: prefersReducedMotion ? 0 : 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, ease }}
-          className="section-shell relative flex w-full flex-col items-start gap-3 text-left"
+          className="section-shell relative flex w-full justify-start text-left"
         >
-          <h1
-            className={`${displayFont.className} block max-w-[9ch] text-[clamp(3.2rem,12vw,9.5rem)] font-extrabold uppercase leading-[0.94] tracking-[-0.03em] text-white ${glowClass}`}
-            style={
-              prefersReducedMotion
-                ? undefined
-                : { animationDuration: `${wordTimings[1].duration}s`, animationDelay: `${wordTimings[1].delay}s` }
-            }
-          >
-            parkour
-          </h1>
+          {/* Headline block: this is what actually gets vertically centered in the viewport.
+              The paragraph/CTA area below is absolutely positioned so it never affects that. */}
+          <div className="relative">
+            <h1
+              className={`${displayFont.className} block max-w-[9ch] text-[clamp(3.2rem,12vw,9.5rem)] font-extrabold uppercase leading-[0.94] tracking-[-0.03em] ${outlineClass}`}
+            >
+              parkour
+            </h1>
 
-          {/* Swappable headline word: "Team VYS" crossfades into each chapter's name, in place */}
-          <div className="relative grid w-full place-items-start">
-            {words.map((word, index) => (
-              <motion.span
-                key={word}
-                style={
-                  prefersReducedMotion
-                    ? { opacity: index === 1 ? 1 : 0 }
-                    : {
-                        ...slideMotion[index],
-                        animationDuration: `${wordTimings[index].duration}s`,
-                        animationDelay: `${wordTimings[index].delay}s`,
-                      }
-                }
-                className={`${displayFont.className} col-start-1 row-start-1 block max-w-[9ch] text-[clamp(3.2rem,12vw,9.5rem)] font-extrabold uppercase leading-[0.94] tracking-[-0.03em] text-white ${glowClass}`}
-              >
-                {word}
-              </motion.span>
-            ))}
-          </div>
-
-          {/* Supporting copy + CTA per chapter, synced with the headline word above */}
-          <div className="relative mt-6 grid w-full place-items-start">
-            {chapters.map((chapter, index) => (
-              <motion.div
-                key={chapter.key}
-                style={prefersReducedMotion ? { opacity: index === 0 ? 1 : 0 } : slideMotion[index + 1]}
-                className="col-start-1 row-start-1 flex w-full flex-col items-start gap-5 lg:flex-row lg:items-center lg:justify-between"
-              >
-                <p className="max-w-[54ch] text-base leading-7 text-white md:text-lg md:leading-8">{chapter.copy}</p>
-                <Link
-                  href={chapter.cta.href}
-                  className="group inline-flex h-12 shrink-0 items-center justify-center gap-2 rounded-full bg-brand-purple px-7 text-base font-black text-white transition-transform hover:-translate-y-0.5"
+            {/* Swappable headline word: "Team VYS" crossfades into each chapter's name, in place */}
+            <div className="relative grid w-full place-items-start">
+              {words.map((word, index) => (
+                <motion.span
+                  key={word}
+                  style={prefersReducedMotion ? { opacity: index === 1 ? 1 : 0 } : slideMotion[index]}
+                  className={`${displayFont.className} col-start-1 row-start-1 block max-w-[9ch] text-[clamp(3.2rem,12vw,9.5rem)] font-extrabold uppercase leading-[0.94] tracking-[-0.03em] ${outlineClass}`}
                 >
-                  {chapter.cta.label}
-                  <ArrowRight size={18} className="transition-transform duration-200 group-hover:translate-x-0.5" />
-                </Link>
-              </motion.div>
-            ))}
+                  {word}
+                </motion.span>
+              ))}
+            </div>
+
+            {/* Supporting copy + CTA per chapter, synced with the headline word above.
+                Positioned out of flow so it doesn't shift the headline's centering. */}
+            <div className="absolute inset-x-0 top-full mt-8 grid w-full place-items-start">
+              {chapters.map((chapter, index) => (
+                <motion.div
+                  key={chapter.key}
+                  style={prefersReducedMotion ? { opacity: index === 0 ? 1 : 0 } : slideMotion[index + 1]}
+                  className="col-start-1 row-start-1 flex w-full flex-col items-start gap-5 lg:flex-row lg:items-center lg:justify-between"
+                >
+                  <p className="max-w-[54ch] text-base leading-7 text-white md:text-lg md:leading-8">{chapter.copy}</p>
+                  <Link
+                    href={chapter.cta.href}
+                    className="group inline-flex h-12 shrink-0 items-center justify-center gap-2 rounded-full bg-brand-purple px-7 text-base font-black text-white transition-transform hover:-translate-y-0.5"
+                  >
+                    {chapter.cta.label}
+                    <ArrowRight size={18} className="transition-transform duration-200 group-hover:translate-x-0.5" />
+                  </Link>
+                </motion.div>
+              ))}
+            </div>
           </div>
         </motion.div>
       </div>
