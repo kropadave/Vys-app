@@ -10,18 +10,10 @@ import { displayFont } from '@/lib/home-font';
 
 const ease = [0.22, 1, 0.36, 1] as const;
 
-// Staggered (not synced) offsets per word so the color drift reads as organic/decentralized
-// rather than a single pulsing block, without risking a client/server render mismatch.
-const wordAnimation = {
-  vys: { duration: 13, delay: -2.5 },
-  parkour: { duration: 15.5, delay: -8 },
-  hrou: { duration: 17, delay: -12 },
-};
-
 type Chapter = {
   key: string;
   label: string;
-  copy?: string;
+  copy: string;
   cta: { label: string; href: string };
   image?: { src: string; alt: string };
 };
@@ -40,16 +32,19 @@ const chapters: Chapter[] = [
   {
     key: 'workshopy',
     label: 'Workshopy',
+    copy: 'Jednorázové akce pro rychlý progres — kratší, intenzivní, s jasným výsledkem.',
     cta: { label: 'Vybrat workshop', href: '/workshopy' },
   },
   {
     key: 'tabory',
     label: 'Tábory',
+    copy: 'Týden pohybu, her a parkour výzev. Bezpečný trénink a jasný režim dne.',
     cta: { label: 'Vybrat tábor', href: '/tabory' },
   },
   {
     key: 'krouzky',
     label: 'Kroužky',
+    copy: 'Pravidelný trénink v 6 městech. Permanentka s NFC docházkou.',
     cta: { label: 'Vybrat kroužek', href: '/krouzky' },
   },
 ];
@@ -59,10 +54,8 @@ export function HomeHero() {
   const containerRef = useRef<HTMLDivElement>(null);
   const { scrollYProgress } = useScroll({ target: containerRef, offset: ['start start', 'end end'] });
 
-  const vysOpacity = useTransform(scrollYProgress, [0, 0.08], [1, 0]);
-  const vysY = useTransform(scrollYProgress, [0, 0.08], [0, -30]);
-  const hrouOpacity = useTransform(scrollYProgress, [0, 0.08], [1, 0]);
-  const hrouY = useTransform(scrollYProgress, [0, 0.08], [0, 30]);
+  const teamVysOpacity = useTransform(scrollYProgress, [0, 0.08], [1, 0]);
+  const teamVysY = useTransform(scrollYProgress, [0, 0.08], [0, -16]);
 
   // Each chapter fades in, holds, then fades out — except the last one, which
   // simply stays visible once revealed so the sequence ends on a settled frame.
@@ -96,54 +89,23 @@ export function HomeHero() {
           initial={{ opacity: 0, y: prefersReducedMotion ? 0 : 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, ease }}
-          className="section-shell relative flex w-full flex-col items-center gap-8 text-center"
+          className="section-shell relative flex w-full flex-col items-start gap-10 text-left"
         >
-          <h1
-            className={`${displayFont.className} max-w-[10ch] text-[clamp(2.6rem,10vw,8rem)] font-extrabold uppercase leading-[0.96] tracking-[-0.03em] text-white`}
-          >
-            <motion.span
-              style={
-                prefersReducedMotion
-                  ? undefined
-                  : {
-                      opacity: vysOpacity,
-                      y: vysY,
-                      animationDuration: `${wordAnimation.vys.duration}s`,
-                      animationDelay: `${wordAnimation.vys.delay}s`,
-                    }
-              }
-              className={`block ${glowClass}`}
-            >
-              VYS
-            </motion.span>
-            <span
-              style={
-                prefersReducedMotion
-                  ? undefined
-                  : { animationDuration: `${wordAnimation.parkour.duration}s`, animationDelay: `${wordAnimation.parkour.delay}s` }
-              }
-              className={`block ${glowClass}`}
+          <div>
+            <h1
+              className={`${displayFont.className} block max-w-[9ch] text-[clamp(3.2rem,12vw,10rem)] font-extrabold uppercase leading-[0.94] tracking-[-0.03em] text-white ${glowClass}`}
             >
               parkour
-            </span>
-            <motion.span
-              style={
-                prefersReducedMotion
-                  ? undefined
-                  : {
-                      opacity: hrouOpacity,
-                      y: hrouY,
-                      animationDuration: `${wordAnimation.hrou.duration}s`,
-                      animationDelay: `${wordAnimation.hrou.delay}s`,
-                    }
-              }
-              className={`block ${glowClass}`}
+            </h1>
+            <motion.p
+              style={prefersReducedMotion ? { opacity: 1 } : { opacity: teamVysOpacity, y: teamVysY }}
+              className="mt-2 text-[clamp(1rem,2.4vw,1.5rem)] font-bold uppercase tracking-[0.2em] text-white/60"
             >
-              hrou
-            </motion.span>
-          </h1>
+              Team VYS
+            </motion.p>
+          </div>
 
-          <div className="grid w-full place-items-center">
+          <div className="grid w-full place-items-start">
             {chapters.map((chapter, index) => (
               <motion.div
                 key={chapter.key}
@@ -151,16 +113,14 @@ export function HomeHero() {
                 className="col-start-1 row-start-1 w-full"
               >
                 {chapter.image ? (
-                  <div className="flex flex-col items-center gap-5 lg:flex-row lg:gap-12">
-                    <div className="flex flex-col items-center gap-3 lg:items-start lg:text-left">
+                  <div className="flex flex-col items-start gap-5 lg:flex-row lg:items-center lg:gap-12">
+                    <div className="flex flex-col items-start gap-3">
                       <span
-                        className={`${displayFont.className} gradient-text block text-[clamp(1.5rem,3.6vw,2.4rem)] font-extrabold uppercase tracking-[-0.01em]`}
+                        className={`${displayFont.className} gradient-text block text-[clamp(1.4rem,3.2vw,2.2rem)] font-extrabold uppercase tracking-[-0.01em]`}
                       >
                         {chapter.label}
                       </span>
-                      {chapter.copy ? (
-                        <p className="max-w-[36ch] text-sm leading-6 text-white/60 md:text-base">{chapter.copy}</p>
-                      ) : null}
+                      <p className="max-w-[36ch] text-sm leading-6 text-white/60 md:text-base">{chapter.copy}</p>
                       <Link
                         href={chapter.cta.href}
                         className="group mt-1 inline-flex h-11 items-center justify-center gap-2 rounded-full bg-brand-purple px-6 text-sm font-black text-white transition-transform hover:-translate-y-0.5"
@@ -170,7 +130,7 @@ export function HomeHero() {
                       </Link>
                     </div>
 
-                    <div className="relative mx-auto w-full max-w-[220px] lg:max-w-[260px]">
+                    <div className="relative w-full max-w-[200px] lg:max-w-[240px]">
                       <div
                         aria-hidden
                         className="pointer-events-none absolute -inset-8 rounded-full bg-[radial-gradient(circle,rgba(139,29,255,0.20),transparent_60%)] blur-2xl"
@@ -181,21 +141,19 @@ export function HomeHero() {
                         width={520}
                         height={720}
                         priority={index === 0}
-                        className="relative mx-auto w-full drop-shadow-[0_30px_60px_rgba(0,0,0,0.55)]"
+                        className="relative w-full drop-shadow-[0_30px_60px_rgba(0,0,0,0.55)]"
                       />
                     </div>
                   </div>
                 ) : (
-                  <div className="mx-auto flex w-full max-w-[720px] flex-col items-center gap-6 text-center lg:flex-row lg:items-center lg:justify-between lg:text-left">
+                  <div className="flex w-full max-w-[640px] flex-col items-start gap-5 lg:flex-row lg:items-center lg:justify-between">
                     <div className="max-w-[36ch]">
                       <span
-                        className={`${displayFont.className} gradient-text block text-[clamp(1.5rem,3.6vw,2.4rem)] font-extrabold uppercase tracking-[-0.01em]`}
+                        className={`${displayFont.className} gradient-text block text-[clamp(1.4rem,3.2vw,2.2rem)] font-extrabold uppercase tracking-[-0.01em]`}
                       >
                         {chapter.label}
                       </span>
-                      {chapter.copy ? (
-                        <p className="mt-2 text-sm leading-6 text-white/60 md:text-base">{chapter.copy}</p>
-                      ) : null}
+                      <p className="mt-2 text-sm leading-6 text-white/60 md:text-base">{chapter.copy}</p>
                     </div>
                     <Link
                       href={chapter.cta.href}
